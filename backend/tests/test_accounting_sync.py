@@ -7,17 +7,23 @@ from sqlalchemy import func, select
 from app.adapters import ADAPTERS
 from app.database import SessionLocal
 from app.models import (
+    AssetBalanceSnapshot,
     CashFlowRecord,
     DailyPnlSnapshot,
     ExchangeAccount,
     FundingRecord,
     IncomeRecord,
     InitialAccountSnapshot,
+    PositionSnapshot,
     SyncError,
     TrackingPeriod,
     TradingFeeRecord,
 )
-from app.services.accounts import _upsert_amount_records, sync_account
+from app.services.accounts import (
+    _upsert_amount_records,
+    sync_account,
+    update_completeness,
+)
 
 
 class FakeAccountingAdapter:
@@ -38,7 +44,32 @@ class FakeAccountingAdapter:
         }
 
     async def get_open_positions(self):
-        return []
+        return [
+            {
+                "source_record_id": "BTC:LONG",
+                "symbol": "BTC",
+                "normalized_symbol": "BTC-USDC-PERP",
+                "side": "LONG",
+                "position_size": 1,
+                "position_value_usd": 100,
+                "entry_price": 95,
+                "mark_price": 100,
+                "margin_used": 20,
+                "unrealized_pnl": 5,
+            }
+        ]
+
+    async def get_balances(self):
+        return [
+            {
+                "asset": "USDC",
+                "account_type": "SPOT",
+                "available": 10,
+                "locked": 0,
+                "value_usd": 10,
+                "price_source": "STABLECOIN_PARITY",
+            }
+        ]
 
     async def get_closed_positions(self, *_):
         return []
@@ -78,6 +109,29 @@ class FakeAccountingAdapter:
 class FailingAccountingAdapter(FakeAccountingAdapter):
     async def get_history_bundle(self, *_):
         raise RuntimeError("secret upstream detail")
+
+
+def test_incremental_clean_window_does_not_erase_prior_partial_status():
+    account = ExchangeAccount(
+        exchange="OKX",
+        connection_name="sticky-completeness",
+        masked_identifier="test",
+        tracking_started_at=datetime.now(UTC),
+        data_completeness_details={
+            "income": "PARTIAL",
+            "funding": "COMPLETE",
+            "fees": "COMPLETE",
+            "cash_flows": "COMPLETE",
+        },
+    )
+    update_completeness(account, {"income": "COMPLETE"})
+    assert account.data_completeness_details["income"] == "PARTIAL"
+    update_completeness(
+        account,
+        {"income": "COMPLETE"},
+        authoritative=True,
+    )
+    assert account.data_completeness_details["income"] == "COMPLETE"
 
 
 async def _create_account() -> ExchangeAccount:
@@ -127,6 +181,14 @@ async def test_full_sync_idempotently_persists_accounting_records(monkeypatch):
         result = await sync_account(db, stored)
         assert result["status"] == "SUCCESS"
         assert stored.data_completeness == "COMPLETE"
+        assert (
+            await db.scalar(select(func.count()).select_from(AssetBalanceSnapshot))
+            == 1
+        )
+        assert (
+            await db.scalar(select(func.count()).select_from(PositionSnapshot))
+            == 1
+        )
         for model in (
             IncomeRecord,
             FundingRecord,

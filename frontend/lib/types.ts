@@ -19,6 +19,30 @@ export type ExchangeAccount = {
   last_synced_at: string | null;
 };
 
+export type AssetBalance = {
+  asset: string;
+  account_type: string;
+  available: number;
+  locked: number;
+  value_usd: number | null;
+  price_source: string;
+  recorded_at: string;
+};
+
+export type AccountBalance = {
+  exchange: string;
+  account_id: string;
+  connection_name: string;
+  total_equity_usd: number;
+  available_balance_usd: number;
+  margin_balance_usd: number;
+  unrealized_pnl_usd: number;
+  unvalued_asset_count: number;
+  price_source: string;
+  recorded_at: string;
+  assets: AssetBalance[];
+};
+
 export type Position = {
   id: string;
   exchange: string;
@@ -97,9 +121,13 @@ export type DashboardData = {
 export type PnlPoint = {
   period: string;
   investment_return: number;
+  cumulative_return: number;
   realized_pnl: number;
+  unrealized_pnl_change: number;
+  cumulative_unrealized_pnl_change: number;
   funding_fee: number;
   trading_fee: number;
+  equity: number;
 };
 
 export type SyncStatusData = {
@@ -195,7 +223,9 @@ export type DataCompletenessData = {
     overall_status: string;
     components: {
       equity: CompletenessComponent;
+      balances: CompletenessComponent;
       positions: CompletenessComponent;
+      closed_positions: CompletenessComponent;
       realized_pnl: CompletenessComponent;
       funding_fee: CompletenessComponent;
       trading_fee: CompletenessComponent;

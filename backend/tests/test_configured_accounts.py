@@ -54,6 +54,9 @@ async def test_config_provisions_public_address_account_once(tmp_path, monkeypat
         async def get_open_positions(self):
             return []
 
+        async def get_balances(self):
+            return []
+
         async def close(self):
             return None
 

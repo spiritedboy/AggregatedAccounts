@@ -87,9 +87,6 @@ function PnlContent() {
   const autoRefresh = useAutoRefresh(load);
 
   const selected = period === "daily" ? daily : period === "weekly" ? weekly : monthly;
-  const cumulative = daily.map((_, index) =>
-    daily.slice(0, index + 1).reduce((total, point) => total + point.realized_pnl + point.funding_fee - point.trading_fee, 0),
-  );
   const curveOption = useMemo<EChartsOption>(
     () => ({
       grid: { left: 10, right: 16, top: 22, bottom: 24, containLabel: true },
@@ -109,7 +106,7 @@ function PnlContent() {
       series: [
         {
           type: "line",
-          data: cumulative,
+          data: daily.map((point) => point.cumulative_return),
           smooth: 0.35,
           symbol: "none",
           lineStyle: { color: "#33d6ad", width: 2.5 },
@@ -117,7 +114,7 @@ function PnlContent() {
         },
       ],
     }),
-    [cumulative, daily],
+    [daily],
   );
 
   const barOption = useMemo<EChartsOption>(
@@ -140,10 +137,10 @@ function PnlContent() {
           type: "bar",
           barMaxWidth: 18,
           data: selected.map((point) => ({
-            value: point.realized_pnl,
+            value: point.investment_return,
             itemStyle: {
-              color: point.realized_pnl >= 0 ? "#33d6ad" : "#f06f86",
-              borderRadius: point.realized_pnl >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4],
+              color: point.investment_return >= 0 ? "#33d6ad" : "#f06f86",
+              borderRadius: point.investment_return >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4],
             },
           })),
         },
@@ -193,8 +190,8 @@ function PnlContent() {
 
       <section className="mt-4 grid gap-4 xl:grid-cols-2">
         <article className="panel p-5">
-          <p className="font-semibold">累计交易净收益</p>
-          <p className="muted mt-1 text-xs">已实现收益 + 资金费 − 手续费</p>
+          <p className="font-semibold">累计投资收益曲线</p>
+          <p className="muted mt-1 text-xs">权益变化扣除充值与提现，包含未实现盈亏变化</p>
           <Chart option={curveOption} height={300} />
         </article>
         <article className="panel p-5">

@@ -9,7 +9,7 @@ import { ProtectedPage } from "@/components/protected-page";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, usd } from "@/lib/format";
-import type { Position } from "@/lib/types";
+import type { ExchangeAccount, Position } from "@/lib/types";
 
 type PositionResult = { items: Position[]; total: number };
 
@@ -25,15 +25,18 @@ function PositionsContent() {
   const [result, setResult] = useState<PositionResult | null>(null);
   const [error, setError] = useState("");
   const [exchange, setExchange] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [side, setSide] = useState("");
   const [symbol, setSymbol] = useState("");
   const [sort, setSort] = useState<"value" | "pnl">("value");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const { hidden } = usePrivacy();
 
   const load = useCallback(() => {
     const params = new URLSearchParams();
     if (exchange) params.set("exchange", exchange);
+    if (accountId) params.set("account_id", accountId);
     if (side) params.set("side", side);
     if (symbol) params.set("symbol", symbol);
     setError("");
@@ -43,11 +46,14 @@ function PositionsContent() {
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
-  }, [exchange, side, symbol]);
+  }, [accountId, exchange, side, symbol]);
 
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    void apiFetch<ExchangeAccount[]>("/api/exchange-accounts").then(setAccounts);
+  }, []);
   const autoRefresh = useAutoRefresh(load);
 
   const positions = useMemo(() => {
@@ -84,7 +90,7 @@ function PositionsContent() {
         }
       />
 
-      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_.8fr_.8fr_.8fr]">
+      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-5">
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input
@@ -102,6 +108,14 @@ function PositionsContent() {
           <option value="BITGET">Bitget</option>
           <option value="HYPERLIQUID">Hyperliquid</option>
           <option value="POLYMARKET">Polymarket</option>
+        </FilterSelect>
+        <FilterSelect value={accountId} onChange={setAccountId} label="账户">
+          <option value="">全部账户</option>
+          {accounts
+            .filter((account) => !exchange || account.exchange === exchange)
+            .map((account) => (
+              <option key={account.id} value={account.id}>{account.connection_name}</option>
+            ))}
         </FilterSelect>
         <FilterSelect value={side} onChange={setSide} label="方向">
           <option value="">全部方向</option>

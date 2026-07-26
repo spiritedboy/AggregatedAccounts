@@ -18,6 +18,7 @@ from app.services.accounts import (
     HISTORY_STREAMS,
     _upsert_amount_records,
     adapter_for_account,
+    update_completeness,
 )
 
 RECORD_MODELS = (
@@ -63,10 +64,22 @@ async def run(exchange: str, connection_name: str | None, apply: bool) -> None:
                 rows = bundle.get(stream, [])
                 fetched[stream] = len(rows)
                 await _upsert_amount_records(db, account, period, model, rows)
-            account.data_completeness = (
+            history_status = (
                 "COMPLETE"
                 if adapter.history_streams == HISTORY_STREAMS and bool(bundle.get("complete"))
                 else "PARTIAL"
+            )
+            update_completeness(
+                account,
+                {
+                    stream: (
+                        history_status
+                        if stream in adapter.history_streams
+                        else "UNSUPPORTED"
+                    )
+                    for stream in HISTORY_STREAMS
+                },
+                authoritative=True,
             )
             results.append(
                 {

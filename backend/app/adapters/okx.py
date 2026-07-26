@@ -73,9 +73,11 @@ class OkxAdapter(ExchangeAdapter):
         return [
             {
                 "asset": item["ccy"],
+                "account_type": "UNIFIED",
                 "available": float(item.get("availBal") or 0),
                 "locked": float(item.get("frozenBal") or 0),
                 "value_usd": float(item.get("eqUsd") or 0),
+                "price_source": "OKX_EQ_USD",
             }
             for item in data.get("details", [])
         ]
@@ -242,6 +244,7 @@ class OkxAdapter(ExchangeAdapter):
             "complete": True,
         }
         stable_assets = {"USD", "USDT", "USDC"}
+        internal_conversion_subtypes = {"318", "319"}
         for row in rows:
             timestamp = int(row.get("ts") or 0)
             if timestamp < int(start_time.timestamp() * 1000):
@@ -259,6 +262,10 @@ class OkxAdapter(ExchangeAdapter):
                 "symbol": row.get("instId") or None,
             }
             recognized = False
+            if subtype in internal_conversion_subtypes:
+                # Stablecoin conversion legs are internal to the unified account.
+                # They change currency balances but are not deposits or withdrawals.
+                recognized = True
             pnl = float(row.get("pnl") or 0)
             if pnl and subtype not in {"173", "174"}:
                 recognized = True

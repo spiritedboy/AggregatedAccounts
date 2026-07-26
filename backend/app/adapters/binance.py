@@ -66,30 +66,105 @@ class BinanceAdapter(ExchangeAdapter):
             }
 
     async def get_account_summary(self) -> dict[str, Any]:
-        futures = await self._signed_get(self.futures_base, "/fapi/v3/account")
+        futures, balances = await asyncio.gather(
+            self._signed_get(self.futures_base, "/fapi/v3/account"),
+            self.get_balances(),
+        )
+        self._latest_balances = balances
+        valued = [
+            row
+            for row in balances
+            if row["account_type"] == "SPOT" and row["value_usd"] is not None
+        ]
+        spot_equity = sum(float(row["value_usd"]) for row in valued)
+        spot_available = sum(
+            float(row["available"]) * float(row.get("price_usd") or 0)
+            for row in valued
+        )
         return {
             "total_equity_usd": float(futures.get("totalWalletBalance", 0))
-            + float(futures.get("totalUnrealizedProfit", 0)),
-            "available_balance_usd": float(futures.get("availableBalance", 0)),
+            + float(futures.get("totalUnrealizedProfit", 0))
+            + spot_equity,
+            "available_balance_usd": float(futures.get("availableBalance", 0))
+            + spot_available,
             "margin_balance_usd": float(futures.get("totalInitialMargin", 0)),
             "unrealized_pnl_usd": float(futures.get("totalUnrealizedProfit", 0)),
-            "unvalued_asset_count": 0,
-            "price_source": "BINANCE_FAPI",
+            "unvalued_asset_count": sum(
+                row["value_usd"] is None for row in balances
+            ),
+            "price_source": "BINANCE_FAPI_AND_SPOT_TICKER",
+            "legacy_excluded_equity_usd": spot_equity,
+            "legacy_excluded_available_usd": spot_available,
+            "legacy_excluded_margin_usd": 0,
+            "legacy_excluded_unrealized_pnl_usd": 0,
         }
 
     async def get_balances(self) -> list[dict[str, Any]]:
-        spot = await self._signed_get(
-            self.spot_base, "/api/v3/account", {"omitZeroBalances": "true"}
+        if hasattr(self, "_latest_balances"):
+            return self._latest_balances
+        spot, tickers, futures = await asyncio.gather(
+            self._signed_get(
+                self.spot_base, "/api/v3/account", {"omitZeroBalances": "true"}
+            ),
+            self._request("GET", f"{self.spot_base}/api/v3/ticker/price"),
+            self._signed_get(self.futures_base, "/fapi/v3/account"),
         )
-        return [
-            {
-                "asset": item["asset"],
-                "available": float(item["free"]),
-                "locked": float(item["locked"]),
-                "value_usd": None,
-            }
-            for item in spot.get("balances", [])
-        ]
+        prices = {
+            str(item.get("symbol")): float(item.get("price") or 0)
+            for item in tickers
+            if float(item.get("price") or 0) > 0
+        }
+        stable_assets = {"USD", "USDT", "USDC", "FDUSD", "BUSD"}
+        balances: list[dict[str, Any]] = []
+        for item in spot.get("balances", []):
+            asset = str(item["asset"]).upper()
+            available = float(item.get("free") or 0)
+            locked = float(item.get("locked") or 0)
+            total = available + locked
+            price = 1.0 if asset in stable_assets else prices.get(f"{asset}USDT")
+            balances.append(
+                {
+                    "asset": asset,
+                    "account_type": "SPOT",
+                    "available": available,
+                    "locked": locked,
+                    "value_usd": total * price if price is not None else None,
+                    "price_usd": price,
+                    "price_source": (
+                        "STABLECOIN_PARITY" if asset in stable_assets else "BINANCE_SPOT_TICKER"
+                    ),
+                }
+            )
+        for item in futures.get("assets", []):
+            wallet = float(item.get("walletBalance") or 0)
+            unrealized = float(item.get("unrealizedProfit") or 0)
+            if not wallet and not unrealized:
+                continue
+            asset = str(item.get("asset") or "UNKNOWN").upper()
+            price = 1.0 if asset in stable_assets else prices.get(f"{asset}USDT")
+            balances.append(
+                {
+                    "asset": asset,
+                    "account_type": "USD_M_FUTURES",
+                    "available": float(item.get("availableBalance") or 0),
+                    "locked": max(
+                        0.0,
+                        float(item.get("marginBalance") or wallet + unrealized)
+                        - float(item.get("availableBalance") or 0),
+                    ),
+                    "value_usd": (
+                        (wallet + unrealized) * price if price is not None else None
+                    ),
+                    "price_usd": price,
+                    "price_source": (
+                        "STABLECOIN_PARITY"
+                        if asset in stable_assets
+                        else "BINANCE_SPOT_TICKER"
+                    ),
+                }
+            )
+        self._latest_balances = balances
+        return balances
 
     async def get_open_positions(self) -> list[dict[str, Any]]:
         rows = await self._signed_get(self.futures_base, "/fapi/v3/positionRisk")

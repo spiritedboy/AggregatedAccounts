@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { ProtectedPage } from "@/components/protected-page";
+import { usePrivacy } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import {
   Badge,
@@ -20,8 +21,8 @@ import {
   PageHeader,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime } from "@/lib/format";
-import type { ExchangeAccount, SyncStatusData } from "@/lib/types";
+import { dateTime, number, usd } from "@/lib/format";
+import type { AccountBalance, ExchangeAccount, SyncStatusData } from "@/lib/types";
 
 export default function AccountsPage() {
   return (
@@ -34,18 +35,22 @@ export default function AccountsPage() {
 function AccountsContent() {
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatusData | null>(null);
+  const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const { hidden } = usePrivacy();
 
   const load = useCallback(() => {
     setError("");
     return Promise.all([
       apiFetch<ExchangeAccount[]>("/api/exchange-accounts"),
       apiFetch<SyncStatusData>("/api/sync/status"),
+      apiFetch<AccountBalance[]>("/api/balances"),
     ])
-      .then(([nextAccounts, nextStatus]) => {
+      .then(([nextAccounts, nextStatus, nextBalances]) => {
         setAccounts(nextAccounts);
         setSyncStatus(nextStatus);
+        setBalances(nextBalances);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
@@ -248,6 +253,28 @@ function AccountsContent() {
                 )}
               </div>
 
+              <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--line)" }}>
+                <p className="muted text-[10px] uppercase">逐资产余额</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {(balances.find((item) => item.account_id === account.id)?.assets ?? []).map((asset) => (
+                    <div key={`${asset.account_type}:${asset.asset}`} className="rounded-xl bg-black/[0.025] px-3 py-2.5 dark:bg-white/[0.035]">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-mono text-xs font-semibold">{asset.asset}</p>
+                        <Badge tone={asset.value_usd === null ? "warning" : "neutral"}>{asset.account_type}</Badge>
+                      </div>
+                      <p className="mono-number mt-2 text-sm">
+                        {asset.value_usd === null ? "无法估值" : usd(asset.value_usd, hidden)}
+                      </p>
+                      <p className="muted mono-number mt-1 text-[10px]">
+                        可用 {number(asset.available)} · 锁定 {number(asset.locked)}
+                      </p>
+                    </div>
+                  ))}
+                  {(balances.find((item) => item.account_id === account.id)?.assets.length ?? 0) === 0 && (
+                    <p className="muted text-xs">等待下一次同步写入资产明细。</p>
+                  )}
+                </div>
+              </div>
             </article>
           ))}
         </section>

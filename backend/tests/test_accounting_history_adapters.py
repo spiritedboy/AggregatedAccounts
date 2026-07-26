@@ -14,6 +14,125 @@ TIME_MS = int((START.timestamp() + 60) * 1000)
 
 
 @pytest.mark.asyncio
+async def test_binance_summary_and_asset_details_include_spot(monkeypatch):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+
+    async def fake_signed_get(_base, path, _params=None):
+        if path == "/fapi/v3/account":
+            return {
+                "totalWalletBalance": "100",
+                "totalUnrealizedProfit": "5",
+                "availableBalance": "80",
+                "totalInitialMargin": "20",
+                "assets": [
+                    {
+                        "asset": "USDT",
+                        "walletBalance": "100",
+                        "unrealizedProfit": "5",
+                        "availableBalance": "80",
+                        "marginBalance": "105",
+                    }
+                ],
+            }
+        return {
+            "balances": [
+                {"asset": "USDT", "free": "10", "locked": "0"},
+                {"asset": "BTC", "free": "0.1", "locked": "0"},
+            ]
+        }
+
+    async def fake_request(*_args, **_kwargs):
+        return [{"symbol": "BTCUSDT", "price": "50"}]
+
+    monkeypatch.setattr(adapter, "_signed_get", fake_signed_get)
+    monkeypatch.setattr(adapter, "_request", fake_request)
+    try:
+        summary = await adapter.get_account_summary()
+        balances = await adapter.get_balances()
+    finally:
+        await adapter.close()
+
+    assert summary["total_equity_usd"] == 120
+    assert summary["available_balance_usd"] == 95
+    assert {(row["asset"], row["account_type"]) for row in balances} == {
+        ("USDT", "SPOT"),
+        ("BTC", "SPOT"),
+        ("USDT", "USD_M_FUTURES"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch):
+    adapter = BitgetAdapter(api_key="key", api_secret="secret", passphrase="pass")
+
+    async def fake_get(path, params=None):
+        product_type = (params or {}).get("productType")
+        if path.endswith("/account/accounts"):
+            if product_type == "USDT-FUTURES":
+                return [
+                    {
+                        "marginCoin": "USDT",
+                        "usdtEquity": "100",
+                        "accountEquity": "100",
+                        "available": "80",
+                        "crossedMargin": "20",
+                        "unrealizedPL": "2",
+                    }
+                ]
+            return [
+                {
+                    "marginCoin": "USDC",
+                    "usdtEquity": "20",
+                    "accountEquity": "20",
+                    "available": "15",
+                    "crossedMargin": "5",
+                    "unrealizedPL": "1",
+                }
+            ]
+        if path.endswith("/account/assets"):
+            return [
+                {"coin": "USDT", "available": "10", "frozen": "0", "locked": "0"},
+                {"coin": "DOGE", "available": "2", "frozen": "0", "locked": "0"},
+            ]
+        if path.endswith("/market/tickers"):
+            return [{"symbol": "DOGEUSDT", "lastPr": "0.05"}]
+        if path.endswith("/position/all-position"):
+            quote = "USDT" if product_type == "USDT-FUTURES" else "USDC"
+            return [
+                {
+                    "symbol": f"BTC{quote}",
+                    "holdSide": "long",
+                    "total": "1",
+                    "markPrice": "100",
+                    "openPriceAvg": "90",
+                    "marginSize": "20",
+                    "unrealizedPL": "10",
+                }
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(adapter, "_get", fake_get)
+    try:
+        summary = await adapter.get_account_summary()
+        balances = await adapter.get_balances()
+        positions = await adapter.get_open_positions()
+    finally:
+        await adapter.close()
+
+    assert summary["total_equity_usd"] == 130.1
+    assert summary["legacy_excluded_equity_usd"] == 30.1
+    assert {row["account_type"] for row in balances} == {
+        "SPOT",
+        "USDT_FUTURES",
+        "USDC_FUTURES",
+    }
+    assert {row["normalized_symbol"] for row in positions} == {
+        "BTC-USDT-PERP",
+        "BTC-USDC-PERP",
+    }
+
+
+@pytest.mark.asyncio
 async def test_hyperliquid_summary_includes_perp_and_spot_usdc(monkeypatch):
     adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
 
@@ -188,6 +307,30 @@ async def test_okx_history_bundle_uses_pnl_fee_funding_and_transfer_fields(monke
                     "from": "6",
                     "to": "18",
                 },
+                {
+                    "billId": "4",
+                    "ccy": "USDC",
+                    "pnl": "0",
+                    "fee": "0",
+                    "balChg": "200.7",
+                    "subType": "318",
+                    "instId": "",
+                    "ts": str(TIME_MS),
+                    "from": "",
+                    "to": "",
+                },
+                {
+                    "billId": "5",
+                    "ccy": "USDT",
+                    "pnl": "0",
+                    "fee": "0",
+                    "balChg": "-201",
+                    "subType": "319",
+                    "instId": "",
+                    "ts": str(TIME_MS),
+                    "from": "",
+                    "to": "",
+                },
             ]
         ),
     )
@@ -199,6 +342,7 @@ async def test_okx_history_bundle_uses_pnl_fee_funding_and_transfer_fields(monke
     assert [row["amount_usd"] for row in bundle["funding"]] == [-0.8]
     assert [row["amount_usd"] for row in bundle["fees"]] == [0.2]
     assert bundle["cash_flows"][0]["flow_type"] == "DEPOSIT"
+    assert bundle["complete"] is True
 
 
 @pytest.mark.asyncio

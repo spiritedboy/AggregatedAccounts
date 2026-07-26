@@ -10,6 +10,10 @@ class AdapterError(Exception):
     """A credential-safe exchange adapter error."""
 
 
+class UnsupportedCapabilityError(AdapterError):
+    """Raised when a caller asks an adapter for an unsupported data stream."""
+
+
 class ExchangeAdapter(ABC):
     history_streams: frozenset[str] = frozenset()
 
@@ -58,30 +62,30 @@ class ExchangeAdapter(ABC):
     @abstractmethod
     async def get_open_positions(self) -> list[dict[str, Any]]: ...
 
+    @abstractmethod
     async def get_closed_positions(
         self, start_time: datetime, end_time: datetime
-    ) -> list[dict[str, Any]]:
-        return []
+    ) -> list[dict[str, Any]]: ...
 
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        return []
+        raise UnsupportedCapabilityError("该交易所不支持已实现收益流水")
 
     async def get_funding_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        return []
+        raise UnsupportedCapabilityError("该交易所不支持资金费流水")
 
     async def get_fee_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        return []
+        raise UnsupportedCapabilityError("该交易所不支持手续费流水")
 
     async def get_cash_flow_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        return []
+        raise UnsupportedCapabilityError("该交易所不支持资金流水")
 
     async def get_history_bundle(
         self, start_time: datetime, end_time: datetime
@@ -109,4 +113,4 @@ class ExchangeAdapter(ABC):
         return bundle
 
     async def get_mark_prices(self, symbols: list[str]) -> dict[str, float]:
-        return {}
+        raise UnsupportedCapabilityError("该交易所未提供独立标记价格接口")

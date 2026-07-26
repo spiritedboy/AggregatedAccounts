@@ -2,7 +2,8 @@ import asyncio
 import csv
 import io
 import uuid
-from datetime import UTC, datetime
+from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -15,11 +16,14 @@ from app.database import get_db
 from app.models import (
     AccountBalanceSnapshot,
     AppSession,
+    AssetBalanceSnapshot,
     ClosedPosition,
     CurrentPosition,
     DailyPnlSnapshot,
     ExchangeAccount,
     InitialAccountSnapshot,
+    PositionSnapshot,
+    TrackingPeriod,
 )
 from app.schemas import AccountResponse, ExchangeAccountCreate, envelope
 from app.security.session import (
@@ -168,6 +172,115 @@ async def _latest_balances(
     return list(latest.values())
 
 
+async def _daily_pnl_points(
+    db: AsyncSession,
+    exchange: str | None = None,
+) -> list[dict[str, Any]]:
+    query = (
+        select(DailyPnlSnapshot)
+        .join(ExchangeAccount)
+        .where(ExchangeAccount.is_active.is_(True))
+        .order_by(
+            DailyPnlSnapshot.exchange_account_id,
+            DailyPnlSnapshot.snapshot_date,
+        )
+    )
+    if exchange:
+        query = query.where(DailyPnlSnapshot.exchange == exchange.upper())
+    rows = (await db.scalars(query)).all()
+    previous_return: dict[uuid.UUID, float] = {}
+    previous_unrealized: dict[uuid.UUID, float] = {}
+    by_date: dict[date, dict[str, float]] = defaultdict(
+        lambda: {
+            "investment_return": 0.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl_change": 0.0,
+            "funding_fee": 0.0,
+            "trading_fee": 0.0,
+            "equity": 0.0,
+        }
+    )
+    for row in rows:
+        account_id = row.exchange_account_id
+        cumulative_return = _num(row.investment_return)
+        cumulative_unrealized = _num(row.unrealized_pnl_change)
+        point = by_date[row.snapshot_date]
+        point["investment_return"] += cumulative_return - previous_return.get(
+            account_id, 0.0
+        )
+        point["unrealized_pnl_change"] += (
+            cumulative_unrealized - previous_unrealized.get(account_id, 0.0)
+        )
+        point["realized_pnl"] += _num(row.realized_pnl)
+        point["funding_fee"] += _num(row.funding_fee)
+        point["trading_fee"] += _num(row.trading_fee)
+        point["equity"] += _num(row.equity_usd)
+        previous_return[account_id] = cumulative_return
+        previous_unrealized[account_id] = cumulative_unrealized
+
+    cumulative_return = 0.0
+    cumulative_unrealized = 0.0
+    result: list[dict[str, Any]] = []
+    for snapshot_date in sorted(by_date):
+        point = by_date[snapshot_date]
+        cumulative_return += point["investment_return"]
+        cumulative_unrealized += point["unrealized_pnl_change"]
+        result.append(
+            {
+                "period": str(snapshot_date),
+                **point,
+                "cumulative_return": cumulative_return,
+                "cumulative_unrealized_pnl_change": cumulative_unrealized,
+            }
+        )
+    return result
+
+
+def _bucket_pnl_points(
+    daily: list[dict[str, Any]],
+    bucket: str,
+) -> list[dict[str, Any]]:
+    if bucket == "daily":
+        return daily
+    grouped: dict[date, dict[str, Any]] = {}
+    for point in daily:
+        point_date = date.fromisoformat(str(point["period"])[:10])
+        period_date = (
+            point_date - timedelta(days=point_date.weekday())
+            if bucket == "week"
+            else point_date.replace(day=1)
+        )
+        aggregate = grouped.setdefault(
+            period_date,
+            {
+                "period": str(period_date),
+                "investment_return": 0.0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl_change": 0.0,
+                "funding_fee": 0.0,
+                "trading_fee": 0.0,
+                "equity": 0.0,
+                "cumulative_return": 0.0,
+                "cumulative_unrealized_pnl_change": 0.0,
+            },
+        )
+        for field in (
+            "investment_return",
+            "realized_pnl",
+            "unrealized_pnl_change",
+            "funding_fee",
+            "trading_fee",
+        ):
+            aggregate[field] += point[field]
+        for field in (
+            "equity",
+            "cumulative_return",
+            "cumulative_unrealized_pnl_change",
+        ):
+            aggregate[field] = point[field]
+    return [grouped[key] for key in sorted(grouped)]
+
+
 @router.get("/dashboard/summary")
 async def dashboard_summary(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
@@ -178,23 +291,18 @@ async def dashboard_summary(
             select(CurrentPosition).join(ExchangeAccount).where(ExchangeAccount.is_active.is_(True))
         )
     ).all()
-    daily_rows = (
-        await db.execute(
-            select(
-                DailyPnlSnapshot.snapshot_date,
-                func.sum(DailyPnlSnapshot.investment_return),
-                func.sum(DailyPnlSnapshot.equity_usd),
-            )
-            .group_by(DailyPnlSnapshot.snapshot_date)
-            .order_by(DailyPnlSnapshot.snapshot_date)
-        )
-    ).all()
+    daily_rows = await _daily_pnl_points(db)
     total_equity = sum(_num(row.total_equity_usd) for row, _ in latest)
     available = sum(_num(row.available_balance_usd) for row, _ in latest)
     margin = sum(_num(row.margin_balance_usd) for row, _ in latest)
-    unrealized_change = sum(_num(pos.tracking_unrealized_pnl_change) for pos in current_positions)
-    cumulative = sum(_num(row[1]) for row in daily_rows[-1:])
-    today_return = sum(_num(row[1]) for row in daily_rows if row[0] == datetime.now(UTC).date())
+    unrealized_change = (
+        daily_rows[-1]["cumulative_unrealized_pnl_change"] if daily_rows else 0
+    )
+    cumulative = daily_rows[-1]["cumulative_return"] if daily_rows else 0
+    today_key = str(datetime.now(UTC).date())
+    today_return = sum(
+        row["investment_return"] for row in daily_rows if row["period"] == today_key
+    )
     return envelope(
         {
             "estimated_total_equity": total_equity,
@@ -224,7 +332,11 @@ async def dashboard_summary(
                 for snapshot, account in latest
             ],
             "equity_curve": [
-                {"date": str(row[0]), "pnl": _num(row[1]), "equity": _num(row[2])}
+                {
+                    "date": row["period"],
+                    "pnl": row["cumulative_return"],
+                    "equity": row["equity"],
+                }
                 for row in daily_rows
             ],
             "positions": [_position_dict(item) for item in current_positions[:6]],
@@ -263,6 +375,27 @@ async def balances(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     latest = await _latest_balances(db, exchange)
+    account_ids = [account.id for _, account in latest]
+    asset_rows = (
+        await db.scalars(
+            select(AssetBalanceSnapshot)
+            .where(AssetBalanceSnapshot.exchange_account_id.in_(account_ids))
+            .order_by(
+                AssetBalanceSnapshot.exchange_account_id,
+                AssetBalanceSnapshot.recorded_at.desc(),
+                AssetBalanceSnapshot.account_type,
+                AssetBalanceSnapshot.asset,
+            )
+        )
+    ).all()
+    latest_asset_time: dict[uuid.UUID, datetime] = {}
+    assets_by_account: dict[uuid.UUID, list[AssetBalanceSnapshot]] = defaultdict(list)
+    for asset_row in asset_rows:
+        latest_time = latest_asset_time.setdefault(
+            asset_row.exchange_account_id, asset_row.recorded_at
+        )
+        if asset_row.recorded_at == latest_time:
+            assets_by_account[asset_row.exchange_account_id].append(asset_row)
     return envelope(
         [
             {
@@ -276,6 +409,22 @@ async def balances(
                 "unvalued_asset_count": row.unvalued_asset_count,
                 "price_source": row.price_source,
                 "recorded_at": row.recorded_at,
+                "assets": [
+                    {
+                        "asset": asset.asset,
+                        "account_type": asset.account_type,
+                        "available": _num(asset.available),
+                        "locked": _num(asset.locked),
+                        "value_usd": (
+                            _num(asset.value_usd)
+                            if asset.value_usd is not None
+                            else None
+                        ),
+                        "price_source": asset.price_source,
+                        "recorded_at": asset.recorded_at,
+                    }
+                    for asset in assets_by_account.get(account.id, [])
+                ],
             }
             for row, account in latest
         ]
@@ -349,6 +498,64 @@ async def current_positions(
     return envelope({"items": [_position_dict(row) for row in rows], "total": total})
 
 
+@router.get("/positions/snapshots")
+async def position_snapshots(
+    exchange: str | None = None,
+    account_id: uuid.UUID | None = None,
+    symbol: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    query = (
+        select(PositionSnapshot)
+        .join(ExchangeAccount)
+        .where(ExchangeAccount.is_active.is_(True))
+    )
+    if exchange:
+        query = query.where(PositionSnapshot.exchange == exchange.upper())
+    if account_id:
+        query = query.where(PositionSnapshot.exchange_account_id == account_id)
+    if symbol:
+        query = query.where(
+            PositionSnapshot.normalized_symbol.ilike(f"%{symbol}%")
+        )
+    if start_time:
+        query = query.where(PositionSnapshot.recorded_at >= start_time)
+    if end_time:
+        query = query.where(PositionSnapshot.recorded_at <= end_time)
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (
+        await db.scalars(
+            query.order_by(PositionSnapshot.recorded_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    return envelope(
+        {
+            "items": [
+                {
+                    "id": row.id,
+                    "exchange": row.exchange,
+                    "exchange_account_id": row.exchange_account_id,
+                    "normalized_symbol": row.normalized_symbol,
+                    "side": row.side,
+                    "position_size": _num(row.position_size),
+                    "mark_price": _num(row.mark_price),
+                    "unrealized_pnl": _num(row.unrealized_pnl),
+                    "recorded_at": row.recorded_at,
+                }
+                for row in rows
+            ],
+            "total": total or 0,
+        }
+    )
+
+
 def _closed_dict(row: ClosedPosition) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -379,6 +586,8 @@ def _history_query(
     account_id: uuid.UUID | None,
     symbol: str | None,
     side: str | None,
+    pnl_result: str | None,
+    completeness: str | None,
     start_time: datetime | None,
     end_time: datetime | None,
 ):
@@ -403,6 +612,18 @@ def _history_query(
         )
     if side:
         query = query.where(ClosedPosition.side == side.upper())
+    if pnl_result:
+        normalized_result = pnl_result.upper()
+        if normalized_result == "PROFIT":
+            query = query.where(ClosedPosition.net_pnl > 0)
+        elif normalized_result == "LOSS":
+            query = query.where(ClosedPosition.net_pnl < 0)
+        elif normalized_result == "BREAKEVEN":
+            query = query.where(ClosedPosition.net_pnl == 0)
+    if completeness:
+        query = query.where(
+            ClosedPosition.data_completeness == completeness.upper()
+        )
     if start_time:
         query = query.where(ClosedPosition.close_time >= start_time)
     if end_time:
@@ -417,6 +638,12 @@ async def position_history(
     tracking_period_id: uuid.UUID | None = None,
     symbol: str | None = None,
     side: str | None = None,
+    pnl_result: str | None = Query(
+        default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"
+    ),
+    completeness: str | None = Query(
+        default=None, pattern="^(COMPLETE|PARTIAL)$"
+    ),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     page: int = Query(default=1, ge=1),
@@ -424,7 +651,16 @@ async def position_history(
     _: AppSession = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    query = _history_query(exchange, account_id, symbol, side, start_time, end_time)
+    query = _history_query(
+        exchange,
+        account_id,
+        symbol,
+        side,
+        pnl_result,
+        completeness,
+        start_time,
+        end_time,
+    )
     if tracking_period_id:
         query = query.where(ClosedPosition.tracking_period_id == tracking_period_id)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
@@ -450,6 +686,12 @@ async def export_history(
     account_id: uuid.UUID | None = None,
     symbol: str | None = None,
     side: str | None = None,
+    pnl_result: str | None = Query(
+        default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"
+    ),
+    completeness: str | None = Query(
+        default=None, pattern="^(COMPLETE|PARTIAL)$"
+    ),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     _: AppSession = Depends(require_session),
@@ -457,7 +699,16 @@ async def export_history(
 ) -> StreamingResponse:
     rows = (
         await db.scalars(
-            _history_query(exchange, account_id, symbol, side, start_time, end_time)
+            _history_query(
+                exchange,
+                account_id,
+                symbol,
+                side,
+                pnl_result,
+                completeness,
+                start_time,
+                end_time,
+            )
             .order_by(ClosedPosition.close_time.desc())
             .limit(10_000)
         )
@@ -589,33 +840,7 @@ async def export_accounting_records(
 
 
 async def _pnl_series(db: AsyncSession, bucket: str) -> list[dict[str, Any]]:
-    if bucket == "daily":
-        bucket_expr = DailyPnlSnapshot.snapshot_date
-    else:
-        bucket_expr = func.date_trunc(bucket, DailyPnlSnapshot.snapshot_date)
-    rows = (
-        await db.execute(
-            select(
-                bucket_expr.label("period"),
-                func.sum(DailyPnlSnapshot.investment_return),
-                func.sum(DailyPnlSnapshot.realized_pnl),
-                func.sum(DailyPnlSnapshot.funding_fee),
-                func.sum(DailyPnlSnapshot.trading_fee),
-            )
-            .group_by(bucket_expr)
-            .order_by(bucket_expr)
-        )
-    ).all()
-    return [
-        {
-            "period": str(row[0]),
-            "investment_return": _num(row[1]),
-            "realized_pnl": _num(row[2]),
-            "funding_fee": _num(row[3]),
-            "trading_fee": _num(row[4]),
-        }
-        for row in rows
-    ]
+    return _bucket_pnl_points(await _daily_pnl_points(db), bucket)
 
 
 @router.get("/pnl/summary")
@@ -623,16 +848,31 @@ async def pnl_summary(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     daily = await _pnl_series(db, "daily")
-    latest_initial = (await db.scalars(select(InitialAccountSnapshot))).all()
-    positions = (await db.scalars(select(CurrentPosition))).all()
+    latest_initial = (
+        await db.scalars(
+            select(InitialAccountSnapshot)
+            .join(
+                TrackingPeriod,
+                TrackingPeriod.id == InitialAccountSnapshot.tracking_period_id,
+            )
+            .join(
+                ExchangeAccount,
+                ExchangeAccount.id == InitialAccountSnapshot.exchange_account_id,
+            )
+            .where(
+                TrackingPeriod.is_active.is_(True),
+                ExchangeAccount.is_active.is_(True),
+            )
+        )
+    ).all()
     values = [row["investment_return"] for row in daily]
     return envelope(
         {
             "period_initial_equity": sum(_num(row.initial_equity) for row in latest_initial),
             "period_investment_return": sum(values[-1:]),
             "period_realized_pnl": sum(row["realized_pnl"] for row in daily),
-            "period_unrealized_pnl_change": sum(
-                _num(row.tracking_unrealized_pnl_change) for row in positions
+            "period_unrealized_pnl_change": (
+                daily[-1]["cumulative_unrealized_pnl_change"] if daily else 0
             ),
             "period_funding_fee": sum(row["funding_fee"] for row in daily),
             "period_trading_fee": sum(row["trading_fee"] for row in daily),
@@ -670,29 +910,29 @@ async def pnl_monthly(
 async def pnl_by_exchange(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    rows = (
-        await db.execute(
-            select(
-                DailyPnlSnapshot.exchange,
-                func.sum(DailyPnlSnapshot.realized_pnl),
-                func.sum(DailyPnlSnapshot.funding_fee),
-                func.sum(DailyPnlSnapshot.trading_fee),
-                func.max(DailyPnlSnapshot.investment_return),
-            ).group_by(DailyPnlSnapshot.exchange)
+    exchanges = list(
+        await db.scalars(
+            select(ExchangeAccount.exchange)
+            .where(ExchangeAccount.is_active.is_(True))
+            .distinct()
+            .order_by(ExchangeAccount.exchange)
         )
-    ).all()
-    return envelope(
-        [
-            {
-                "exchange": row[0],
-                "realized_pnl": _num(row[1]),
-                "funding_fee": _num(row[2]),
-                "trading_fee": _num(row[3]),
-                "investment_return": _num(row[4]),
-            }
-            for row in rows
-        ]
     )
+    result = []
+    for exchange in exchanges:
+        daily = await _daily_pnl_points(db, exchange)
+        result.append(
+            {
+                "exchange": exchange,
+                "realized_pnl": sum(row["realized_pnl"] for row in daily),
+                "funding_fee": sum(row["funding_fee"] for row in daily),
+                "trading_fee": sum(row["trading_fee"] for row in daily),
+                "investment_return": (
+                    daily[-1]["cumulative_return"] if daily else 0
+                ),
+            }
+        )
+    return envelope(result)
 
 
 @router.get("/sync/status")

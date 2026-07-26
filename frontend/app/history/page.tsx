@@ -9,7 +9,7 @@ import { ProtectedPage } from "@/components/protected-page";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, usd } from "@/lib/format";
-import type { ClosedPosition } from "@/lib/types";
+import type { ClosedPosition, ExchangeAccount } from "@/lib/types";
 
 type HistoryResult = { items: ClosedPosition[]; total: number };
 
@@ -25,23 +25,30 @@ function HistoryContent() {
   const [result, setResult] = useState<HistoryResult | null>(null);
   const [error, setError] = useState("");
   const [exchange, setExchange] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [side, setSide] = useState("");
+  const [pnlResult, setPnlResult] = useState("");
+  const [completeness, setCompleteness] = useState("");
   const [symbol, setSymbol] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const { hidden } = usePrivacy();
 
   const params = useCallback(() => {
     const query = new URLSearchParams({ page: String(page), page_size: "20" });
     if (exchange) query.set("exchange", exchange);
+    if (accountId) query.set("account_id", accountId);
     if (side) query.set("side", side);
+    if (pnlResult) query.set("pnl_result", pnlResult);
+    if (completeness) query.set("completeness", completeness);
     if (symbol) query.set("symbol", symbol);
     if (start) query.set("start_time", new Date(`${start}T00:00:00`).toISOString());
     if (end) query.set("end_time", new Date(`${end}T23:59:59`).toISOString());
     return query;
-  }, [end, exchange, page, side, start, symbol]);
+  }, [accountId, completeness, end, exchange, page, pnlResult, side, start, symbol]);
 
   const load = useCallback(() => {
     setError("");
@@ -56,6 +63,9 @@ function HistoryContent() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    void apiFetch<ExchangeAccount[]>("/api/exchange-accounts").then(setAccounts);
+  }, []);
   const autoRefresh = useAutoRefresh(load);
 
   function exportCsv() {
@@ -82,7 +92,7 @@ function HistoryContent() {
         }
       />
 
-      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_.7fr_.7fr_.8fr_.8fr]">
+      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input className="input pl-10" value={symbol} onChange={(event) => { setPage(1); setSymbol(event.target.value); }} placeholder="交易对" aria-label="搜索交易对" />
@@ -95,10 +105,29 @@ function HistoryContent() {
           <option value="HYPERLIQUID">Hyperliquid</option>
           <option value="POLYMARKET">Polymarket</option>
         </Select>
+        <Select value={accountId} onChange={(value) => { setPage(1); setAccountId(value); }} label="账户">
+          <option value="">全部账户</option>
+          {accounts
+            .filter((account) => !exchange || account.exchange === exchange)
+            .map((account) => (
+              <option key={account.id} value={account.id}>{account.connection_name}</option>
+            ))}
+        </Select>
         <Select value={side} onChange={(value) => { setPage(1); setSide(value); }} label="方向">
           <option value="">全部方向</option>
           <option value="LONG">多仓</option>
           <option value="SHORT">空仓</option>
+        </Select>
+        <Select value={pnlResult} onChange={(value) => { setPage(1); setPnlResult(value); }} label="盈亏">
+          <option value="">全部盈亏</option>
+          <option value="PROFIT">盈利</option>
+          <option value="LOSS">亏损</option>
+          <option value="BREAKEVEN">持平</option>
+        </Select>
+        <Select value={completeness} onChange={(value) => { setPage(1); setCompleteness(value); }} label="完整性">
+          <option value="">全部完整性</option>
+          <option value="COMPLETE">完整</option>
+          <option value="PARTIAL">部分完整</option>
         </Select>
         <label>
           <span className="sr-only">开始日期</span>
@@ -153,9 +182,14 @@ function HistoryContent() {
                       <p className="mt-1 text-xs">{number(position.return_percent, 2)}%</p>
                     </td>
                     <td className="px-5 py-4">
-                      <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
-                        {position.data_source === "EXCHANGE_API" ? "交易所 API" : "本地重建"}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
+                          {position.data_source === "EXCHANGE_API" ? "交易所 API" : "本地重建"}
+                        </Badge>
+                        <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>
+                          {position.data_completeness === "COMPLETE" ? "完整" : "部分完整"}
+                        </Badge>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from app.adapters.base import AdapterError, ExchangeAdapter
 from app.config import settings
 from app.models import (
     AccountBalanceSnapshot,
+    AssetBalanceSnapshot,
     CashFlowRecord,
     ClosedPosition,
     CurrentPosition,
@@ -23,6 +25,7 @@ from app.models import (
     FundingRecord,
     IncomeRecord,
     InitialAccountSnapshot,
+    PositionSnapshot,
     SecurityAuditLog,
     SyncError,
     SyncJob,
@@ -36,6 +39,9 @@ cipher = CredentialCipher(settings.app_encryption_key)
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
 PUBLIC_ADDRESS_EXCHANGES = {"HYPERLIQUID", "POLYMARKET"}
 HISTORY_STREAMS = frozenset({"income", "funding", "fees", "cash_flows"})
+COMPLETENESS_KEYS = frozenset(
+    {"equity", "balances", "positions", "closed_positions", *HISTORY_STREAMS}
+)
 
 
 def _make_adapter(payload: ExchangeAccountCreate) -> ExchangeAdapter:
@@ -81,8 +87,10 @@ async def create_account(
         if dangerous:
             raise ValueError(f"检测到高风险权限（{', '.join(dangerous)}），请创建纯只读 API Key")
         summary, positions = await asyncio.gather(
-            adapter.get_account_summary(), adapter.get_open_positions()
+            adapter.get_account_summary(),
+            adapter.get_open_positions(),
         )
+        balances = await adapter.get_balances()
     finally:
         await adapter.close()
 
@@ -95,7 +103,16 @@ async def create_account(
         masked_identifier=mask_identifier(identifier),
         permission_status=permissions,
         connection_status="CONNECTED",
-        data_completeness="PARTIAL" if payload.exchange == "POLYMARKET" else "COMPLETE",
+        data_completeness="PARTIAL",
+        data_completeness_details={
+            "equity": "COMPLETE",
+            "balances": "COMPLETE",
+            "positions": "COMPLETE",
+            "closed_positions": "UNKNOWN",
+            **{stream: "UNSUPPORTED" if payload.exchange == "POLYMARKET" else "UNKNOWN"
+               for stream in HISTORY_STREAMS},
+            "asset_coverage_version": 2,
+        },
         tracking_started_at=started_at,
         last_synced_at=started_at,
     )
@@ -145,7 +162,9 @@ async def create_account(
         )
     )
     await _write_summary(db, account, period, summary, started_at)
+    await _write_asset_balances(db, account, period, balances, started_at)
     await _replace_positions(db, account, period, positions, started_at, initial=True)
+    await _write_position_snapshots(db, account, period, positions, started_at)
     db.add(
         SecurityAuditLog(
             action="EXCHANGE_ACCOUNT_CREATED",
@@ -200,6 +219,130 @@ async def _write_summary(
             recorded_at=recorded_at,
         )
     )
+
+
+def _snapshot_source(prefix: str, recorded_at: datetime, key: str) -> str:
+    digest = hashlib.sha256(key.encode()).hexdigest()[:20]
+    return f"{prefix}-{recorded_at:%Y%m%d%H%M%S}-{digest}"
+
+
+async def _write_asset_balances(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    balances: list[dict[str, Any]],
+    recorded_at: datetime,
+) -> None:
+    for item in balances:
+        asset = str(item.get("asset") or "UNKNOWN").upper()
+        account_type = str(item.get("account_type") or "SPOT").upper()
+        value = item.get("value_usd")
+        db.add(
+            AssetBalanceSnapshot(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id=_snapshot_source(
+                    "asset", recorded_at, f"{account_type}:{asset}"
+                ),
+                asset=asset,
+                account_type=account_type,
+                available=Decimal(str(item.get("available", 0))),
+                locked=Decimal(str(item.get("locked", 0))),
+                value_usd=Decimal(str(value)) if value is not None else None,
+                price_source=str(item.get("price_source") or "EXCHANGE_API"),
+                recorded_at=recorded_at,
+            )
+        )
+
+
+async def _write_position_snapshots(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    positions: list[dict[str, Any]],
+    recorded_at: datetime,
+) -> None:
+    for item in positions:
+        db.add(
+            PositionSnapshot(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id=_snapshot_source(
+                    "position", recorded_at, str(item["source_record_id"])
+                ),
+                normalized_symbol=item["normalized_symbol"],
+                side=item["side"],
+                position_size=Decimal(str(item.get("position_size", 0))),
+                mark_price=Decimal(str(item.get("mark_price", 0))),
+                unrealized_pnl=Decimal(str(item.get("unrealized_pnl", 0))),
+                recorded_at=recorded_at,
+            )
+        )
+
+
+def update_completeness(
+    account: ExchangeAccount,
+    updates: dict[str, str],
+    *,
+    authoritative: bool = False,
+) -> None:
+    details = dict(account.data_completeness_details or {})
+    for key, status in updates.items():
+        if key not in COMPLETENESS_KEYS:
+            continue
+        current = details.get(key)
+        if (
+            not authoritative
+            and current == "PARTIAL"
+            and status == "COMPLETE"
+        ):
+            continue
+        details[key] = status
+    account.data_completeness_details = details
+    relevant = [
+        details.get(key, "UNKNOWN")
+        for key in COMPLETENESS_KEYS
+        if details.get(key) != "UNSUPPORTED"
+    ]
+    account.data_completeness = (
+        "COMPLETE"
+        if relevant
+        and all(status == "COMPLETE" for status in relevant)
+        else "PARTIAL"
+    )
+
+
+async def _apply_asset_coverage_baseline(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    summary: dict[str, Any],
+) -> None:
+    details = dict(account.data_completeness_details or {})
+    if int(details.get("asset_coverage_version") or 0) >= 2:
+        return
+    initial = await db.scalar(
+        select(InitialAccountSnapshot).where(
+            InitialAccountSnapshot.tracking_period_id == period.id
+        )
+    )
+    if initial:
+        initial.initial_equity += Decimal(
+            str(summary.get("legacy_excluded_equity_usd", 0))
+        )
+        initial.initial_available_balance += Decimal(
+            str(summary.get("legacy_excluded_available_usd", 0))
+        )
+        initial.initial_margin_balance += Decimal(
+            str(summary.get("legacy_excluded_margin_usd", 0))
+        )
+        initial.initial_unrealized_pnl += Decimal(
+            str(summary.get("legacy_excluded_unrealized_pnl_usd", 0))
+        )
+    details["asset_coverage_version"] = 2
+    account.data_completeness_details = details
 
 
 async def _replace_positions(
@@ -569,6 +712,7 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                         adapter.get_open_positions(),
                         adapter.get_closed_positions(account.tracking_started_at, started),
                     )
+                    balances = await adapter.get_balances()
                     history_bundle: dict[str, Any] | None = None
                     history_error: Exception | None = None
                     if history_due and adapter.history_streams:
@@ -587,10 +731,40 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                             history_error = exc
                 finally:
                     await adapter.close()
+                await _apply_asset_coverage_baseline(
+                    db, account, period, summary
+                )
                 await _write_summary(db, account, period, summary, started)
+                await _write_asset_balances(db, account, period, balances, started)
                 await _replace_positions(db, account, period, positions, started)
+                await _write_position_snapshots(
+                    db, account, period, positions, started
+                )
                 closed_count = await _upsert_closed_positions(
                     db, account, period, closed_positions
+                )
+                closed_status = (
+                    "PARTIAL"
+                    if account.exchange == "POLYMARKET"
+                    or any(
+                        item.get("data_completeness", "PARTIAL") != "COMPLETE"
+                        for item in closed_positions
+                    )
+                    else "COMPLETE"
+                )
+                update_completeness(
+                    account,
+                    {
+                        "equity": "COMPLETE",
+                        "balances": (
+                            "PARTIAL"
+                            if int(summary.get("unvalued_asset_count", 0))
+                            else "COMPLETE"
+                        ),
+                        "positions": "COMPLETE",
+                        "closed_positions": closed_status,
+                    },
+                    authoritative=True,
                 )
                 history_count = 0
                 if history_due:
@@ -611,14 +785,35 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                             CashFlowRecord,
                             history_bundle["cash_flows"],
                         )
-                        account.data_completeness = (
+                        history_status = (
                             "COMPLETE"
                             if adapter.history_streams == HISTORY_STREAMS
                             and bool(history_bundle.get("complete"))
                             else "PARTIAL"
                         )
+                        update_completeness(
+                            account,
+                            {
+                                stream: (
+                                    history_status
+                                    if stream in adapter.history_streams
+                                    else "UNSUPPORTED"
+                                )
+                                for stream in HISTORY_STREAMS
+                            },
+                        )
                     else:
-                        account.data_completeness = "PARTIAL"
+                        update_completeness(
+                            account,
+                            {
+                                stream: (
+                                    "PARTIAL"
+                                    if stream in adapter.history_streams
+                                    else "UNSUPPORTED"
+                                )
+                                for stream in HISTORY_STREAMS
+                            },
+                        )
                     if history_error is not None:
                         db.add(
                             SyncError(

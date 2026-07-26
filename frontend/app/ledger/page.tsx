@@ -32,7 +32,9 @@ import type {
 
 const componentLabels = {
   equity: "账户权益",
+  balances: "逐资产余额",
   positions: "当前仓位",
+  closed_positions: "已平仓仓位",
   realized_pnl: "已实现收益",
   funding_fee: "资金费",
   trading_fee: "交易手续费",

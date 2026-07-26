@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -72,56 +73,205 @@ class BitgetAdapter(ExchangeAdapter):
             }
 
     async def get_account_summary(self) -> dict[str, Any]:
-        rows = await self._get("/api/v2/mix/account/accounts", {"productType": "USDT-FUTURES"})
+        usdt_rows, usdc_rows, balances = await asyncio.gather(
+            self._get("/api/v2/mix/account/accounts", {"productType": "USDT-FUTURES"}),
+            self._get("/api/v2/mix/account/accounts", {"productType": "USDC-FUTURES"}),
+            self.get_balances(),
+        )
+        self._latest_balances = balances
+        rows = [*(usdt_rows or []), *(usdc_rows or [])]
+        usdc_equity = sum(
+            float(row.get("usdtEquity") or row.get("accountEquity") or 0)
+            for row in (usdc_rows or [])
+        )
+        usdc_available = sum(
+            float(row.get("available") or 0) for row in (usdc_rows or [])
+        )
+        usdc_margin = sum(
+            float(row.get("isolatedMargin") or 0)
+            + float(row.get("crossedMargin") or 0)
+            for row in (usdc_rows or [])
+        )
+        usdc_unrealized = sum(
+            float(row.get("unrealizedPL") or 0) for row in (usdc_rows or [])
+        )
+        spot_equity = sum(
+            float(row["value_usd"])
+            for row in balances
+            if row["account_type"] == "SPOT" and row["value_usd"] is not None
+        )
+        spot_available = sum(
+            float(row["available"]) * float(row.get("price_usd") or 0)
+            for row in balances
+            if row["account_type"] == "SPOT" and row["value_usd"] is not None
+        )
         return {
-            "total_equity_usd": sum(float(row.get("usdtEquity") or 0) for row in rows),
-            "available_balance_usd": sum(float(row.get("available") or 0) for row in rows),
+            "total_equity_usd": sum(
+                float(row.get("usdtEquity") or row.get("accountEquity") or 0)
+                for row in rows
+            )
+            + spot_equity,
+            "available_balance_usd": sum(
+                float(row.get("available") or 0) for row in rows
+            )
+            + spot_available,
             "margin_balance_usd": sum(
                 float(row.get("isolatedMargin") or 0) + float(row.get("crossedMargin") or 0)
                 for row in rows
             ),
             "unrealized_pnl_usd": sum(float(row.get("unrealizedPL") or 0) for row in rows),
-            "unvalued_asset_count": 0,
-            "price_source": "BITGET_USDT_EQUITY",
+            "unvalued_asset_count": sum(
+                row["value_usd"] is None for row in balances
+            ),
+            "price_source": "BITGET_FUTURES_AND_SPOT_TICKER",
+            "legacy_excluded_equity_usd": spot_equity + usdc_equity,
+            "legacy_excluded_available_usd": spot_available + usdc_available,
+            "legacy_excluded_margin_usd": usdc_margin,
+            "legacy_excluded_unrealized_pnl_usd": usdc_unrealized,
         }
 
     async def get_balances(self) -> list[dict[str, Any]]:
-        rows = await self._get("/api/v2/spot/account/assets", {"assetType": "hold_only"})
-        return [
-            {
-                "asset": row["coin"].upper(),
-                "available": float(row.get("available") or 0),
-                "locked": float(row.get("frozen") or 0) + float(row.get("locked") or 0),
-                "value_usd": None,
-            }
-            for row in rows
-        ]
-
-    async def get_open_positions(self) -> list[dict[str, Any]]:
-        rows = await self._get("/api/v2/mix/position/all-position", {"productType": "USDT-FUTURES"})
-        positions = []
-        for item in rows:
-            size = float(item.get("total") or 0)
-            if not size:
-                continue
-            mark = float(item.get("markPrice") or 0)
-            positions.append(
+        if hasattr(self, "_latest_balances"):
+            return self._latest_balances
+        rows, tickers, usdt_accounts, usdc_accounts = await asyncio.gather(
+            self._get("/api/v2/spot/account/assets", {"assetType": "hold_only"}),
+            self._get("/api/v2/spot/market/tickers"),
+            self._get(
+                "/api/v2/mix/account/accounts",
+                {"productType": "USDT-FUTURES"},
+            ),
+            self._get(
+                "/api/v2/mix/account/accounts",
+                {"productType": "USDC-FUTURES"},
+            ),
+        )
+        prices = {
+            str(row.get("symbol") or "").upper(): float(row.get("lastPr") or 0)
+            for row in (tickers or [])
+            if float(row.get("lastPr") or 0) > 0
+        }
+        stable_assets = {"USD", "USDT", "USDC"}
+        balances: list[dict[str, Any]] = []
+        for row in rows or []:
+            asset = str(row["coin"]).upper()
+            available = float(row.get("available") or 0)
+            locked = float(row.get("frozen") or 0) + float(row.get("locked") or 0)
+            total = available + locked
+            explicit_value = row.get("usdtValue")
+            price = (
+                1.0
+                if asset in stable_assets
+                else prices.get(f"{asset}USDT")
+            )
+            value_usd = (
+                float(explicit_value)
+                if explicit_value not in {None, ""}
+                else total * price
+                if price is not None
+                else None
+            )
+            effective_price = value_usd / total if value_usd is not None and total else price
+            balances.append(
                 {
-                    "source_record_id": f"{item['symbol']}:{item['holdSide']}",
-                    "symbol": item["symbol"],
-                    "normalized_symbol": SymbolNormalizer.normalize(item["symbol"]),
-                    "side": normalize_side(item["holdSide"]),
-                    "position_size": abs(size),
-                    "position_value_usd": abs(size * mark),
-                    "entry_price": float(item.get("openPriceAvg") or 0),
-                    "mark_price": mark,
-                    "liquidation_price": float(item.get("liquidationPrice") or 0) or None,
-                    "leverage": float(item.get("leverage") or 0),
-                    "margin_mode": normalize_margin_mode(item.get("marginMode")),
-                    "margin_used": float(item.get("marginSize") or 0),
-                    "unrealized_pnl": float(item.get("unrealizedPL") or 0),
+                    "asset": asset,
+                    "account_type": "SPOT",
+                    "available": available,
+                    "locked": locked,
+                    "value_usd": value_usd,
+                    "price_usd": effective_price,
+                    "price_source": (
+                        "BITGET_USDT_VALUE"
+                        if explicit_value not in {None, ""}
+                        else "STABLECOIN_PARITY"
+                        if asset in stable_assets
+                        else "BITGET_SPOT_TICKER"
+                    ),
                 }
             )
+        for account_type, accounts in (
+            ("USDT_FUTURES", usdt_accounts or []),
+            ("USDC_FUTURES", usdc_accounts or []),
+        ):
+            for row in accounts:
+                asset = str(row.get("marginCoin") or "UNKNOWN").upper()
+                price = (
+                    1.0
+                    if asset in stable_assets
+                    else prices.get(f"{asset}USDT")
+                )
+                equity = float(row.get("accountEquity") or 0)
+                value_usd = row.get("usdtEquity")
+                balances.append(
+                    {
+                        "asset": asset,
+                        "account_type": account_type,
+                        "available": float(row.get("available") or 0),
+                        "locked": max(
+                            0.0,
+                            equity - float(row.get("available") or 0),
+                        ),
+                        "value_usd": (
+                            float(value_usd)
+                            if value_usd not in {None, ""}
+                            else equity * price
+                            if price is not None
+                            else None
+                        ),
+                        "price_usd": price,
+                        "price_source": (
+                            "BITGET_USDT_EQUITY"
+                            if value_usd not in {None, ""}
+                            else "STABLECOIN_PARITY"
+                            if asset in stable_assets
+                            else "BITGET_SPOT_TICKER"
+                        ),
+                    }
+                )
+        self._latest_balances = balances
+        return balances
+
+    async def get_open_positions(self) -> list[dict[str, Any]]:
+        usdt_rows, usdc_rows = await asyncio.gather(
+            self._get(
+                "/api/v2/mix/position/all-position",
+                {"productType": "USDT-FUTURES"},
+            ),
+            self._get(
+                "/api/v2/mix/position/all-position",
+                {"productType": "USDC-FUTURES"},
+            ),
+        )
+        positions = []
+        for product_type, rows in (
+            ("USDT-FUTURES", usdt_rows or []),
+            ("USDC-FUTURES", usdc_rows or []),
+        ):
+            for item in rows:
+                size = float(item.get("total") or 0)
+                if not size:
+                    continue
+                mark = float(item.get("markPrice") or 0)
+                positions.append(
+                    {
+                        "source_record_id": (
+                            f"{product_type}:{item['symbol']}:{item['holdSide']}"
+                        ),
+                        "symbol": item["symbol"],
+                        "normalized_symbol": SymbolNormalizer.normalize(item["symbol"]),
+                        "side": normalize_side(item["holdSide"]),
+                        "position_size": abs(size),
+                        "position_value_usd": abs(size * mark),
+                        "entry_price": float(item.get("openPriceAvg") or 0),
+                        "mark_price": mark,
+                        "liquidation_price": (
+                            float(item.get("liquidationPrice") or 0) or None
+                        ),
+                        "leverage": float(item.get("leverage") or 0),
+                        "margin_mode": normalize_margin_mode(item.get("marginMode")),
+                        "margin_used": float(item.get("marginSize") or 0),
+                        "unrealized_pnl": float(item.get("unrealizedPL") or 0),
+                    }
+                )
         return positions
 
     async def _position_history_rows(

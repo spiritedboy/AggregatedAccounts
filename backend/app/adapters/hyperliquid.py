@@ -120,15 +120,35 @@ class HyperliquidAdapter(ExchangeAdapter):
 
     async def get_balances(self) -> list[dict[str, Any]]:
         spot = await self._info("spotClearinghouseState")
-        return [
-            {
-                "asset": row["coin"],
-                "available": float(row.get("total") or 0) - float(row.get("hold") or 0),
-                "locked": float(row.get("hold") or 0),
-                "value_usd": None,
-            }
+        non_usdc_balances = [
+            row
             for row in spot.get("balances", [])
+            if int(row.get("token") or 0) != 0 and float(row.get("total") or 0)
         ]
+        prices = {0: 1.0}
+        if non_usdc_balances:
+            prices.update(self._spot_token_prices(await self._spot_market_data()))
+        balances: list[dict[str, Any]] = []
+        for row in spot.get("balances", []):
+            total = float(row.get("total") or 0)
+            hold = float(row.get("hold") or 0)
+            token = int(row.get("token") or 0)
+            price = prices.get(token)
+            balances.append(
+                {
+                    "asset": row["coin"],
+                    "account_type": "SPOT",
+                    "available": total - hold,
+                    "locked": hold,
+                    "value_usd": total * price if price is not None else None,
+                    "price_source": (
+                        "STABLECOIN_PARITY"
+                        if token == 0
+                        else "HYPERLIQUID_SPOT_MARK"
+                    ),
+                }
+            )
+        return balances
 
     async def get_open_positions(self) -> list[dict[str, Any]]:
         state = await self._info("clearinghouseState")
@@ -416,7 +436,7 @@ class HyperliquidAdapter(ExchangeAdapter):
             {
                 "source_record_id": str(row.get("tid")),
                 "asset": "USDC",
-                "amount": float(row.get("closedPnl") or 0),
+                "amount_usd": float(row.get("closedPnl") or 0),
                 "income_type": "REALIZED_PNL",
                 "record_time": datetime.fromtimestamp(
                     int(row["time"]) / 1000, tz=start_time.tzinfo

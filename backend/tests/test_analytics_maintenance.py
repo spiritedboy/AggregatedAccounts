@@ -7,9 +7,11 @@ from sqlalchemy import func, select
 from app.database import SessionLocal
 from app.models import (
     AccountBalanceSnapshot,
+    AssetBalanceSnapshot,
     ClosedPosition,
     DailyPnlSnapshot,
     ExchangeAccount,
+    PositionSnapshot,
     SecurityAuditLog,
     SyncJob,
     TrackingPeriod,
@@ -158,6 +160,28 @@ async def test_data_retention_prunes_only_safely_summarized_operational_rows():
         )
         db.add_all([summarized, unsummarized])
         db.add(
+            AssetBalanceSnapshot(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id="old-asset",
+                asset="USDT",
+                account_type="SPOT",
+                recorded_at=old_time,
+            )
+        )
+        db.add(
+            PositionSnapshot(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id="old-position",
+                normalized_symbol="BTC-USDT-PERP",
+                side="LONG",
+                recorded_at=old_time,
+            )
+        )
+        db.add(
             DailyPnlSnapshot(
                 exchange=account.exchange,
                 exchange_account_id=account.id,
@@ -188,6 +212,8 @@ async def test_data_retention_prunes_only_safely_summarized_operational_rows():
 
         assert result["sync_jobs_deleted"] == 1
         assert result["balance_snapshots_deleted"] == 1
+        assert result["asset_balance_snapshots_deleted"] == 1
+        assert result["position_snapshots_deleted"] == 1
         remaining_sources = set(
             await db.scalars(select(AccountBalanceSnapshot.source_record_id))
         )

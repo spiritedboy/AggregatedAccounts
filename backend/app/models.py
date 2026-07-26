@@ -65,6 +65,7 @@ class ExchangeAccount(Base, TimestampMixin):
     connection_status: Mapped[str] = mapped_column(String(24), default="CONNECTED", nullable=False)
     permission_status: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     data_completeness: Mapped[str] = mapped_column(String(24), default="COMPLETE", nullable=False)
+    data_completeness_details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     tracking_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -151,6 +152,30 @@ class AccountBalanceSnapshot(Base, BusinessMixin):
     margin_balance_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
     unrealized_pnl_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
     unvalued_asset_count: Mapped[int] = mapped_column(Integer, default=0)
+    price_source: Mapped[str] = mapped_column(String(80), default="EXCHANGE_API")
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AssetBalanceSnapshot(Base, BusinessMixin):
+    __tablename__ = "asset_balance_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "exchange_account_id",
+            "tracking_period_id",
+            "source_record_id",
+            name="uq_asset_balance_source",
+        ),
+        Index(
+            "ix_asset_balance_latest",
+            "exchange_account_id",
+            "recorded_at",
+        ),
+    )
+    asset: Mapped[str] = mapped_column(String(40), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(24), default="SPOT", nullable=False)
+    available: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    locked: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    value_usd: Mapped[Decimal | None] = mapped_column(Numeric(30, 10))
     price_source: Mapped[str] = mapped_column(String(80), default="EXCHANGE_API")
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AccountBalanceSnapshot,
+    AssetBalanceSnapshot,
     CashFlowRecord,
     ClosedPosition,
     CurrentPosition,
@@ -306,6 +307,9 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
     balance_stats = await _record_stats(
         db, AccountBalanceSnapshot, account_ids, AccountBalanceSnapshot.recorded_at
     )
+    asset_balance_stats = await _record_stats(
+        db, AssetBalanceSnapshot, account_ids, AssetBalanceSnapshot.recorded_at
+    )
     position_stats = await _record_stats(
         db, CurrentPosition, account_ids, CurrentPosition.updated_at
     )
@@ -347,12 +351,16 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
             full_job.finished_at or full_job.started_at if full_job else None
         )
         balance_count, latest_balance = balance_stats.get(account.id, (0, None))
+        asset_balance_count, latest_asset_balance = asset_balance_stats.get(
+            account.id, (0, None)
+        )
         position_count, latest_position = position_stats.get(account.id, (0, None))
         income_count, latest_income = income_stats.get(account.id, (0, None))
         closed_count, latest_closed = closed_stats.get(account.id, (0, None))
         funding_count, latest_funding = funding_stats.get(account.id, (0, None))
         fee_count, latest_fee = fee_stats.get(account.id, (0, None))
         cash_count, latest_cash = cash_stats.get(account.id, (0, None))
+        details = dict(account.data_completeness_details or {})
         primary_status = (
             "COMPLETE"
             if account.connection_status == "CONNECTED" and account.last_synced_at
@@ -365,14 +373,14 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
         )
         components = {
             "equity": _component(
-                status=primary_status,
+                status=details.get("equity", primary_status),
                 last_synced_at=account.last_synced_at,
                 record_count=balance_count,
                 latest_record_at=latest_balance,
                 reason=primary_reason,
             ),
             "positions": _component(
-                status=primary_status,
+                status=details.get("positions", primary_status),
                 last_synced_at=account.last_synced_at,
                 record_count=position_count,
                 latest_record_at=latest_position,
@@ -380,6 +388,36 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
                     "当前仓位已成功刷新；0 条表示当前没有未平仓仓位"
                     if primary_status == "COMPLETE"
                     else "当前仓位尚未成功刷新"
+                ),
+            ),
+            "balances": _component(
+                status=details.get(
+                    "balances",
+                    "COMPLETE"
+                    if asset_balance_count and primary_status == "COMPLETE"
+                    else "PARTIAL",
+                ),
+                last_synced_at=account.last_synced_at,
+                record_count=asset_balance_count,
+                latest_record_at=latest_asset_balance,
+                reason=(
+                    "逐资产余额已落库且可美元估值"
+                    if details.get("balances") == "COMPLETE"
+                    else "逐资产余额尚未落库，或存在无法可靠美元估值的资产"
+                ),
+            ),
+            "closed_positions": _component(
+                status=details.get(
+                    "closed_positions",
+                    "PARTIAL",
+                ),
+                last_synced_at=account.last_synced_at,
+                record_count=closed_count,
+                latest_record_at=latest_closed,
+                reason=(
+                    "已平仓接口已成功拉取；0 条表示统计期内没有已平仓仓位"
+                    if details.get("closed_positions") == "COMPLETE"
+                    else "已平仓记录存在字段缺失，或尚未完成能力验证"
                 ),
             ),
         }
@@ -404,45 +442,51 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
                     reason=reason,
                 )
         else:
-            ledger_status = (
-                "COMPLETE"
-                if account.data_completeness == "COMPLETE" and full_synced_at
-                else "PARTIAL"
-            )
-            ledger_reason = (
-                "最近一次账务拉取成功；0 条表示统计期内没有该类记录"
-                if ledger_status == "COMPLETE"
-                else "账务接口失败、存在无法可靠美元估值的流水，或尚未完成首次拉取"
-            )
             components.update(
                 {
                     "realized_pnl": _component(
-                        status=ledger_status,
+                        status=details.get("income", "PARTIAL"),
                         last_synced_at=full_synced_at,
                         record_count=income_count,
                         latest_record_at=latest_income,
-                        reason=ledger_reason,
+                        reason=(
+                            "最近一次账务拉取成功；0 条表示统计期内没有该类记录"
+                            if details.get("income") == "COMPLETE"
+                            else "账务接口存在未识别流水，或尚未完成首次完整拉取"
+                        ),
                     ),
                     "funding_fee": _component(
-                        status=ledger_status,
+                        status=details.get("funding", "PARTIAL"),
                         last_synced_at=full_synced_at,
                         record_count=funding_count,
                         latest_record_at=latest_funding,
-                        reason=ledger_reason,
+                        reason=(
+                            "最近一次资金费拉取成功"
+                            if details.get("funding") == "COMPLETE"
+                            else "资金费流水覆盖不完整或尚未验证"
+                        ),
                     ),
                     "trading_fee": _component(
-                        status=ledger_status,
+                        status=details.get("fees", "PARTIAL"),
                         last_synced_at=full_synced_at,
                         record_count=fee_count,
                         latest_record_at=latest_fee,
-                        reason=ledger_reason,
+                        reason=(
+                            "最近一次手续费拉取成功"
+                            if details.get("fees") == "COMPLETE"
+                            else "手续费流水覆盖不完整或尚未验证"
+                        ),
                     ),
                     "cash_flow": _component(
-                        status=ledger_status,
+                        status=details.get("cash_flows", "PARTIAL"),
                         last_synced_at=full_synced_at,
                         record_count=cash_count,
                         latest_record_at=latest_cash,
-                        reason=ledger_reason,
+                        reason=(
+                            "最近一次资金流水拉取成功"
+                            if details.get("cash_flows") == "COMPLETE"
+                            else "资金流水存在未识别类型或尚未验证"
+                        ),
                     ),
                 }
             )

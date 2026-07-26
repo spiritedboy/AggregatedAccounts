@@ -216,11 +216,6 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         )
     ).all()
     initial_by_period = {row.tracking_period_id: row for row in initials}
-    current_positions = (
-        await db.scalars(
-            select(CurrentPosition).where(CurrentPosition.tracking_period_id.in_(period_ids))
-        )
-    ).all()
     closed_positions = (
         await db.scalars(
             select(ClosedPosition).where(ClosedPosition.tracking_period_id.in_(period_ids))
@@ -247,14 +242,11 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         )
     ).all()
 
-    positions_by_period: dict[uuid.UUID, list[CurrentPosition]] = defaultdict(list)
     closed_by_period: dict[uuid.UUID, list[ClosedPosition]] = defaultdict(list)
     cash_by_period: dict[uuid.UUID, list[CashFlowRecord]] = defaultdict(list)
     funding_by_period: dict[uuid.UUID, list[FundingRecord]] = defaultdict(list)
     fees_by_period: dict[uuid.UUID, list[TradingFeeRecord]] = defaultdict(list)
     income_by_period: dict[uuid.UUID, list[IncomeRecord]] = defaultdict(list)
-    for row in current_positions:
-        positions_by_period[row.tracking_period_id].append(row)
     for row in closed_positions:
         closed_by_period[row.tracking_period_id].append(row)
     for row in cash_flows:
@@ -310,10 +302,9 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
                 for row in closed_by_period.get(period_id, [])
             )
         )
-        unrealized_change = sum(
-            _number(row.tracking_unrealized_pnl_change)
-            for row in positions_by_period.get(period_id, [])
-        )
+        unrealized_change = _number(
+            balance.unrealized_pnl_usd if balance else None
+        ) - _number(initial.initial_unrealized_pnl if initial else None)
         equity_return = current_equity - initial_equity - net_cash_flow
         component_return = realized_pnl + funding_fee - trading_fee + unrealized_change
         variance = equity_return - component_return
@@ -408,10 +399,12 @@ async def build_risk_metrics(db: AsyncSession) -> dict[str, Any]:
 
     exposure_groups: dict[str, dict[str, Any]] = {}
     liquidation_risks: list[dict[str, Any]] = []
-    total_margin = 0.0
+    total_margin = sum(
+        abs(_number(row.margin_balance_usd))
+        for row in latest_balances.values()
+    )
     for position in positions:
         value = abs(_number(position.position_value_usd))
-        total_margin += abs(_number(position.margin_used))
         exposure = exposure_groups.setdefault(
             position.normalized_symbol,
             {

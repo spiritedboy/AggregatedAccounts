@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import (
     AccountBalanceSnapshot,
+    AssetBalanceSnapshot,
     ClosedPosition,
     DailyPnlSnapshot,
+    PositionSnapshot,
     SecurityAuditLog,
     SyncJob,
 )
@@ -154,9 +156,47 @@ async def apply_data_retention(
             )
         )
     ).rowcount or 0
+    asset_day_exists = exists(
+        select(DailyPnlSnapshot.id).where(
+            DailyPnlSnapshot.exchange_account_id
+            == AssetBalanceSnapshot.exchange_account_id,
+            DailyPnlSnapshot.tracking_period_id
+            == AssetBalanceSnapshot.tracking_period_id,
+            func.date(DailyPnlSnapshot.snapshot_date)
+            == func.date(AssetBalanceSnapshot.recorded_at),
+        )
+    )
+    deleted_asset_balances = (
+        await db.execute(
+            delete(AssetBalanceSnapshot).where(
+                AssetBalanceSnapshot.recorded_at < balance_cutoff,
+                asset_day_exists,
+            )
+        )
+    ).rowcount or 0
+    position_day_exists = exists(
+        select(DailyPnlSnapshot.id).where(
+            DailyPnlSnapshot.exchange_account_id
+            == PositionSnapshot.exchange_account_id,
+            DailyPnlSnapshot.tracking_period_id
+            == PositionSnapshot.tracking_period_id,
+            func.date(DailyPnlSnapshot.snapshot_date)
+            == func.date(PositionSnapshot.recorded_at),
+        )
+    )
+    deleted_positions = (
+        await db.execute(
+            delete(PositionSnapshot).where(
+                PositionSnapshot.recorded_at < balance_cutoff,
+                position_day_exists,
+            )
+        )
+    ).rowcount or 0
     result = {
         "sync_jobs_deleted": deleted_jobs,
         "balance_snapshots_deleted": deleted_balances,
+        "asset_balance_snapshots_deleted": deleted_asset_balances,
+        "position_snapshots_deleted": deleted_positions,
         "sync_job_cutoff": job_cutoff.isoformat(),
         "balance_snapshot_cutoff": balance_cutoff.isoformat(),
     }

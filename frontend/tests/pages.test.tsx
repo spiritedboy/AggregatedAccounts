@@ -190,7 +190,7 @@ const reconciliationData = {
 const completenessData = {
   summary: {
     total_accounts: 1,
-    complete_components: 6,
+    complete_components: 8,
     partial_components: 0,
     unsupported_components: 0,
     checked_at: account.last_synced_at,
@@ -204,7 +204,9 @@ const completenessData = {
       components: Object.fromEntries(
         [
           "equity",
+          "balances",
           "positions",
+          "closed_positions",
           "realized_pnl",
           "funding_fee",
           "trading_fee",
@@ -292,6 +294,7 @@ describe("portfolio pages", () => {
   it("renders current positions without trading controls", async () => {
     installFetch({
       "/api/positions/current": { items: [position], total: 1 },
+      "/api/exchange-accounts": [account],
     });
     render(<PositionsPage />);
     expect(await screen.findAllByText("BTC-USDT-PERP")).not.toHaveLength(0);
@@ -303,6 +306,7 @@ describe("portfolio pages", () => {
 
   it("renders history with CSV export and reconstruction label", async () => {
     installFetch({
+      "/api/exchange-accounts": [account],
       "/api/positions/history": {
         total: 1,
         items: [
@@ -331,6 +335,9 @@ describe("portfolio pages", () => {
     });
     render(<HistoryPage />);
     expect(await screen.findByText("本地重建")).toBeInTheDocument();
+    expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
+    expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
+    expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
   });
 
@@ -338,9 +345,13 @@ describe("portfolio pages", () => {
     const point = {
       period: "2026-07-26",
       investment_return: 120,
+      cumulative_return: 120,
       realized_pnl: 100,
+      unrealized_pnl_change: 25,
+      cumulative_unrealized_pnl_change: 25,
       funding_fee: -2,
       trading_fee: 3,
+      equity: 10120,
     };
     installFetch({
       "/api/pnl/summary": {
@@ -413,18 +424,45 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("资金费").length).toBeGreaterThan(0);
     expect(screen.getByText("funding-source-1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
-    expect(screen.getByText("6 项完整")).toBeInTheDocument();
+    expect(screen.getByText("8 项完整")).toBeInTheDocument();
   });
 
   it("renders the account page as configuration-managed read-only status", async () => {
     installFetch({
       "/api/exchange-accounts": [account],
       "/api/sync/status": syncStatus,
+      "/api/balances": [
+        {
+          exchange: "BINANCE",
+          account_id: account.id,
+          connection_name: account.connection_name,
+          total_equity_usd: 10000,
+          available_balance_usd: 8000,
+          margin_balance_usd: 2000,
+          unrealized_pnl_usd: 100,
+          unvalued_asset_count: 0,
+          price_source: "BINANCE_FAPI_AND_SPOT_TICKER",
+          recorded_at: account.last_synced_at,
+          assets: [
+            {
+              asset: "USDT",
+              account_type: "SPOT",
+              available: 25,
+              locked: 0,
+              value_usd: 25,
+              price_source: "STABLECOIN_PARITY",
+              recorded_at: account.last_synced_at,
+            },
+          ],
+        },
+      ],
     });
     render(<AccountsPage />);
     expect(await screen.findAllByText("主账户只读")).not.toHaveLength(0);
     expect(screen.getByRole("navigation", { name: "移动端导航" })).toBeInTheDocument();
     expect(screen.getByText(/账户由服务器配置文件统一管理/)).toBeInTheDocument();
+    expect(screen.getByText("逐资产余额")).toBeInTheDocument();
+    expect(screen.getByText("USDT")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "添加账户" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /测试连接/ })).not.toBeInTheDocument();

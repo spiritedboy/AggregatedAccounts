@@ -139,9 +139,11 @@ class PolymarketAdapter(ExchangeAdapter):
         return [
             {
                 "asset": "USD",
+                "account_type": "PREDICTION",
                 "available": snapshot["cashBalance"],
                 "locked": snapshot["positionsValue"],
                 "value_usd": snapshot["equity"],
+                "price_source": "POLYMARKET_ACCOUNTING_SNAPSHOT",
             }
         ]
 

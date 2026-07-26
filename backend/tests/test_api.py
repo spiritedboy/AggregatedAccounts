@@ -78,7 +78,9 @@ def test_accounting_records_export_and_completeness_are_public(authenticated):
     assert payload["accounts"]
     assert set(payload["accounts"][0]["components"]) == {
         "equity",
+        "balances",
         "positions",
+        "closed_positions",
         "realized_pnl",
         "funding_fee",
         "trading_fee",
@@ -103,13 +105,27 @@ def test_account_responses_do_not_leak_credentials(authenticated):
 
 def test_history_filters_and_csv_export(authenticated):
     client, _ = authenticated
-    response = client.get("/api/positions/history?side=LONG&page_size=5")
+    account_id = client.get("/api/exchange-accounts").json()["data"][0]["id"]
+    response = client.get(
+        "/api/positions/history"
+        f"?account_id={account_id}&side=LONG&pnl_result=PROFIT"
+        "&completeness=COMPLETE&page_size=5"
+    )
     assert response.status_code == 200
     assert all(item["side"] == "LONG" for item in response.json()["data"]["items"])
+    assert all(item["net_pnl"] > 0 for item in response.json()["data"]["items"])
+    assert all(
+        item["data_completeness"] == "COMPLETE"
+        for item in response.json()["data"]["items"]
+    )
     exported = client.get("/api/positions/history/export")
     assert exported.status_code == 200
     assert exported.headers["content-type"].startswith("text/csv")
     assert "data_source" in exported.text.splitlines()[0]
+
+    snapshots = client.get("/api/positions/snapshots")
+    assert snapshots.status_code == 200
+    assert {"items", "total"} <= snapshots.json()["data"].keys()
 
 
 def test_api_key_validation_does_not_echo_secret(authenticated):
