@@ -18,7 +18,7 @@ Web 界面。
 - Hyperliquid 权益同时覆盖永续账户与 Spot 账户，非 USDC 现货按官方 Spot 市场价格折算
 - 账户摘要、余额、当前仓位、历史仓位、日/周/月收益和交易所收益贡献 API
 - 历史仓位 CSV 导出及公式注入防护
-- OKX 与 Polymarket 已平仓仓位按交易所原始记录幂等同步
+- 五个平台的已平仓仓位均按原始记录或可审计成交重建结果幂等同步
 - APScheduler 定时同步、账户级互斥、隔离失败、耗时/记录数/安全错误日志
 - Binance、OKX、Bitget、Hyperliquid 的已实现收益、资金费、手续费和资金流幂等同步
 - 账务流水页面：交易所/类型/日期筛选、分页、汇总卡片和 CSV 导出
@@ -154,8 +154,9 @@ Webhook 通知。
 
 ## 统计规则
 
-统计起点是连接测试成功且凭证加密保存完成后的服务器时间。平台不会读取、同步、
-保存、展示或统计该时间之前的数据。
+统计起点是连接测试成功且凭证加密保存完成后的服务器时间。平台不会把统计起点前已经
+结束的仓位或账务流水计入本期收益；为准确展示统计期内才平掉的初始仓位，交易所返回的
+开仓时间、入场均价和全周期成本仍会作为该平仓记录的一部分保存。
 
 ```text
 净资金流 = 充值 - 提现
@@ -167,11 +168,18 @@ Webhook 通知。
 交易所覆盖不足时显示“统计不完整”，本地重建历史仓位标记为
 `RECONSTRUCTED`，不会伪装成交易所原始数据。
 
-OKX 已平仓仓位来自官方 `account/positions-history` 接口，同时拉取永续合约和交割合约。
-平台仅保存当前统计周期开始后关闭的仓位，并以 `instType + posId + uTime` 组成幂等来源
-ID，避免 OKX 在不同持仓周期重复使用 `posId` 时覆盖旧记录。Binance、Bitget 和
-Hyperliquid 当前仍只同步已实现收益、资金费与手续费，尚未在“历史仓位”页重建完整的
-开平仓周期。
+OKX 已平仓仓位来自官方 `account/positions-history`，同时拉取永续与交割合约；Bitget
+来自 `mix/position/history-position`，覆盖 USDT 与 USDC 合约。两者均只保存当前统计
+周期开始后关闭的仓位，并使用仓位 ID、产品类型和关闭时间组成幂等来源 ID。
+
+Hyperliquid 根据 `userFillsByTime` 的 `startPosition` 重建从开仓到仓位归零的周期，并
+将同周期资金费和 USDC 手续费纳入净收益；统计开始时已经存在的仓位会使用平仓成交的
+`closedPnl` 反推入场均价并标记 `PARTIAL`。Binance 根据 USDⓈ-M `userTrades` 的成交
+方向、`positionSide` 和逐笔 `realizedPnl` 重建单向或双向持仓周期。由于 Binance
+成交记录没有原生仓位周期 ID，且资金费不能可靠分配给同时存在的多空两侧，重建结果
+统一标记 `RECONSTRUCTED / PARTIAL`；资金费仍在账务流水和收益汇总中独立准确统计。
+
+Polymarket 使用官方 closed positions 数据，并按 outcome token 生成稳定幂等 ID。
 
 中心化交易所和 Hyperliquid 每 5 分钟补拉一次账务流水，并与每分钟资产/持仓刷新
 分开处理。账务流水按交易所原始 ID 幂等写入：已实现收益进入 `income_records`，

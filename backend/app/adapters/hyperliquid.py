@@ -162,6 +162,247 @@ class HyperliquidAdapter(ExchangeAdapter):
             )
         return positions
 
+    async def _time_paginated_info(
+        self,
+        request_type: str,
+        start_time: datetime,
+        end_time: datetime,
+        *,
+        aggregate_by_time: bool = False,
+    ) -> list[dict[str, Any]]:
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        cursor = start_ms
+        rows_by_id: dict[str, dict[str, Any]] = {}
+        for _ in range(20):
+            kwargs: dict[str, Any] = {"startTime": cursor, "endTime": end_ms}
+            if aggregate_by_time:
+                kwargs["aggregateByTime"] = True
+            page = await self._info(request_type, **kwargs)
+            if not page:
+                break
+            timestamps = [int(item.get("time") or 0) for item in page]
+            for item, timestamp in zip(page, timestamps, strict=True):
+                if not start_ms <= timestamp <= end_ms:
+                    continue
+                source_id = str(
+                    item.get("tid")
+                    or (
+                        f"{item.get('hash')}:{item.get('oid') or ''}:"
+                        f"{(item.get('delta') or {}).get('coin') or item.get('coin') or ''}:"
+                        f"{timestamp}"
+                    )
+                )
+                rows_by_id[source_id] = item
+            latest = max(timestamps, default=0)
+            if not latest or latest >= end_ms or latest < cursor:
+                break
+            cursor = latest + 1
+        return sorted(
+            rows_by_id.values(),
+            key=lambda item: (int(item.get("time") or 0), int(item.get("tid") or 0)),
+        )
+
+    @staticmethod
+    def _new_position_cycle(
+        coin: str,
+        side: str,
+        open_time: datetime,
+        complete: bool,
+    ) -> dict[str, Any]:
+        return {
+            "coin": coin,
+            "side": side,
+            "open_time": open_time,
+            "complete": complete,
+            "open_quantity": 0.0,
+            "open_notional": 0.0,
+            "close_quantity": 0.0,
+            "close_notional": 0.0,
+            "inferred_entry_quantity": 0.0,
+            "inferred_entry_notional": 0.0,
+            "max_position_size": 0.0,
+            "realized_pnl": 0.0,
+            "trading_fee": 0.0,
+        }
+
+    @staticmethod
+    def _add_hyperliquid_fee(
+        cycle: dict[str, Any],
+        row: dict[str, Any],
+        quantity_share: float,
+    ) -> None:
+        fee = float(row.get("fee") or 0) * quantity_share
+        if str(row.get("feeToken") or "USDC").upper().strip() == "USDC":
+            cycle["trading_fee"] += fee
+        elif fee:
+            cycle["complete"] = False
+
+    @classmethod
+    def _closed_cycles_from_fills(
+        cls,
+        fills: list[dict[str, Any]],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        epsilon = 1e-12
+        active: dict[str, dict[str, Any]] = {}
+        closed: list[dict[str, Any]] = []
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+
+        for row in fills:
+            direction = str(row.get("dir") or "")
+            if "Long" not in direction and "Short" not in direction:
+                continue
+            timestamp = int(row.get("time") or 0)
+            if not start_ms <= timestamp <= end_ms:
+                continue
+            coin = str(row.get("coin") or "")
+            size = abs(float(row.get("sz") or 0))
+            price = float(row.get("px") or 0)
+            if not coin or not size:
+                continue
+            start_position = float(row.get("startPosition") or 0)
+            delta = size if str(row.get("side") or "").upper() == "B" else -size
+            end_position = start_position + delta
+            if abs(end_position) < epsilon:
+                end_position = 0.0
+
+            if start_position and coin not in active:
+                side = "LONG" if start_position > 0 else "SHORT"
+                active[coin] = cls._new_position_cycle(
+                    coin, side, start_time, False
+                )
+                active[coin]["max_position_size"] = abs(start_position)
+
+            close_quantity = 0.0
+            if start_position and start_position * delta < 0:
+                close_quantity = min(abs(start_position), size)
+            open_quantity = size - close_quantity
+            fill_time = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
+            fill_fee_denominator = size or 1
+
+            if close_quantity:
+                side = "LONG" if start_position > 0 else "SHORT"
+                cycle = active.get(coin)
+                if cycle is None or cycle["side"] != side:
+                    cycle = cls._new_position_cycle(coin, side, start_time, False)
+                    active[coin] = cycle
+                cycle["max_position_size"] = max(
+                    cycle["max_position_size"], abs(start_position)
+                )
+                cycle["close_quantity"] += close_quantity
+                cycle["close_notional"] += price * close_quantity
+                closed_pnl = float(row.get("closedPnl") or 0)
+                cycle["realized_pnl"] += closed_pnl
+                inferred_entry = (
+                    price - closed_pnl / close_quantity
+                    if side == "LONG"
+                    else price + closed_pnl / close_quantity
+                )
+                cycle["inferred_entry_quantity"] += close_quantity
+                cycle["inferred_entry_notional"] += inferred_entry * close_quantity
+                cls._add_hyperliquid_fee(
+                    cycle, row, close_quantity / fill_fee_denominator
+                )
+
+                if not end_position or end_position * start_position < 0:
+                    cycle["close_time"] = fill_time
+                    cycle["closing_fill_id"] = str(
+                        row.get("tid") or f"{row.get('hash')}:{timestamp}"
+                    )
+                    closed.append(cycle)
+                    active.pop(coin, None)
+
+            if open_quantity and end_position:
+                side = "LONG" if end_position > 0 else "SHORT"
+                cycle = active.get(coin)
+                if cycle is None or cycle["side"] != side:
+                    cycle = cls._new_position_cycle(coin, side, fill_time, True)
+                    active[coin] = cycle
+                cycle["open_quantity"] += open_quantity
+                cycle["open_notional"] += price * open_quantity
+                cycle["max_position_size"] = max(
+                    cycle["max_position_size"], abs(end_position)
+                )
+                cls._add_hyperliquid_fee(
+                    cycle, row, open_quantity / fill_fee_denominator
+                )
+
+        return closed
+
+    async def get_closed_positions(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        fills, funding_rows = await asyncio.gather(
+            self._time_paginated_info(
+                "userFillsByTime",
+                start_time,
+                end_time,
+                aggregate_by_time=True,
+            ),
+            self._time_paginated_info("userFunding", start_time, end_time),
+        )
+        cycles = self._closed_cycles_from_fills(fills, start_time, end_time)
+        positions: list[dict[str, Any]] = []
+        for cycle in cycles:
+            open_quantity = float(cycle["open_quantity"])
+            inferred_quantity = float(cycle["inferred_entry_quantity"])
+            if cycle["complete"] and open_quantity:
+                entry_price = float(cycle["open_notional"]) / open_quantity
+            elif inferred_quantity:
+                entry_price = float(cycle["inferred_entry_notional"]) / inferred_quantity
+            else:
+                entry_price = 0.0
+                cycle["complete"] = False
+            close_quantity = float(cycle["close_quantity"])
+            exit_price = (
+                float(cycle["close_notional"]) / close_quantity if close_quantity else 0.0
+            )
+            funding_fee = 0.0
+            for row in funding_rows:
+                delta = row.get("delta") or row
+                timestamp = int(row.get("time") or 0)
+                if (
+                    str(delta.get("coin") or "") == cycle["coin"]
+                    and int(cycle["open_time"].timestamp() * 1000)
+                    <= timestamp
+                    <= int(cycle["close_time"].timestamp() * 1000)
+                ):
+                    funding_fee += float(delta.get("usdc") or 0)
+            realized_pnl = float(cycle["realized_pnl"])
+            trading_fee = float(cycle["trading_fee"])
+            net_pnl = realized_pnl + funding_fee - trading_fee
+            initial_notional = entry_price * float(cycle["max_position_size"])
+            positions.append(
+                {
+                    "source_record_id": (
+                        f"hyperliquid:{cycle['coin']}:{cycle['closing_fill_id']}"
+                    ),
+                    "symbol": cycle["coin"],
+                    "normalized_symbol": SymbolNormalizer.normalize(cycle["coin"]),
+                    "side": cycle["side"],
+                    "open_time": cycle["open_time"],
+                    "close_time": cycle["close_time"],
+                    "average_entry_price": entry_price,
+                    "average_exit_price": exit_price,
+                    "max_position_size": cycle["max_position_size"],
+                    "realized_pnl": realized_pnl,
+                    "funding_fee": funding_fee,
+                    "trading_fee": trading_fee,
+                    "net_pnl": net_pnl,
+                    "return_percent": (
+                        realized_pnl / initial_notional * 100 if initial_notional else 0
+                    ),
+                    "data_source": "RECONSTRUCTED",
+                    "data_completeness": (
+                        "COMPLETE" if cycle["complete"] else "PARTIAL"
+                    ),
+                }
+            )
+        return positions
+
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:

@@ -1,7 +1,8 @@
+import asyncio
 import hashlib
 import hmac
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -116,6 +117,326 @@ class BinanceAdapter(ExchangeAdapter):
                 }
             )
         return positions
+
+    async def _trade_rows(
+        self,
+        symbol: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        query_start = max(start_time - timedelta(days=7), end_time - timedelta(days=7))
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "startTime": int(query_start.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000),
+            "limit": 1000,
+        }
+        rows_by_id: dict[str, dict[str, Any]] = {}
+        for page_number in range(20):
+            page = await self._signed_get(
+                self.futures_base, "/fapi/v1/userTrades", params
+            )
+            for row in page:
+                rows_by_id[str(row.get("id"))] = row
+            if len(page) < 1000:
+                break
+            last_id = max(int(row.get("id") or 0) for row in page)
+            if not last_id:
+                break
+            params = {"symbol": symbol, "fromId": last_id + 1, "limit": 1000}
+            if page_number == 19:
+                break
+        return sorted(
+            rows_by_id.values(),
+            key=lambda row: (int(row.get("time") or 0), int(row.get("id") or 0)),
+        )
+
+    @staticmethod
+    def _new_trade_cycle(
+        symbol: str,
+        side: str,
+        open_time: datetime,
+        complete: bool,
+    ) -> dict[str, Any]:
+        return {
+            "symbol": symbol,
+            "side": side,
+            "open_time": open_time,
+            "complete": complete,
+            "current_size": 0.0,
+            "max_position_size": 0.0,
+            "open_quantity": 0.0,
+            "open_notional": 0.0,
+            "close_quantity": 0.0,
+            "close_notional": 0.0,
+            "inferred_entry_quantity": 0.0,
+            "inferred_entry_notional": 0.0,
+            "realized_pnl": 0.0,
+            "trading_fee": 0.0,
+        }
+
+    @staticmethod
+    def _add_binance_fee(
+        cycle: dict[str, Any],
+        row: dict[str, Any],
+        quantity_share: float = 1.0,
+    ) -> None:
+        fee = float(row.get("commission") or 0) * quantity_share
+        if str(row.get("commissionAsset") or "USDT").upper() in {
+            "USD",
+            "USDT",
+            "USDC",
+            "FDUSD",
+        }:
+            cycle["trading_fee"] += fee
+        elif fee:
+            cycle["complete"] = False
+
+    @classmethod
+    def _add_binance_close(
+        cls,
+        cycle: dict[str, Any],
+        row: dict[str, Any],
+        close_quantity: float,
+        fee_share: float,
+    ) -> None:
+        price = float(row.get("price") or 0)
+        realized_pnl = float(row.get("realizedPnl") or 0)
+        cycle["close_quantity"] += close_quantity
+        cycle["close_notional"] += price * close_quantity
+        cycle["realized_pnl"] += realized_pnl
+        inferred_entry = (
+            price - realized_pnl / close_quantity
+            if cycle["side"] == "LONG"
+            else price + realized_pnl / close_quantity
+        )
+        cycle["inferred_entry_quantity"] += close_quantity
+        cycle["inferred_entry_notional"] += inferred_entry * close_quantity
+        cls._add_binance_fee(cycle, row, fee_share)
+
+    @classmethod
+    def _add_binance_open(
+        cls,
+        cycle: dict[str, Any],
+        row: dict[str, Any],
+        open_quantity: float,
+        fee_share: float,
+    ) -> None:
+        cycle["open_quantity"] += open_quantity
+        cycle["open_notional"] += float(row.get("price") or 0) * open_quantity
+        cycle["current_size"] += open_quantity
+        cycle["max_position_size"] = max(
+            cycle["max_position_size"], cycle["current_size"]
+        )
+        cls._add_binance_fee(cycle, row, fee_share)
+
+    @staticmethod
+    def _finish_binance_cycle(
+        cycle: dict[str, Any],
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        cycle["close_time"] = datetime.fromtimestamp(
+            int(row.get("time") or 0) / 1000, tz=UTC
+        )
+        cycle["closing_trade_id"] = str(row.get("id") or row.get("orderId"))
+        return cycle
+
+    @classmethod
+    def _closed_cycles_from_hedge_trades(
+        cls,
+        rows: list[dict[str, Any]],
+        start_time: datetime,
+    ) -> list[dict[str, Any]]:
+        epsilon = 1e-12
+        active: dict[tuple[str, str], dict[str, Any]] = {}
+        closed: list[dict[str, Any]] = []
+        for row in rows:
+            position_side = str(row.get("positionSide") or "").upper()
+            if position_side not in {"LONG", "SHORT"}:
+                continue
+            symbol = str(row.get("symbol") or "")
+            key = (symbol, position_side)
+            trade_side = str(row.get("side") or "").upper()
+            quantity = abs(float(row.get("qty") or 0))
+            if not symbol or not quantity:
+                continue
+            is_open = (position_side == "LONG" and trade_side == "BUY") or (
+                position_side == "SHORT" and trade_side == "SELL"
+            )
+            fill_time = datetime.fromtimestamp(
+                int(row.get("time") or 0) / 1000, tz=UTC
+            )
+            cycle = active.get(key)
+            if is_open:
+                if cycle is None:
+                    cycle = cls._new_trade_cycle(
+                        symbol, position_side, fill_time, True
+                    )
+                    active[key] = cycle
+                cls._add_binance_open(cycle, row, quantity, 1.0)
+                continue
+
+            if cycle is None:
+                cycle = cls._new_trade_cycle(
+                    symbol, position_side, start_time, False
+                )
+                cycle["current_size"] = quantity
+                cycle["max_position_size"] = quantity
+                active[key] = cycle
+            close_quantity = min(quantity, cycle["current_size"])
+            cls._add_binance_close(cycle, row, close_quantity, 1.0)
+            cycle["current_size"] = max(0.0, cycle["current_size"] - close_quantity)
+            if cycle["current_size"] <= epsilon:
+                closed.append(cls._finish_binance_cycle(cycle, row))
+                active.pop(key, None)
+        return closed
+
+    @classmethod
+    def _closed_cycles_from_one_way_trades(
+        cls,
+        rows: list[dict[str, Any]],
+        start_time: datetime,
+    ) -> list[dict[str, Any]]:
+        epsilon = 1e-12
+        active: dict[str, dict[str, Any]] = {}
+        signed_positions: dict[str, float] = {}
+        closed: list[dict[str, Any]] = []
+        for row in rows:
+            if str(row.get("positionSide") or "BOTH").upper() != "BOTH":
+                continue
+            symbol = str(row.get("symbol") or "")
+            quantity = abs(float(row.get("qty") or 0))
+            if not symbol or not quantity:
+                continue
+            delta = quantity if str(row.get("side") or "").upper() == "BUY" else -quantity
+            position = signed_positions.get(symbol, 0.0)
+            fill_time = datetime.fromtimestamp(
+                int(row.get("time") or 0) / 1000, tz=UTC
+            )
+            cycle = active.get(symbol)
+            if not position or position * delta > 0:
+                if cycle is None:
+                    cycle = cls._new_trade_cycle(
+                        symbol,
+                        "LONG" if delta > 0 else "SHORT",
+                        fill_time,
+                        True,
+                    )
+                    active[symbol] = cycle
+                cls._add_binance_open(cycle, row, quantity, 1.0)
+                signed_positions[symbol] = position + delta
+                continue
+
+            if cycle is None:
+                cycle = cls._new_trade_cycle(
+                    symbol,
+                    "LONG" if position > 0 else "SHORT",
+                    start_time,
+                    False,
+                )
+                cycle["current_size"] = abs(position)
+                cycle["max_position_size"] = abs(position)
+                active[symbol] = cycle
+            close_quantity = min(abs(position), quantity)
+            cls._add_binance_close(
+                cycle, row, close_quantity, close_quantity / quantity
+            )
+            cycle["current_size"] = max(0.0, cycle["current_size"] - close_quantity)
+            new_position = position + delta
+            if abs(new_position) <= epsilon or position * new_position < 0:
+                closed.append(cls._finish_binance_cycle(cycle, row))
+                active.pop(symbol, None)
+
+            open_quantity = quantity - close_quantity
+            if open_quantity > epsilon:
+                new_cycle = cls._new_trade_cycle(
+                    symbol,
+                    "LONG" if new_position > 0 else "SHORT",
+                    fill_time,
+                    True,
+                )
+                cls._add_binance_open(
+                    new_cycle, row, open_quantity, open_quantity / quantity
+                )
+                active[symbol] = new_cycle
+            signed_positions[symbol] = (
+                0.0 if abs(new_position) <= epsilon else new_position
+            )
+        return closed
+
+    @classmethod
+    def _normalize_binance_cycles(
+        cls,
+        cycles: list[dict[str, Any]],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        positions: list[dict[str, Any]] = []
+        for cycle in cycles:
+            if not start_time <= cycle["close_time"] <= end_time:
+                continue
+            open_quantity = float(cycle["open_quantity"])
+            inferred_quantity = float(cycle["inferred_entry_quantity"])
+            if cycle["complete"] and open_quantity:
+                entry_price = float(cycle["open_notional"]) / open_quantity
+            elif inferred_quantity:
+                entry_price = float(cycle["inferred_entry_notional"]) / inferred_quantity
+            else:
+                entry_price = 0.0
+            close_quantity = float(cycle["close_quantity"])
+            exit_price = (
+                float(cycle["close_notional"]) / close_quantity if close_quantity else 0.0
+            )
+            realized_pnl = float(cycle["realized_pnl"])
+            trading_fee = float(cycle["trading_fee"])
+            initial_notional = entry_price * float(cycle["max_position_size"])
+            positions.append(
+                {
+                    "source_record_id": (
+                        f"binance:{cycle['symbol']}:{cycle['side']}:"
+                        f"{cycle['closing_trade_id']}"
+                    ),
+                    "symbol": cycle["symbol"],
+                    "normalized_symbol": SymbolNormalizer.normalize(cycle["symbol"]),
+                    "side": cycle["side"],
+                    "open_time": cycle["open_time"],
+                    "close_time": cycle["close_time"],
+                    "average_entry_price": entry_price,
+                    "average_exit_price": exit_price,
+                    "max_position_size": cycle["max_position_size"],
+                    "realized_pnl": realized_pnl,
+                    "funding_fee": 0.0,
+                    "trading_fee": trading_fee,
+                    "net_pnl": realized_pnl - trading_fee,
+                    "return_percent": (
+                        realized_pnl / initial_notional * 100 if initial_notional else 0
+                    ),
+                    "data_source": "RECONSTRUCTED",
+                    "data_completeness": "PARTIAL",
+                }
+            )
+        return positions
+
+    async def get_closed_positions(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        income_rows = await self._income_rows(start_time, end_time)
+        symbols = sorted(
+            {
+                str(row.get("symbol"))
+                for row in income_rows
+                if row.get("symbol")
+                and str(row.get("incomeType") or "").upper()
+                in {"REALIZED_PNL", "COMMISSION"}
+            }
+        )
+        trade_pages = await asyncio.gather(
+            *(self._trade_rows(symbol, start_time, end_time) for symbol in symbols)
+        )
+        rows = [row for page in trade_pages for row in page]
+        cycles = self._closed_cycles_from_hedge_trades(rows, start_time)
+        cycles.extend(self._closed_cycles_from_one_way_trades(rows, start_time))
+        return self._normalize_binance_cycles(cycles, start_time, end_time)
 
     async def get_income_history(
         self, start_time: datetime, end_time: datetime

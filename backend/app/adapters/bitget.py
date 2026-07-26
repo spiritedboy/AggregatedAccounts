@@ -124,6 +124,97 @@ class BitgetAdapter(ExchangeAdapter):
             )
         return positions
 
+    async def _position_history_rows(
+        self,
+        product_type: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        base_params: dict[str, Any] = {
+            "productType": product_type,
+            "startTime": int(start_time.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000),
+            "limit": 100,
+        }
+        rows: list[dict[str, Any]] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        for _ in range(50):
+            params = {**base_params}
+            if cursor:
+                params["idLessThan"] = cursor
+            payload = await self._get("/api/v2/mix/position/history-position", params)
+            page = (payload or {}).get("list", [])
+            rows.extend(page)
+            next_cursor = str((payload or {}).get("endId") or "")
+            if (
+                len(page) < 100
+                or not next_cursor
+                or next_cursor == cursor
+                or next_cursor in seen_cursors
+            ):
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        return rows
+
+    async def get_closed_positions(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        positions: dict[str, dict[str, Any]] = {}
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        for product_type in ("USDT-FUTURES", "USDC-FUTURES"):
+            rows = await self._position_history_rows(product_type, start_time, end_time)
+            for item in rows:
+                close_timestamp = int(item.get("utime") or 0)
+                if not start_ms <= close_timestamp <= end_ms:
+                    continue
+                open_timestamp = int(item.get("ctime") or 0)
+                realized_pnl = float(item.get("pnl") or 0)
+                funding_fee = float(item.get("totalFunding") or 0)
+                fee_contribution = float(item.get("openFee") or 0) + float(
+                    item.get("closeFee") or 0
+                )
+                net_pnl = float(
+                    item.get("netProfit")
+                    or realized_pnl + funding_fee + fee_contribution
+                )
+                entry_price = float(item.get("openAvgPrice") or 0)
+                max_size = abs(
+                    float(item.get("openTotalPos") or item.get("closeTotalPos") or 0)
+                )
+                initial_notional = entry_price * max_size
+                source_record_id = (
+                    f"bitget:{product_type}:"
+                    f"{item.get('positionId') or item.get('symbol')}:{close_timestamp}"
+                )
+                positions[source_record_id] = {
+                    "source_record_id": source_record_id,
+                    "symbol": item["symbol"],
+                    "normalized_symbol": SymbolNormalizer.normalize(item["symbol"]),
+                    "side": normalize_side(str(item.get("holdSide") or "")),
+                    "open_time": (
+                        datetime.fromtimestamp(open_timestamp / 1000, tz=UTC)
+                        if open_timestamp
+                        else start_time
+                    ),
+                    "close_time": datetime.fromtimestamp(close_timestamp / 1000, tz=UTC),
+                    "average_entry_price": entry_price,
+                    "average_exit_price": float(item.get("closeAvgPrice") or 0),
+                    "max_position_size": max_size,
+                    "realized_pnl": realized_pnl,
+                    "funding_fee": funding_fee,
+                    "trading_fee": -fee_contribution,
+                    "net_pnl": net_pnl,
+                    "return_percent": (
+                        realized_pnl / initial_notional * 100 if initial_notional else 0
+                    ),
+                    "data_source": "EXCHANGE_API",
+                    "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",
+                }
+        return list(positions.values())
+
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
