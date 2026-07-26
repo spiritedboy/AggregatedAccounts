@@ -25,10 +25,6 @@ export async function apiFetch<T>(
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (response.status === 401 && typeof window !== "undefined") {
-    window.location.assign("/login");
-    throw new Error("会话已过期");
-  }
   const payload = (await response.json()) as Envelope<T>;
   if (!response.ok || !payload.success) {
     throw new Error(payload.error?.message ?? "请求失败，请稍后重试");

@@ -12,6 +12,7 @@ RUN pip install --upgrade pip && pip install ".[dev]"
 
 COPY alembic.ini ./
 COPY alembic ./alembic
+COPY config ./config
 COPY app ./app
 COPY tests ./tests
 

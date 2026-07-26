@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "accounts": [
+    {
+      "exchange": "BINANCE",
+      "connection_name": "Binance 默认账户",
+      "enabled": false,
+      "api_key_env": "BINANCE_API_KEY",
+      "api_secret_env": "BINANCE_API_SECRET"
+    },
+    {
+      "exchange": "OKX",
+      "connection_name": "OKX 默认账户",
+      "enabled": false,
+      "api_key_env": "OKX_API_KEY",
+      "api_secret_env": "OKX_API_SECRET",
+      "passphrase_env": "OKX_PASSPHRASE"
+    },
+    {
+      "exchange": "BITGET",
+      "connection_name": "Bitget 默认账户",
+      "enabled": false,
+      "api_key_env": "BITGET_API_KEY",
+      "api_secret_env": "BITGET_API_SECRET",
+      "passphrase_env": "BITGET_PASSPHRASE"
+    },
+    {
+      "exchange": "HYPERLIQUID",
+      "connection_name": "Hyperliquid 默认账户",
+      "enabled": false,
+      "wallet_address_env": "HYPERLIQUID_WALLET_ADDRESS"
+    },
+    {
+      "exchange": "POLYMARKET",
+      "connection_name": "Polymarket 默认账户",
+      "enabled": false,
+      "wallet_address_env": "POLYMARKET_WALLET_ADDRESS"
+    }
+  ]
+}

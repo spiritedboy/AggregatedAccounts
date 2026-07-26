@@ -28,7 +28,4 @@ def client():
 
 @pytest.fixture
 def authenticated(client):
-    response = client.post("/api/auth/login", json={"password": os.environ["APP_ACCESS_PASSWORD"]})
-    assert response.status_code == 200
-    csrf = response.json()["data"]["csrf_token"]
-    return client, {"X-CSRF-Token": csrf}
+    return client, {}

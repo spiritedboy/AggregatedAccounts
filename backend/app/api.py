@@ -1,18 +1,16 @@
 import asyncio
 import csv
-import hmac
 import io
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.database import get_db
 from app.models import (
     AccountBalanceSnapshot,
@@ -24,16 +22,11 @@ from app.models import (
     InitialAccountSnapshot,
     SyncJob,
 )
-from app.schemas import AccountResponse, ExchangeAccountCreate, LoginRequest, envelope
+from app.schemas import AccountResponse, ExchangeAccountCreate, envelope
 from app.security.session import (
-    SESSION_COOKIE,
-    check_login_rate_limit,
-    clear_login_attempts,
     client_ip,
-    create_session,
     require_csrf,
     require_session,
-    revoke_session,
 )
 from app.services.accounts import (
     adapter_for_account,
@@ -71,56 +64,9 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     }
 
 
-@router.post("/auth/login")
-async def login(
-    payload: LoginRequest,
-    request: Request,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    ip = client_ip(request)
-    check_login_rate_limit(ip)
-    if not hmac.compare_digest(payload.password, settings.app_access_password):
-        raise HTTPException(status_code=401, detail="访问密码错误")
-    clear_login_attempts(ip)
-    token, csrf = await create_session(db, ip)
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/",
-        max_age=12 * 60 * 60,
-    )
-    response.set_cookie(
-        "portfolio_csrf",
-        csrf,
-        httponly=False,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/",
-        max_age=12 * 60 * 60,
-    )
-    return envelope({"authenticated": True, "csrf_token": csrf})
-
-
-@router.post("/auth/logout")
-async def logout(
-    response: Response,
-    portfolio_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
-    _: AppSession = Depends(require_csrf),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    await revoke_session(db, portfolio_session)
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie("portfolio_csrf", path="/")
-    return envelope({"authenticated": False})
-
-
 @router.get("/auth/status")
 async def auth_status(_: AppSession = Depends(require_session)) -> dict[str, Any]:
-    return envelope({"authenticated": True})
+    return envelope({"authenticated": True, "mode": "PUBLIC_READ_ONLY"})
 
 
 @router.get("/exchange-accounts")
@@ -170,7 +116,6 @@ async def get_account(
 @router.post("/exchange-accounts/{account_id}/test")
 async def test_account(
     account_id: uuid.UUID,
-    _: AppSession = Depends(require_csrf),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     account = await _active_account(db, account_id)
@@ -193,7 +138,6 @@ async def test_account(
 @router.post("/exchange-accounts/{account_id}/sync")
 async def sync_one_account(
     account_id: uuid.UUID,
-    _: AppSession = Depends(require_csrf),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     account = await _active_account(db, account_id)

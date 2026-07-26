@@ -8,10 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ExchangeName = Literal["BINANCE", "OKX", "BITGET", "HYPERLIQUID", "POLYMARKET"]
 
 
-class LoginRequest(BaseModel):
-    password: str = Field(min_length=1, max_length=256)
-
-
 class ExchangeAccountCreate(BaseModel):
     exchange: ExchangeName
     connection_name: str = Field(min_length=2, max_length=80)

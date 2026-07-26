@@ -8,9 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, case_sensitive=False, extra="ignore")
 
     app_env: str = "development"
-    app_access_password: str = Field(min_length=6)
     app_encryption_key: str = Field(min_length=32)
-    session_secret: str = Field(min_length=32)
     cookie_secure: bool = False
     database_url: str
     database_url_sync: str
@@ -22,6 +20,7 @@ class Settings(BaseSettings):
     sync_closed_position_seconds: int = 600
     sync_health_seconds: int = 60
     request_timeout_seconds: float = 12
+    exchange_accounts_config: str = "/app/config/exchange_accounts.json"
 
 
 @lru_cache

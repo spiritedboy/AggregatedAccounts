@@ -15,6 +15,7 @@ from app.database import SessionLocal
 from app.models import ExchangeAccount
 from app.schemas import envelope
 from app.services.accounts import sync_account
+from app.services.configured_accounts import provision_configured_accounts
 from app.services.demo import seed_demo_data
 
 logging.basicConfig(
@@ -48,6 +49,9 @@ async def lifespan(_: FastAPI):
     if settings.demo_mode:
         async with SessionLocal() as db:
             await seed_demo_data(db)
+    async with SessionLocal() as db:
+        configured = await provision_configured_accounts(db)
+        logger.info("configured account provisioning completed result=%s", configured)
     if settings.app_env != "test":
         scheduler.add_job(
             scheduled_sync,

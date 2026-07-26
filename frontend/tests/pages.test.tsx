@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountsPage from "@/app/accounts/page";
 import DashboardPage from "@/app/dashboard/page";
 import HistoryPage from "@/app/history/page";
-import LoginPage from "@/app/login/page";
 import PnlPage from "@/app/pnl/page";
 import PositionsPage from "@/app/positions/page";
 import { AppShell } from "@/components/app-shell";
@@ -111,28 +110,6 @@ afterEach(() => {
 });
 
 describe("portfolio pages", () => {
-  it("renders the login page with a protected password field", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            success: false,
-            data: null,
-            error: { message: "请先登录" },
-            timestamp: new Date().toISOString(),
-          }),
-          { status: 401, headers: { "Content-Type": "application/json" } },
-        ),
-      ),
-    );
-    render(<LoginPage />);
-    const input = screen.getByLabelText("访问密码");
-    expect(input).toHaveAttribute("type", "password");
-    expect(input).toHaveAttribute("autocomplete", "current-password");
-    expect(screen.getByRole("button", { name: /安全进入/ })).toBeInTheDocument();
-  });
-
   it("renders dashboard metrics, charts, and demo banner", async () => {
     installFetch({
       "/api/dashboard/summary": {
@@ -256,36 +233,16 @@ describe("portfolio pages", () => {
     expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();
   });
 
-  it("keeps exchange secrets in password inputs and exposes mobile navigation", async () => {
+  it("renders the account page as configuration-managed read-only status", async () => {
     installFetch({ "/api/exchange-accounts": [account] });
     render(<AccountsPage />);
     await screen.findByText("主账户只读");
     expect(screen.getByRole("navigation", { name: "移动端导航" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "添加账户" }));
-    const secret = screen.getByLabelText("API Secret");
-    expect(secret).toHaveAttribute("type", "password");
-    expect(secret).toHaveAttribute("autocomplete", "new-password");
-    expect(screen.getByText(/仅接受纯只读 API Key/)).toBeInTheDocument();
-  });
-
-  it("accepts a public Polymarket profile address without secret fields", async () => {
-    installFetch({ "/api/exchange-accounts": [account] });
-    render(<AccountsPage />);
-    await screen.findByText("主账户只读");
-    await userEvent.click(screen.getByRole("button", { name: "添加账户" }));
-    await userEvent.click(screen.getByRole("button", { name: "POLYMARKET" }));
-    expect(screen.getByLabelText("Polymarket 钱包或 Profile Address")).toBeInTheDocument();
-    expect(screen.getByText(/自动解析 Profile 地址/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("API Secret")).not.toBeInTheDocument();
-  });
-
-  it("requires explicit confirmation before deleting an account", async () => {
-    installFetch({ "/api/exchange-accounts": [account] });
-    render(<AccountsPage />);
-    await screen.findByText("主账户只读");
-    fireEvent.click(screen.getByRole("button", { name: "删除 主账户只读" }));
-    expect(screen.getByText("删除 主账户只读？")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认删除" })).toBeInTheDocument();
+    expect(screen.getByText(/账户由服务器配置文件统一管理/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "添加账户" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /测试连接/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /立即同步/ })).toBeInTheDocument();
   });
 
   it("persists the selected theme when the app shell remounts", async () => {

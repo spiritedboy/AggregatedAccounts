@@ -7,7 +7,8 @@ Web 界面。
 
 ## 已实现
 
-- 单访问密码登录、登录限频、HttpOnly 会话 Cookie、SameSite=Lax 与 CSRF 防护
+- 无访问密码的公开只读页面与 API；账户增删和批量写操作统一禁用
+- 仓库内五平台账户配置模板，敏感凭证只通过环境变量注入
 - API Key、Secret 和 Passphrase 使用 AES-256-GCM 分字段认证加密
 - Hyperliquid 与 Polymarket 只接收公开钱包/Profile 地址，不接收私钥、助记词或密码
 - 凭证响应严格脱敏；密文、Nonce、认证标签和主密钥不会返回前端
@@ -79,13 +80,8 @@ docker compose \
 - 健康检查：`http://172.26.95.199:8000/api/health`
 - WSL 本机：`http://127.0.0.1:8000`
 
-本地访问密码保存在权限为 `600` 的 `.env` 文件中：
-
-```bash
-grep '^APP_ACCESS_PASSWORD=' .env
-```
-
-`.env` 被 Git 忽略。不要将该密码或任何密钥复制到文档、提交或日志中。
+网站不需要登录或访问密码。`.env` 仍被 Git 忽略，用于数据库连接、主加密密钥和
+交易所凭证环境变量；不要将任何密钥复制到文档、提交或日志中。
 
 ## 常用命令
 
@@ -106,18 +102,31 @@ make health
 make security-check
 ```
 
-## 添加 API Key
+## 配置交易所账户
 
-登录后打开导航中的“交易所账户”，点击“添加账户”：
+账户模板位于 `backend/config/exchange_accounts.json`，仓库中已经包含 Binance、
+OKX、Bitget、Hyperliquid 和 Polymarket 五个平台的默认值，默认均为
+`"enabled": false`。启用账户时：
 
-- Binance：连接名称、API Key、API Secret
-- OKX：连接名称、API Key、API Secret、Passphrase
-- Bitget：连接名称、API Key、API Secret、Passphrase
-- Hyperliquid：连接名称、42 位公开钱包地址
-- Polymarket：连接名称、42 位登录钱包或 User Profile / Proxy Wallet 公开地址
+1. 将对应配置项改为 `"enabled": true`。
+2. 在服务器 `.env` 中填写配置项引用的环境变量。
+3. 重启 backend。
 
-平台先调用只读接口测试连接并尽量检查权限。检测到现货交易、合约交易、划转或
-提币权限时拒绝保存。成功后才创建统计周期、加密凭证和保存初始快照。
+示例：
+
+```json
+{
+  "exchange": "BINANCE",
+  "connection_name": "Binance 默认账户",
+  "enabled": true,
+  "api_key_env": "BINANCE_API_KEY",
+  "api_secret_env": "BINANCE_API_SECRET"
+}
+```
+
+真实 API Key、Secret 和 Passphrase 不写入 JSON，也不提交 Git。启动时平台先调用
+只读接口测试连接并检查权限；检测到交易、划转或提币权限时拒绝创建。配置加载是
+幂等的：同交易所、同连接名称的启用账户会保留，不会删除现有账户或历史数据。
 
 Polymarket 使用公开 Data API 和 Accounting Snapshot，不需要 API Key。请填写
 Polymarket 的登录钱包或 Profile / Proxy Wallet 地址，系统会自动解析实际的
@@ -125,8 +134,7 @@ Profile 地址；平台不会请求或保存钱包私钥、助记词或登录密
 Accounting Snapshot 的 `equity`，可用余额来自
 `cashBalance`，预测市场持仓价值来自 `positionsValue`。
 
-敏感字段不会写入 localStorage、sessionStorage 或 URL，成功提交后表单状态会
-被清空。
+“交易所账户”页面不提供添加或删除按钮，保留连接测试和立即同步。
 
 ## 统计规则
 
@@ -159,18 +167,18 @@ make test
 make security-check
 ```
 
-后端覆盖凭证加密、篡改检测、脱敏、Symbol 标准化、收益公式、字段校验、认证、
-CSRF、Demo 查询、仓位筛选和 CSV。前端覆盖登录、总览、当前仓位、历史仓位、
-收益、账户凭证表单、移动导航和删除确认。
+后端覆盖配置加载、凭证加密、篡改检测、脱敏、Symbol 标准化、收益公式、字段校验、
+公开只读限制、Demo 查询、仓位筛选和 CSV。前端覆盖总览、当前仓位、历史仓位、
+收益、只读账户页、移动导航和主题持久化。
 
 ## 安全说明
 
 - 主加密密钥只通过 `.env` 注入 backend，不进入数据库或镜像
 - AES-GCM 使用每字段随机 96 位 Nonce 和 128 位认证标签
-- 会话令牌和 CSRF 令牌在 PostgreSQL 中只保存 SHA-256 摘要
+- 网站不创建登录会话；账户增删与批量写接口在公开模式下统一拒绝
 - Nginx 限制请求体、隐藏版本并添加浏览器安全响应头
 - API 错误、同步错误与健康检查不包含凭证或数据库 URL
-- 删除连接会删除所有凭证密文并立即停止启用中的统计周期
+- 账户配置加载不会删除已有连接、凭证或历史统计数据
 - Docker 网络固定为 `172.30.42.0/24`，便于 PostgreSQL 最小授权
 
 更多资料：

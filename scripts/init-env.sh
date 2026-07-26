@@ -23,13 +23,6 @@ upsert_secret() {
 }
 
 upsert_secret APP_ENCRYPTION_KEY
-upsert_secret SESSION_SECRET
-
-if grep -q '^APP_ACCESS_PASSWORD=CHANGE_ME$' "${env_file}"; then
-  access_password="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-18)"
-  sed -i "s|^APP_ACCESS_PASSWORD=CHANGE_ME$|APP_ACCESS_PASSWORD=${access_password}|" "${env_file}"
-  printf 'Generated a local access password in .env (value intentionally not printed).\n'
-fi
 
 chmod 600 "${env_file}"
 printf 'Environment ready; encryption material is present and hidden.\n'

@@ -6,7 +6,6 @@ import {
   EyeOff,
   History,
   LayoutDashboard,
-  LogOut,
   Moon,
   Orbit,
   PanelLeft,
@@ -25,8 +24,6 @@ import {
   useMemo,
   useState,
 } from "react";
-
-import { apiFetch } from "@/lib/api";
 
 const THEME_STORAGE_KEY = "atlas-theme";
 
@@ -57,13 +54,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(true);
   const [hidden, setHidden] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    apiFetch<{ authenticated: boolean }>("/api/auth/status")
-      .then(() => setReady(true))
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -85,26 +75,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }
 
-  async function logout() {
-    await apiFetch("/api/auth/logout", { method: "POST" });
-    window.location.assign("/login");
-  }
-
   const privacy = useMemo(
     () => ({ hidden, toggle: () => setHidden((value) => !value) }),
     [hidden],
   );
-
-  if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex items-center gap-3 text-sm muted">
-          <Orbit className="h-5 w-5 animate-spin text-mint-400" />
-          正在验证安全会话…
-        </div>
-      </div>
-    );
-  }
 
   return (
     <PrivacyContext.Provider value={privacy}>
@@ -156,14 +130,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onClick={toggleTheme}
               >
                 {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </button>
-              <button
-                type="button"
-                className="button-secondary h-10 min-h-10 w-10 p-0"
-                aria-label="退出登录"
-                onClick={logout}
-              >
-                <LogOut className="h-4 w-4" />
               </button>
             </div>
           </header>

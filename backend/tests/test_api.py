@@ -9,20 +9,25 @@ def test_health_is_public_and_redacted(client):
     assert "postgresql://" not in serialized
 
 
-def test_unauthenticated_request_is_blocked(client):
+def test_public_dashboard_does_not_require_login(client):
     response = client.get("/api/dashboard/summary")
-    assert response.status_code == 401
-    assert response.json()["success"] is False
-
-
-def test_login_status_logout_flow(authenticated):
-    client, headers = authenticated
-    assert client.get("/api/auth/status").json()["data"]["authenticated"] is True
-    blocked = client.post("/api/auth/logout")
-    assert blocked.status_code == 403
-    response = client.post("/api/auth/logout", headers=headers)
     assert response.status_code == 200
-    assert client.get("/api/auth/status").status_code == 401
+    assert response.json()["success"] is True
+
+
+def test_public_mode_disables_login_and_write_operations(client):
+    status = client.get("/api/auth/status")
+    assert status.status_code == 200
+    assert status.json()["data"]["mode"] == "PUBLIC_READ_ONLY"
+    assert client.post("/api/auth/login", json={"password": "unused"}).status_code == 404
+    assert client.post("/api/sync/refresh").status_code == 403
+
+
+def test_public_mode_keeps_single_account_test_and_sync(authenticated):
+    client, _ = authenticated
+    account_id = client.get("/api/exchange-accounts").json()["data"][0]["id"]
+    assert client.post(f"/api/exchange-accounts/{account_id}/test").status_code == 200
+    assert client.post(f"/api/exchange-accounts/{account_id}/sync").status_code == 200
 
 
 def test_demo_dashboard_positions_and_pnl(authenticated):
@@ -76,45 +81,11 @@ def test_api_key_validation_does_not_echo_secret(authenticated):
             "api_secret": "very-secret-value",
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 403
     assert "very-secret-value" not in response.text
 
 
-def test_polymarket_account_uses_public_address_only(authenticated, monkeypatch):
-    from app.services.accounts import ADAPTERS
-
-    class FakePolymarketAdapter:
-        def __init__(self, **kwargs):
-            self.wallet_address = kwargs["wallet_address"]
-
-        async def test_connection(self):
-            return True
-
-        async def get_permissions(self):
-            return {
-                "read": True,
-                "spot_trade": False,
-                "futures_trade": False,
-                "transfer": False,
-                "withdraw": False,
-                "public_address_only": True,
-            }
-
-        async def get_account_summary(self):
-            return {
-                "total_equity_usd": 52,
-                "available_balance_usd": 14.5,
-                "margin_balance_usd": 37.5,
-                "unrealized_pnl_usd": 20,
-            }
-
-        async def get_open_positions(self):
-            return []
-
-        async def close(self):
-            return None
-
-    monkeypatch.setitem(ADAPTERS, "POLYMARKET", FakePolymarketAdapter)
+def test_account_creation_api_is_disabled_in_public_mode(authenticated):
     client, headers = authenticated
     response = client.post(
         "/api/exchange-accounts",
@@ -125,8 +96,5 @@ def test_polymarket_account_uses_public_address_only(authenticated, monkeypatch)
             "wallet_address": "0x" + "d" * 40,
         },
     )
-    assert response.status_code == 201
-    account = response.json()["data"]
-    assert account["exchange"] == "POLYMARKET"
-    assert account["data_completeness"] == "PARTIAL"
-    assert account["permission_status"]["public_address_only"] is True
+    assert response.status_code == 403
+    assert "公开只读模式" in response.text
