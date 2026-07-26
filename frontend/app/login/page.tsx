@@ -39,11 +39,11 @@ export default function LoginPage() {
   return (
     <main className="relative grid min-h-screen overflow-hidden lg:grid-cols-[1.15fr_.85fr]">
       <section className="relative hidden flex-col justify-between overflow-hidden p-12 lg:flex xl:p-16">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(51,214,173,.18),transparent_38%),linear-gradient(145deg,#07100f_0%,#102622_100%)]" />
-        <div className="absolute -bottom-32 -right-24 h-[34rem] w-[34rem] rounded-full border border-mint-400/15" />
-        <div className="absolute -bottom-20 -right-4 h-[25rem] w-[25rem] rounded-full border border-mint-400/10" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_16%,rgba(127,94,246,.45),transparent_32%),radial-gradient(circle_at_88%_20%,rgba(35,215,189,.28),transparent_30%),radial-gradient(circle_at_72%_90%,rgba(246,108,168,.28),transparent_34%),linear-gradient(145deg,#17112e_0%,#241b49_100%)]" />
+        <div className="absolute -bottom-32 -right-24 h-[34rem] w-[34rem] rounded-full border border-fuchsia-300/20" />
+        <div className="absolute -bottom-20 -right-4 h-[25rem] w-[25rem] rounded-full border border-cyan-300/15" />
         <div className="relative flex items-center gap-3 text-white">
-          <div className="grid h-11 w-11 place-items-center rounded-xl bg-mint-400 text-ink-950">
+          <div className="brand-bubble grid h-11 w-11 place-items-center rounded-2xl text-white">
             <Orbit className="h-6 w-6" />
           </div>
           <div>
@@ -54,14 +54,14 @@ export default function LoginPage() {
           </div>
         </div>
         <div className="relative max-w-2xl text-white">
-          <p className="eyebrow">Unified capital view</p>
+          <p className="eyebrow">All your assets, one happy place</p>
           <h1 className="mt-5 text-5xl font-semibold leading-[1.08] tracking-[-0.04em] xl:text-6xl">
-            看清每一笔资本，
+            资产聚在一起，
             <br />
-            不触碰任何交易。
+            心里更有底。
           </h1>
           <p className="mt-7 max-w-xl text-base leading-8 text-white/58">
-            将 Binance、OKX、Bitget 与 Hyperliquid 的账户权益、仓位和收益整合进一张只读视图。
+            Binance、OKX、Bitget 与 Hyperliquid 一屏汇总，颜色更轻快，数据依然严谨。
           </p>
         </div>
         <div className="relative flex items-center gap-6 text-xs text-white/45">
@@ -76,7 +76,7 @@ export default function LoginPage() {
       <section className="flex items-center justify-center px-5 py-12 sm:px-10">
         <div className="w-full max-w-md">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-mint-400 text-ink-950">
+          <div className="brand-bubble grid h-10 w-10 place-items-center rounded-2xl text-white">
               <Orbit className="h-5 w-5" />
             </div>
             <div>
@@ -84,7 +84,7 @@ export default function LoginPage() {
               <p className="muted text-[10px] uppercase tracking-[0.15em]">Portfolio Intelligence</p>
             </div>
           </div>
-          <p className="eyebrow">Private workspace</p>
+          <p className="eyebrow">欢迎回到你的资产空间</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight">欢迎回来</h2>
           <p className="muted mt-3 text-sm leading-6">
             输入此平台的访问密码。凭证只会发送至后端验证，不会保存在浏览器中。

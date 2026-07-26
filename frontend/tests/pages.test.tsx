@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import HistoryPage from "@/app/history/page";
 import LoginPage from "@/app/login/page";
 import PnlPage from "@/app/pnl/page";
 import PositionsPage from "@/app/positions/page";
+import { AppShell } from "@/components/app-shell";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
@@ -95,6 +96,8 @@ function installFetch(routes: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  window.localStorage.clear();
+  document.documentElement.classList.add("dark");
   Object.defineProperty(document, "cookie", {
     writable: true,
     value: "portfolio_csrf=test-csrf",
@@ -270,5 +273,32 @@ describe("portfolio pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除 主账户只读" }));
     expect(screen.getByText("删除 主账户只读？")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "确认删除" })).toBeInTheDocument();
+  });
+
+  it("persists the selected theme when the app shell remounts", async () => {
+    installFetch({});
+    window.localStorage.setItem("atlas-theme", "light");
+
+    const first = render(
+      <AppShell>
+        <div>主题测试页面</div>
+      </AppShell>,
+    );
+    await screen.findByText("主题测试页面");
+    await waitFor(() => expect(document.documentElement).not.toHaveClass("dark"));
+
+    await userEvent.click(screen.getByRole("button", { name: "切换主题" }));
+    expect(window.localStorage.getItem("atlas-theme")).toBe("dark");
+    expect(document.documentElement).toHaveClass("dark");
+
+    first.unmount();
+    document.documentElement.classList.remove("dark");
+    render(
+      <AppShell>
+        <div>主题测试页面</div>
+      </AppShell>,
+    );
+    await screen.findByText("主题测试页面");
+    await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
   });
 });

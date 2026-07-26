@@ -54,7 +54,7 @@ function PositionsContent() {
   return (
     <>
       <PageHeader
-        eyebrow="Open exposure"
+        eyebrow="仓位雷达"
         title="当前仓位"
         description="统一查看各交易所当前敞口。页面没有平仓、杠杆调整或任何交易操作。"
         action={

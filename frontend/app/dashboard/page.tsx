@@ -80,7 +80,7 @@ function DashboardContent() {
           smooth: 0.35,
           symbol: "none",
           data: data?.equity_curve.map((point) => point.equity) ?? [],
-          lineStyle: { color: "#33d6ad", width: 2.5 },
+          lineStyle: { color: "#8567f4", width: 3 },
           areaStyle: {
             color: {
               type: "linear",
@@ -89,8 +89,9 @@ function DashboardContent() {
               x2: 0,
               y2: 1,
               colorStops: [
-                { offset: 0, color: "rgba(51,214,173,.30)" },
-                { offset: 1, color: "rgba(51,214,173,0)" },
+                { offset: 0, color: "rgba(133,103,244,.38)" },
+                { offset: 0.55, color: "rgba(42,207,188,.14)" },
+                { offset: 1, color: "rgba(133,103,244,0)" },
               ],
             },
           },
@@ -121,7 +122,7 @@ function DashboardContent() {
               name: item.exchange,
               value: item.equity,
               itemStyle: {
-                color: ["#33d6ad", "#699bf7", "#b785f5", "#f4b75f"][index],
+                color: ["#8567f4", "#27cdb5", "#f06da9", "#f4b84a"][index],
               },
             })) ?? [],
         },
@@ -140,7 +141,7 @@ function DashboardContent() {
   if (!data)
     return (
       <>
-        <PageHeader eyebrow="Portfolio command" title="资产总览" description="正在建立安全数据视图…" />
+        <PageHeader eyebrow="今天的钱包" title="资产总览" description="正在把资产拼成一张清晰的图…" />
         <LoadingState rows={6} />
       </>
     );
@@ -152,6 +153,7 @@ function DashboardContent() {
       detail: `${data.by_exchange.length} 个连接账户`,
       icon: Wallet,
       tone: "neutral",
+      accent: "from-violet-500/20 to-fuchsia-500/5 text-violet-500 dark:text-violet-300",
     },
     {
       label: "今日收益",
@@ -159,6 +161,7 @@ function DashboardContent() {
       detail: data.today_pnl >= 0 ? "当日净变化" : "注意当日回撤",
       icon: data.today_pnl >= 0 ? ArrowUpRight : ArrowDownRight,
       tone: data.today_pnl >= 0 ? "positive" : "negative",
+      accent: "from-cyan-500/20 to-emerald-500/5 text-cyan-600 dark:text-cyan-300",
     },
     {
       label: "累计收益",
@@ -166,6 +169,7 @@ function DashboardContent() {
       detail: "仅当前统计周期",
       icon: CircleDollarSign,
       tone: data.cumulative_pnl >= 0 ? "positive" : "negative",
+      accent: "from-fuchsia-500/20 to-pink-500/5 text-fuchsia-600 dark:text-fuchsia-300",
     },
     {
       label: "未实现收益变化",
@@ -173,21 +177,22 @@ function DashboardContent() {
       detail: "已扣除初始仓位基线",
       icon: Activity,
       tone: data.unrealized_pnl_change >= 0 ? "positive" : "negative",
+      accent: "from-amber-400/25 to-orange-500/5 text-amber-600 dark:text-amber-300",
     },
   ];
 
   return (
     <>
       {data.demo_mode && (
-        <div className="mb-5 flex items-center gap-2 rounded-xl border border-mint-400/20 bg-mint-400/10 px-4 py-3 text-sm text-mint-500 dark:text-mint-300">
+        <div className="mb-5 flex items-center gap-2 rounded-2xl border border-violet-400/20 bg-gradient-to-r from-violet-500/15 via-fuchsia-500/10 to-cyan-500/10 px-4 py-3 text-sm text-violet-600 dark:text-violet-200">
           <ShieldAlert className="h-4 w-4" />
           当前为演示数据，与真实账户数据严格隔离
         </div>
       )}
       <PageHeader
-        eyebrow="Portfolio command"
+        eyebrow="今天的钱包"
         title="资产总览"
-        description="跨交易所权益、风险敞口与统计周期收益的一体化只读视图。"
+        description="四个交易所，一张轻松看懂的资产地图。"
         action={
           <div className="muted flex items-center gap-2 text-xs">
             <Clock3 className="h-4 w-4" />
@@ -202,9 +207,10 @@ function DashboardContent() {
           const positive = card.tone === "positive";
           const negative = card.tone === "negative";
           return (
-            <article key={card.label} className="panel p-5">
+            <article key={card.label} className="panel group relative overflow-hidden p-5">
+              <div className={`absolute inset-x-0 top-0 h-24 bg-gradient-to-br ${card.accent} opacity-60 blur-2xl transition group-hover:opacity-90`} />
               <div className="flex items-start justify-between">
-                <div>
+                <div className="relative">
                   <p className="muted text-xs font-medium">{card.label}</p>
                   <p
                     className={`mono-number mt-3 text-2xl font-semibold ${
@@ -214,7 +220,7 @@ function DashboardContent() {
                     {usd(card.value, hidden)}
                   </p>
                 </div>
-                <div className="grid h-9 w-9 place-items-center rounded-xl bg-mint-400/10 text-mint-400">
+                <div className={`relative grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br ${card.accent}`}>
                   <Icon className="h-[18px] w-[18px]" />
                 </div>
               </div>

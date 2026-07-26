@@ -141,7 +141,7 @@ function AccountsContent() {
   return (
     <>
       <PageHeader
-        eyebrow="Connection vault"
+        eyebrow="连接中心"
         title="交易所账户"
         description="添加纯只读凭证、检查权限和管理同步。所有密钥字段均由后端认证加密保存。"
         action={

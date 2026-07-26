@@ -98,7 +98,7 @@ export function PageHeader({
     <header className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end">
       <div>
         <p className="eyebrow">{eyebrow}</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">{title}</h1>
+        <h1 className="page-title mt-3 text-3xl font-bold tracking-[-0.035em] md:text-4xl">{title}</h1>
         <p className="muted mt-2 max-w-2xl text-sm leading-6">{description}</p>
       </div>
       {action}

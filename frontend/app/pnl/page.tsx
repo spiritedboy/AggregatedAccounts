@@ -159,7 +159,7 @@ function PnlContent() {
 
   return (
     <>
-      <PageHeader eyebrow="Return intelligence" title="收益分析" description="资金流与收益分离计算；充值不算收益，提现不算亏损。" action={<Badge tone="mint">当前统计周期</Badge>} />
+      <PageHeader eyebrow="收益节奏" title="收益分析" description="看清每天的起伏：充值不算收益，提现也不算亏损。" action={<Badge tone="mint">当前统计周期</Badge>} />
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {metrics.map((metric) => {
           const Icon = metric.icon;

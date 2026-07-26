@@ -60,7 +60,7 @@ function HistoryContent() {
   return (
     <>
       <PageHeader
-        eyebrow="Closed exposure"
+        eyebrow="交易足迹"
         title="历史仓位"
         description="只展示当前统计周期开始之后关闭的仓位；重建记录会明确标注来源。"
         action={
