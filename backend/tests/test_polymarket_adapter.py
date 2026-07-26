@@ -128,5 +128,51 @@ async def test_polymarket_closed_positions_stop_at_tracking_boundary():
         await adapter.close()
 
     assert len(rows) == 1
+    assert rows[0]["source_record_id"] == "poly-closed:new"
     assert rows[0]["realized_pnl"] == 6
     assert rows[0]["data_completeness"] == "PARTIAL"
+
+
+@pytest.mark.asyncio
+async def test_polymarket_closed_position_identity_ignores_moving_timestamp():
+    requests = 0
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "asset": "stable-outcome-token",
+                    "conditionId": "0x" + "d" * 64,
+                    "avgPrice": 0.4,
+                    "totalBought": 10,
+                    "realizedPnl": 6,
+                    "curPrice": 1,
+                    "timestamp": 1785067200 + requests,
+                    "title": "Stable identity",
+                    "outcome": "Yes",
+                    "outcomeIndex": 0,
+                }
+            ],
+        )
+
+    adapter = PolymarketAdapter(wallet_address="0x" + "3" * 40)
+    await adapter.client.aclose()
+    adapter.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        first = await adapter.get_closed_positions(
+            datetime(2026, 7, 25, tzinfo=UTC),
+            datetime(2026, 7, 27, tzinfo=UTC),
+        )
+        second = await adapter.get_closed_positions(
+            datetime(2026, 7, 25, tzinfo=UTC),
+            datetime(2026, 7, 27, tzinfo=UTC),
+        )
+    finally:
+        await adapter.close()
+
+    assert first[0]["close_time"] != second[0]["close_time"]
+    assert first[0]["source_record_id"] == second[0]["source_record_id"]
+    assert first[0]["source_record_id"] == "poly-closed:stable-outcome-token"

@@ -43,6 +43,24 @@ def test_demo_dashboard_positions_and_pnl(authenticated):
     assert len(pnl) == 30
 
 
+def test_sync_reconciliation_and_risk_analytics_are_public(authenticated):
+    client, _ = authenticated
+    sync = client.get("/api/sync/status")
+    assert sync.status_code == 200
+    assert sync.json()["data"]["summary"]["total_accounts"] >= 4
+    assert len(sync.json()["data"]["accounts"]) >= 4
+
+    reconciliation = client.get("/api/analytics/reconciliation")
+    assert reconciliation.status_code == 200
+    assert "equity_return" in reconciliation.json()["data"]["totals"]
+    assert reconciliation.json()["data"]["accounts"]
+
+    risk = client.get("/api/analytics/risk")
+    assert risk.status_code == 200
+    assert risk.json()["data"]["summary"]["risk_level"] in {"LOW", "MEDIUM", "HIGH"}
+    assert "max_drawdown_percent" in risk.json()["data"]["summary"]
+
+
 def test_account_responses_do_not_leak_credentials(authenticated):
     client, _ = authenticated
     response = client.get("/api/exchange-accounts")

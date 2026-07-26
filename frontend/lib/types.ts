@@ -101,3 +101,111 @@ export type PnlPoint = {
   funding_fee: number;
   trading_fee: number;
 };
+
+export type SyncStatusData = {
+  summary: {
+    total_accounts: number;
+    healthy_accounts: number;
+    stale_accounts: number;
+    failing_accounts: number;
+    running_accounts: number;
+    checked_at: string;
+  };
+  accounts: Array<{
+    account_id: string;
+    exchange: string;
+    connection_name: string;
+    connection_status: string;
+    data_completeness: string;
+    last_synced_at: string | null;
+    is_stale: boolean;
+    stale_after_seconds: number;
+    consecutive_failures: number;
+    last_success_at: string | null;
+    latest_job: {
+      status: string;
+      started_at: string;
+      finished_at: string | null;
+      duration_ms: number | null;
+      records_written: number;
+    } | null;
+    last_error: {
+      type: string;
+      message: string;
+      occurred_at: string;
+    } | null;
+  }>;
+};
+
+export type ReconciliationData = {
+  totals: {
+    initial_equity: number;
+    current_equity: number;
+    deposits: number;
+    withdrawals: number;
+    net_cash_flow: number;
+    equity_return: number;
+    realized_pnl: number;
+    funding_fee: number;
+    trading_fee: number;
+    unrealized_pnl_change: number;
+    component_return: number;
+    variance: number;
+    status: "MATCHED" | "REVIEW";
+  };
+  accounts: Array<{
+    account_id: string;
+    exchange: string;
+    connection_name: string;
+    tracking_started_at: string;
+    last_synced_at: string | null;
+    initial_equity: number;
+    current_equity: number;
+    deposits: number;
+    withdrawals: number;
+    net_cash_flow: number;
+    equity_return: number;
+    realized_pnl: number;
+    funding_fee: number;
+    trading_fee: number;
+    unrealized_pnl_change: number;
+    component_return: number;
+    variance: number;
+    tolerance: number;
+    status: "MATCHED" | "REVIEW";
+    data_completeness: string;
+  }>;
+  notice: string;
+};
+
+export type RiskData = {
+  summary: {
+    risk_level: "LOW" | "MEDIUM" | "HIGH";
+    total_equity: number;
+    total_position_value: number;
+    max_drawdown_percent: number;
+    largest_exchange_concentration_percent: number;
+    largest_position_exposure_percent: number;
+    margin_utilization_percent: number;
+    nearest_liquidation_distance_percent: number | null;
+  };
+  exchange_concentration: Array<{
+    exchange: string;
+    equity: number;
+    percent: number;
+  }>;
+  top_exposures: Array<{
+    symbol: string;
+    normalized_symbol: string;
+    exchanges: string[];
+    position_value: number;
+    unrealized_pnl: number;
+    equity_percent: number;
+  }>;
+  liquidation_risks: Array<{
+    exchange: string;
+    symbol: string;
+    side: "LONG" | "SHORT";
+    distance_percent: number;
+  }>;
+};

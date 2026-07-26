@@ -8,6 +8,7 @@ import DashboardPage from "@/app/dashboard/page";
 import HistoryPage from "@/app/history/page";
 import PnlPage from "@/app/pnl/page";
 import PositionsPage from "@/app/positions/page";
+import ReconciliationPage from "@/app/reconciliation/page";
 import { AppShell } from "@/components/app-shell";
 
 vi.mock("next/navigation", () => ({
@@ -82,6 +83,109 @@ const position = {
   update_time: "2026-07-26T00:00:00Z",
 };
 
+const riskData = {
+  summary: {
+    risk_level: "LOW",
+    total_equity: 100000,
+    total_position_value: 28000,
+    max_drawdown_percent: 8.5,
+    largest_exchange_concentration_percent: 42,
+    largest_position_exposure_percent: 28,
+    margin_utilization_percent: 5.6,
+    nearest_liquidation_distance_percent: 35,
+  },
+  exchange_concentration: [{ exchange: "BINANCE", equity: 42000, percent: 42 }],
+  top_exposures: [
+    {
+      symbol: "BTCUSDT",
+      normalized_symbol: "BTC-USDT-PERP",
+      exchanges: ["BINANCE"],
+      position_value: 28000,
+      unrealized_pnl: 800,
+      equity_percent: 28,
+    },
+  ],
+  liquidation_risks: [
+    { exchange: "BINANCE", symbol: "BTCUSDT", side: "LONG", distance_percent: 35 },
+  ],
+};
+
+const syncStatus = {
+  summary: {
+    total_accounts: 1,
+    healthy_accounts: 1,
+    stale_accounts: 0,
+    failing_accounts: 0,
+    running_accounts: 0,
+    checked_at: "2026-07-26T00:00:00Z",
+  },
+  accounts: [
+    {
+      account_id: account.id,
+      exchange: "BINANCE",
+      connection_name: account.connection_name,
+      connection_status: "CONNECTED",
+      data_completeness: "COMPLETE",
+      last_synced_at: account.last_synced_at,
+      is_stale: false,
+      stale_after_seconds: 120,
+      consecutive_failures: 0,
+      last_success_at: account.last_synced_at,
+      latest_job: {
+        status: "SUCCESS",
+        started_at: account.last_synced_at,
+        finished_at: account.last_synced_at,
+        duration_ms: 380,
+        records_written: 6,
+      },
+      last_error: null,
+    },
+  ],
+};
+
+const reconciliationData = {
+  totals: {
+    initial_equity: 95000,
+    current_equity: 100000,
+    deposits: 1000,
+    withdrawals: 0,
+    net_cash_flow: 1000,
+    equity_return: 4000,
+    realized_pnl: 3400,
+    funding_fee: -20,
+    trading_fee: 40,
+    unrealized_pnl_change: 660,
+    component_return: 4000,
+    variance: 0,
+    status: "MATCHED",
+  },
+  accounts: [
+    {
+      account_id: account.id,
+      exchange: "BINANCE",
+      connection_name: account.connection_name,
+      tracking_started_at: account.tracking_started_at,
+      last_synced_at: account.last_synced_at,
+      initial_equity: 95000,
+      current_equity: 100000,
+      deposits: 1000,
+      withdrawals: 0,
+      net_cash_flow: 1000,
+      equity_return: 4000,
+      realized_pnl: 3400,
+      funding_fee: -20,
+      trading_fee: 40,
+      unrealized_pnl_change: 660,
+      component_return: 4000,
+      variance: 0,
+      tolerance: 100,
+      status: "MATCHED",
+      data_completeness: "COMPLETE",
+    },
+  ],
+  notice: "reconciliation notice",
+};
+
 function installFetch(routes: Record<string, unknown>) {
   vi.stubGlobal(
     "fetch",
@@ -138,6 +242,7 @@ describe("portfolio pages", () => {
         notice: "仅统计添加 API Key 后产生的数据",
         demo_mode: true,
       },
+      "/api/analytics/risk": riskData,
     });
     render(<DashboardPage />);
     expect(await screen.findByText("估算总权益")).toBeInTheDocument();
@@ -234,15 +339,29 @@ describe("portfolio pages", () => {
   });
 
   it("renders the account page as configuration-managed read-only status", async () => {
-    installFetch({ "/api/exchange-accounts": [account] });
+    installFetch({
+      "/api/exchange-accounts": [account],
+      "/api/sync/status": syncStatus,
+    });
     render(<AccountsPage />);
-    await screen.findByText("主账户只读");
+    expect(await screen.findAllByText("主账户只读")).not.toHaveLength(0);
     expect(screen.getByRole("navigation", { name: "移动端导航" })).toBeInTheDocument();
     expect(screen.getByText(/账户由服务器配置文件统一管理/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "添加账户" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /测试连接/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /立即同步/ })).toBeInTheDocument();
+  });
+
+  it("renders reconciliation and risk analytics", async () => {
+    installFetch({
+      "/api/analytics/reconciliation": reconciliationData,
+      "/api/analytics/risk": riskData,
+    });
+    render(<ReconciliationPage />);
+    expect(await screen.findAllByText(/US\$4,000\.00/)).not.toHaveLength(0);
+    expect(screen.getByText("LOW")).toBeInTheDocument();
+    expect(screen.getAllByText(/BTCUSDT/)).not.toHaveLength(0);
   });
 
   it("persists the selected theme when the app shell remounts", async () => {

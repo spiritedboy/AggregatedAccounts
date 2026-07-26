@@ -22,6 +22,21 @@ def _normalized_symbol(item: dict[str, Any]) -> str:
     return f"POLY-{condition_id[:16]}-{outcome_index}-{asset[-12:]}"[:80]
 
 
+def closed_position_source_id(item: dict[str, Any]) -> str:
+    """Build a stable closed-position identity from the outcome token.
+
+    Polymarket's ``timestamp`` can move between responses for the same closed
+    outcome, while ``asset`` is the stable outcome-token identifier.
+    """
+
+    asset = str(item.get("asset") or "").strip()
+    if asset:
+        return f"poly-closed:{asset}"
+    condition_id = str(item.get("conditionId") or "").removeprefix("0x")
+    outcome_index = int(item.get("outcomeIndex") or 0)
+    return f"poly-closed:{condition_id}:{outcome_index}"
+
+
 class PolymarketAdapter(ExchangeAdapter):
     """Public-profile-address-only adapter for Polymarket account analytics."""
 
@@ -164,7 +179,7 @@ class PolymarketAdapter(ExchangeAdapter):
     async def get_closed_positions(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        positions: list[dict[str, Any]] = []
+        positions_by_id: dict[str, dict[str, Any]] = {}
         limit = 50
         stop = False
         for offset in range(0, 100_001, limit):
@@ -194,31 +209,28 @@ class PolymarketAdapter(ExchangeAdapter):
                 realized = float(item.get("realizedPnl") or 0)
                 title = str(item.get("title") or "Polymarket")
                 outcome = str(item.get("outcome") or f"Outcome {item.get('outcomeIndex', 0)}")
-                positions.append(
-                    {
-                        "source_record_id": (
-                            f"{item.get('asset') or item.get('conditionId')}:{timestamp}"
-                        ),
-                        "asset_id": str(item.get("asset") or ""),
-                        "symbol": _display_symbol(title, outcome),
-                        "normalized_symbol": _normalized_symbol(item),
-                        "side": "LONG",
-                        "open_time": start_time,
-                        "close_time": close_time,
-                        "average_entry_price": entry,
-                        "average_exit_price": float(item.get("curPrice") or 0),
-                        "max_position_size": bought,
-                        "realized_pnl": realized,
-                        "funding_fee": 0,
-                        "trading_fee": 0,
-                        "net_pnl": realized,
-                        "return_percent": realized / (entry * bought) * 100
-                        if entry and bought
-                        else 0,
-                        "data_source": "EXCHANGE_API",
-                        "data_completeness": "PARTIAL",
-                    }
-                )
+                source_record_id = closed_position_source_id(item)
+                positions_by_id[source_record_id] = {
+                    "source_record_id": source_record_id,
+                    "asset_id": str(item.get("asset") or ""),
+                    "symbol": _display_symbol(title, outcome),
+                    "normalized_symbol": _normalized_symbol(item),
+                    "side": "LONG",
+                    "open_time": start_time,
+                    "close_time": close_time,
+                    "average_entry_price": entry,
+                    "average_exit_price": float(item.get("curPrice") or 0),
+                    "max_position_size": bought,
+                    "realized_pnl": realized,
+                    "funding_fee": 0,
+                    "trading_fee": 0,
+                    "net_pnl": realized,
+                    "return_percent": realized / (entry * bought) * 100
+                    if entry and bought
+                    else 0,
+                    "data_source": "EXCHANGE_API",
+                    "data_completeness": "PARTIAL",
+                }
             if stop or len(page) < limit:
                 break
-        return positions
+        return list(positions_by_id.values())

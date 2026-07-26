@@ -133,6 +133,45 @@ make security-check
 
 ## 备份与密钥
 
-备份 PostgreSQL 前应先确认备份文件的访问控制。主加密密钥必须与数据库备份分开
-保管；丢失主密钥后，已保存的交易所凭证无法恢复。轮换主密钥需要先实现专用的
-离线重加密流程，不能直接替换 `.env` 中的值。
+先手工执行并验证一次：
+
+```bash
+./scripts/backup-postgres.sh
+```
+
+脚本执行 `pg_dump` custom format、SHA-256 校验和 `pg_restore --list`，随后将备份
+恢复到随机命名的 `atlas_restore_check_*` 临时数据库，验证业务表与 Alembic 版本
+后删除临时库。默认备份目录是仓库同级的 `backups`，默认保留 14 天。
+
+确认成功后，以 root 安装每日 03:17 的 cron 与日志轮换：
+
+```bash
+sudo ./scripts/install-backup-cron.sh
+cat /etc/cron.d/aggregated-accounts-backup
+```
+
+主加密密钥必须与数据库备份分开保管；丢失主密钥后，已保存的交易所凭证无法恢复。
+轮换主密钥需要先实现专用的离线重加密流程，不能直接替换 `.env` 中的值。
+
+## Polymarket 重复记录维护
+
+先预览，不写数据库：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  run --rm backend python scripts/cleanup_polymarket_duplicates.py
+```
+
+仅在备份和预览确认后执行：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  run --rm backend python scripts/cleanup_polymarket_duplicates.py --apply
+```
+
+命令只处理 `POLYMARKET` 已平仓记录，按稳定 outcome token 合并旧的
+`asset:timestamp` 记录，保留最新一条并重算受影响日期的已实现收益。

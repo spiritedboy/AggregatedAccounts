@@ -284,19 +284,39 @@ async def _upsert_closed_positions(
     if not positions:
         return 0
     source_ids = [str(item["source_record_id"]) for item in positions]
-    existing_rows = (
-        await db.scalars(
-            select(ClosedPosition).where(
-                ClosedPosition.exchange_account_id == account.id,
-                ClosedPosition.tracking_period_id == period.id,
-                ClosedPosition.source_record_id.in_(source_ids),
-            )
-        )
-    ).all()
+    existing_query = select(ClosedPosition).where(
+        ClosedPosition.exchange_account_id == account.id,
+        ClosedPosition.tracking_period_id == period.id,
+    )
+    if account.exchange != "POLYMARKET":
+        existing_query = existing_query.where(ClosedPosition.source_record_id.in_(source_ids))
+    existing_rows = (await db.scalars(existing_query)).all()
     existing = {row.source_record_id: row for row in existing_rows}
+    polymarket_rows: dict[tuple[str, str], list[ClosedPosition]] = {}
+    if account.exchange == "POLYMARKET":
+        for existing_row in existing_rows:
+            key = (existing_row.normalized_symbol, existing_row.side)
+            polymarket_rows.setdefault(key, []).append(existing_row)
     for item in positions:
         source_id = str(item["source_record_id"])
         row = existing.get(source_id)
+        if row is None and account.exchange == "POLYMARKET":
+            legacy = polymarket_rows.get((item["normalized_symbol"], item["side"]), [])
+            if legacy:
+                row = max(
+                    legacy,
+                    key=lambda candidate: (
+                        candidate.updated_at,
+                        candidate.created_at,
+                        candidate.close_time,
+                    ),
+                )
+                for duplicate in legacy:
+                    if duplicate.id != row.id:
+                        await db.delete(duplicate)
+                await db.flush()
+                row.source_record_id = source_id
+                existing[source_id] = row
         if row is None:
             row = ClosedPosition(
                 exchange=account.exchange,

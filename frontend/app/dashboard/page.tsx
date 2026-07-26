@@ -8,6 +8,7 @@ import {
   CircleDollarSign,
   Coins,
   Gauge,
+  Scale,
   ShieldAlert,
   Wallet,
 } from "lucide-react";
@@ -19,8 +20,8 @@ import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { usePrivacy } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
-import { compactDate, dateTime, usd } from "@/lib/format";
-import type { DashboardData } from "@/lib/types";
+import { compactDate, dateTime, number, usd } from "@/lib/format";
+import type { DashboardData, RiskData } from "@/lib/types";
 
 export default function DashboardPage() {
   return (
@@ -32,15 +33,20 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [risk, setRisk] = useState<RiskData | null>(null);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
 
   const load = useCallback(() => {
     setError("");
-    return apiFetch<DashboardData>("/api/dashboard/summary")
-      .then((nextData) => {
+    return Promise.all([
+      apiFetch<DashboardData>("/api/dashboard/summary"),
+      apiFetch<RiskData>("/api/analytics/risk"),
+    ])
+      .then(([nextData, nextRisk]) => {
         setData(nextData);
+        setRisk(nextRisk);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
@@ -145,7 +151,7 @@ function DashboardContent() {
         retry={load}
       />
     );
-  if (!data)
+  if (!data || !risk)
     return (
       <>
         <PageHeader eyebrow="今天的钱包" title="资产总览" description="正在把资产拼成一张清晰的图…" />
@@ -235,6 +241,42 @@ function DashboardContent() {
             </article>
           );
         })}
+      </section>
+
+      <section className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <RiskCard
+          label="最大回撤"
+          value={`${number(risk.summary.max_drawdown_percent, 1)}%`}
+          detail="按每日聚合权益计算"
+        />
+        <RiskCard
+          label="交易所集中度"
+          value={`${number(risk.summary.largest_exchange_concentration_percent, 1)}%`}
+          detail="最大单一交易所权益占比"
+        />
+        <RiskCard
+          label="保证金使用率"
+          value={`${number(risk.summary.margin_utilization_percent, 1)}%`}
+          detail="当前保证金 ÷ 总权益"
+        />
+        <a href="/reconciliation" className="panel group p-5 hover:-translate-y-0.5">
+          <div className="flex items-center justify-between">
+            <p className="muted text-xs">综合风险</p>
+            <Scale className="h-4 w-4 text-violet-500" />
+          </div>
+          <p
+            className={`mt-3 text-2xl font-semibold ${
+              risk.summary.risk_level === "HIGH"
+                ? "text-rose-500"
+                : risk.summary.risk_level === "MEDIUM"
+                  ? "text-amber-500"
+                  : "text-emerald-500"
+            }`}
+          >
+            {{ LOW: "低", MEDIUM: "中", HIGH: "高" }[risk.summary.risk_level]}
+          </p>
+          <p className="muted mt-2 text-xs">查看风险与收益对账 →</p>
+        </a>
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[1.55fr_.75fr]">
@@ -350,5 +392,15 @@ function DashboardContent() {
         <span>统计开始时间：{dateTime(data.tracking_started_at)}</span>
       </footer>
     </>
+  );
+}
+
+function RiskCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <article className="panel p-5">
+      <p className="muted text-xs">{label}</p>
+      <p className="mono-number mt-3 text-2xl font-semibold">{value}</p>
+      <p className="muted mt-2 text-xs">{detail}</p>
+    </article>
   );
 }

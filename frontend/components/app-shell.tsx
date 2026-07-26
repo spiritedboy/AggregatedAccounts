@@ -9,6 +9,7 @@ import {
   Moon,
   Orbit,
   PanelLeft,
+  Scale,
   Sparkles,
   Sun,
   WalletCards,
@@ -32,6 +33,7 @@ const nav = [
   { href: "/positions", label: "当前仓位", icon: Orbit },
   { href: "/history", label: "历史仓位", icon: History },
   { href: "/pnl", label: "收益分析", icon: BarChart3 },
+  { href: "/reconciliation", label: "风险对账", icon: Scale },
   { href: "/accounts", label: "交易所账户", icon: WalletCards },
 ];
 
@@ -139,7 +141,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </main>
         </div>
 
-        <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-2xl border p-1.5 shadow-panel backdrop-blur-xl md:hidden" style={{ background: "var(--surface)", borderColor: "var(--line)" }} aria-label="移动端导航">
+        <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-6 rounded-2xl border p-1.5 shadow-panel backdrop-blur-xl md:hidden" style={{ background: "var(--surface)", borderColor: "var(--line)" }} aria-label="移动端导航">
           {nav.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;

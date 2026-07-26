@@ -20,7 +20,6 @@ from app.models import (
     DailyPnlSnapshot,
     ExchangeAccount,
     InitialAccountSnapshot,
-    SyncJob,
 )
 from app.schemas import AccountResponse, ExchangeAccountCreate, envelope
 from app.security.session import (
@@ -33,6 +32,11 @@ from app.services.accounts import (
     create_account,
     delete_account,
     sync_account,
+)
+from app.services.analytics import (
+    build_reconciliation,
+    build_risk_metrics,
+    build_sync_status,
 )
 
 router = APIRouter(prefix="/api")
@@ -619,22 +623,21 @@ async def pnl_by_exchange(
 async def sync_status(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    rows = (await db.scalars(select(SyncJob).order_by(SyncJob.started_at.desc()).limit(50))).all()
-    return envelope(
-        [
-            {
-                "id": row.id,
-                "account_id": row.exchange_account_id,
-                "type": row.job_type,
-                "status": row.status,
-                "started_at": row.started_at,
-                "finished_at": row.finished_at,
-                "duration_ms": row.duration_ms,
-                "records_written": row.records_written,
-            }
-            for row in rows
-        ]
-    )
+    return envelope(await build_sync_status(db))
+
+
+@router.get("/analytics/reconciliation")
+async def reconciliation(
+    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return envelope(await build_reconciliation(db))
+
+
+@router.get("/analytics/risk")
+async def risk_metrics(
+    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return envelope(await build_risk_metrics(db))
 
 
 @router.post("/sync/refresh")

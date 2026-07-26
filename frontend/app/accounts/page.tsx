@@ -1,6 +1,15 @@
 "use client";
 
-import { CheckCircle2, Eye, RefreshCw, Settings2, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  CheckCircle2,
+  CircleAlert,
+  Eye,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  Timer,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ProtectedPage } from "@/components/protected-page";
@@ -14,7 +23,7 @@ import {
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime } from "@/lib/format";
-import type { ExchangeAccount } from "@/lib/types";
+import type { ExchangeAccount, SyncStatusData } from "@/lib/types";
 
 export default function AccountsPage() {
   return (
@@ -26,15 +35,20 @@ export default function AccountsPage() {
 
 function AccountsContent() {
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusData | null>(null);
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setError("");
-    return apiFetch<ExchangeAccount[]>("/api/exchange-accounts")
-      .then((nextAccounts) => {
+    return Promise.all([
+      apiFetch<ExchangeAccount[]>("/api/exchange-accounts"),
+      apiFetch<SyncStatusData>("/api/sync/status"),
+    ])
+      .then(([nextAccounts, nextStatus]) => {
         setAccounts(nextAccounts);
+        setSyncStatus(nextStatus);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
@@ -93,6 +107,95 @@ function AccountsContent() {
           立即同步，不提供添加与删除操作。
         </p>
       </div>
+
+      {syncStatus && (
+        <section className="panel mb-4 overflow-hidden">
+          <div className="border-b px-5 py-4" style={{ borderColor: "var(--line)" }}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">同步状态中心</p>
+                <p className="muted mt-1 text-xs">
+                  每个账户的最近结果、耗时、写入量和连续失败次数。
+                </p>
+              </div>
+              <Badge tone={syncStatus.summary.failing_accounts ? "warning" : "positive"}>
+                <Activity className="mr-1 h-3 w-3" />
+                {syncStatus.summary.healthy_accounts}/{syncStatus.summary.total_accounts} 正常
+              </Badge>
+            </div>
+          </div>
+          <div className="grid gap-3 border-b p-4 sm:grid-cols-3" style={{ borderColor: "var(--line)" }}>
+            <SyncMetric
+              label="健康账户"
+              value={`${syncStatus.summary.healthy_accounts}`}
+              detail={`共 ${syncStatus.summary.total_accounts} 个`}
+              tone="positive"
+            />
+            <SyncMetric
+              label="数据过期"
+              value={`${syncStatus.summary.stale_accounts}`}
+              detail="超过两个同步周期"
+              tone={syncStatus.summary.stale_accounts ? "warning" : "positive"}
+            />
+            <SyncMetric
+              label="连续失败"
+              value={`${syncStatus.summary.failing_accounts}`}
+              detail="不包含通知推送"
+              tone={syncStatus.summary.failing_accounts ? "warning" : "positive"}
+            />
+          </div>
+          <div className="divide-y" style={{ borderColor: "var(--line)" }}>
+            {syncStatus.accounts.map((item) => (
+              <div
+                key={item.account_id}
+                className="grid gap-3 px-5 py-4 md:grid-cols-[1.2fr_.8fr_.8fr_1.4fr] md:items-center"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">{item.connection_name}</p>
+                    <Badge
+                      tone={
+                        item.consecutive_failures
+                          ? "negative"
+                          : item.is_stale
+                            ? "warning"
+                            : "positive"
+                      }
+                    >
+                      {item.consecutive_failures
+                        ? `连续失败 ${item.consecutive_failures} 次`
+                        : item.is_stale
+                          ? "数据过期"
+                          : "同步正常"}
+                    </Badge>
+                  </div>
+                  <p className="muted mt-1 text-xs">{item.exchange}</p>
+                </div>
+                <Info
+                  label="最后成功"
+                  value={dateTime(item.last_success_at ?? item.last_synced_at)}
+                />
+                <Info
+                  label="最近任务"
+                  value={
+                    item.latest_job
+                      ? `${item.latest_job.duration_ms ?? 0} ms · ${item.latest_job.records_written} 条`
+                      : "暂无任务"
+                  }
+                />
+                <div className="text-xs">
+                  <p className="muted text-[10px] uppercase">最近错误</p>
+                  <p className="mt-1 leading-5">
+                    {item.consecutive_failures && item.last_error
+                      ? item.last_error.message
+                      : "无未恢复错误"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {error ? (
         <ErrorState message={error} retry={load} />
@@ -192,6 +295,30 @@ function AccountsContent() {
         </section>
       )}
     </>
+  );
+}
+
+function SyncMetric({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "positive" | "warning";
+}) {
+  const Icon = tone === "positive" ? Timer : CircleAlert;
+  return (
+    <div className="rounded-2xl bg-black/[0.025] p-4 dark:bg-white/[0.035]">
+      <div className="flex items-center justify-between">
+        <p className="muted text-xs">{label}</p>
+        <Icon className={`h-4 w-4 ${tone === "positive" ? "text-emerald-500" : "text-amber-500"}`} />
+      </div>
+      <p className="mono-number mt-2 text-2xl font-semibold">{value}</p>
+      <p className="muted mt-1 text-[11px]">{detail}</p>
+    </div>
   );
 }
 

@@ -96,6 +96,8 @@ Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需�
 平台不会请求或保存 Polymarket 私钥、助记词、登录密码或交易凭证。官方已平仓接口
 没有可靠的原始开仓时间，相关历史记录会标记为 `PARTIAL`。公开接口也不能在所有账户
 类型下完整确认外部充值与提现，因此 Polymarket 账户默认显示为统计部分完整。
+已平仓响应中的 `timestamp` 可能变化，平台使用官方响应里的 outcome token `asset`
+作为稳定幂等键，避免同一 outcome 在后续同步中被重复写入。
 
 ## 覆盖限制
 

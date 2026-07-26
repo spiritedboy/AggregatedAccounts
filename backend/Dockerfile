@@ -14,6 +14,7 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY config ./config
 COPY app ./app
+COPY scripts ./scripts
 COPY tests ./tests
 
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
