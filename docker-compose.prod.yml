@@ -4,5 +4,5 @@ services:
       APP_ENV: production
       COOKIE_SECURE: "true"
   gateway:
-    ports:
+    ports: !override
       - "127.0.0.1:8000:80"

@@ -60,6 +60,12 @@ WSL IP 地址。
 也可以执行标准 Compose 命令：
 
 ```bash
+docker compose up -d --build
+```
+
+或显式指定开发覆盖文件：
+
+```bash
 docker compose \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
@@ -158,4 +164,3 @@ CSRF、Demo 查询、仓位筛选和 CSV。前端覆盖登录、总览、当前�
 
 - [部署文档](docs/deployment.md)
 - [交易所只读 API 依据](docs/exchange-api-reference.md)
-
