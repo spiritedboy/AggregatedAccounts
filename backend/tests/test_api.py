@@ -61,6 +61,31 @@ def test_sync_reconciliation_and_risk_analytics_are_public(authenticated):
     assert "max_drawdown_percent" in risk.json()["data"]["summary"]
 
 
+def test_accounting_records_export_and_completeness_are_public(authenticated):
+    client, _ = authenticated
+    records = client.get("/api/accounting/records?page_size=20")
+    assert records.status_code == 200
+    assert {"items", "total", "summary"} <= records.json()["data"].keys()
+
+    exported = client.get("/api/accounting/records/export")
+    assert exported.status_code == 200
+    assert exported.headers["content-type"].startswith("text/csv")
+    assert "source_record_id" in exported.text.splitlines()[0]
+
+    completeness = client.get("/api/data-completeness")
+    assert completeness.status_code == 200
+    payload = completeness.json()["data"]
+    assert payload["accounts"]
+    assert set(payload["accounts"][0]["components"]) == {
+        "equity",
+        "positions",
+        "realized_pnl",
+        "funding_fee",
+        "trading_fee",
+        "cash_flow",
+    }
+
+
 def test_account_responses_do_not_leak_credentials(authenticated):
     client, _ = authenticated
     response = client.get("/api/exchange-accounts")

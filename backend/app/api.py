@@ -27,6 +27,10 @@ from app.security.session import (
     require_csrf,
     require_session,
 )
+from app.services.accounting import (
+    build_data_completeness,
+    list_accounting_records,
+)
 from app.services.accounts import create_account, delete_account, sync_account
 from app.services.analytics import (
     build_reconciliation,
@@ -496,6 +500,94 @@ async def export_history(
     )
 
 
+@router.get("/accounting/records")
+async def accounting_records(
+    exchange: str | None = None,
+    account_id: uuid.UUID | None = None,
+    record_type: str | None = Query(
+        default=None,
+        pattern="^(REALIZED_PNL|FUNDING_FEE|TRADING_FEE|DEPOSIT|WITHDRAWAL|CASH_FLOW)$",
+    ),
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return envelope(
+        await list_accounting_records(
+            db,
+            exchange=exchange,
+            account_id=account_id,
+            record_type=record_type,
+            start_time=start_time,
+            end_time=end_time,
+            offset=(page - 1) * page_size,
+            limit=page_size,
+        )
+    )
+
+
+@router.get("/accounting/records/export")
+async def export_accounting_records(
+    exchange: str | None = None,
+    account_id: uuid.UUID | None = None,
+    record_type: str | None = Query(
+        default=None,
+        pattern="^(REALIZED_PNL|FUNDING_FEE|TRADING_FEE|DEPOSIT|WITHDRAWAL|CASH_FLOW)$",
+    ),
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    result = await list_accounting_records(
+        db,
+        exchange=exchange,
+        account_id=account_id,
+        record_type=record_type,
+        start_time=start_time,
+        end_time=end_time,
+        offset=0,
+        limit=10_000,
+    )
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "record_time",
+            "exchange",
+            "connection_name",
+            "record_type",
+            "subtype",
+            "asset",
+            "signed_amount_usd",
+            "symbol",
+            "source_record_id",
+        ]
+    )
+    for item in result["items"]:
+        writer.writerow(
+            [
+                item["record_time"],
+                _safe_csv(item["exchange"]),
+                _safe_csv(item["connection_name"]),
+                item["record_type"],
+                _safe_csv(item["subtype"]),
+                _safe_csv(item["asset"]),
+                item["signed_amount_usd"],
+                _safe_csv(item["symbol"] or ""),
+                _safe_csv(item["source_record_id"]),
+            ]
+        )
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="accounting-records.csv"'},
+    )
+
+
 async def _pnl_series(db: AsyncSession, bucket: str) -> list[dict[str, Any]]:
     if bucket == "daily":
         bucket_expr = DailyPnlSnapshot.snapshot_date
@@ -608,6 +700,13 @@ async def sync_status(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     return envelope(await build_sync_status(db))
+
+
+@router.get("/data-completeness")
+async def data_completeness(
+    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return envelope(await build_data_completeness(db))
 
 
 @router.get("/analytics/reconciliation")

@@ -137,6 +137,73 @@ export type SyncStatusData = {
   }>;
 };
 
+export type AccountingRecord = {
+  id: string;
+  exchange_account_id: string;
+  exchange: string;
+  connection_name: string;
+  record_type:
+    | "REALIZED_PNL"
+    | "FUNDING_FEE"
+    | "TRADING_FEE"
+    | "DEPOSIT"
+    | "WITHDRAW"
+    | "WITHDRAWAL";
+  subtype: string;
+  asset: string;
+  amount_usd: number;
+  signed_amount_usd: number;
+  symbol: string | null;
+  record_time: string;
+  source_record_id: string;
+};
+
+export type AccountingRecordsData = {
+  items: AccountingRecord[];
+  total: number;
+  summary: {
+    realized_pnl: number;
+    funding_fee: number;
+    trading_fee: number;
+    deposits: number;
+    withdrawals: number;
+    net_cash_flow: number;
+    net_effect: number;
+  };
+};
+
+export type CompletenessComponent = {
+  status: "COMPLETE" | "PARTIAL" | "UNSUPPORTED";
+  last_synced_at: string | null;
+  record_count: number;
+  latest_record_at: string | null;
+  reason: string;
+};
+
+export type DataCompletenessData = {
+  summary: {
+    total_accounts: number;
+    complete_components: number;
+    partial_components: number;
+    unsupported_components: number;
+    checked_at: string;
+  };
+  accounts: Array<{
+    account_id: string;
+    exchange: string;
+    connection_name: string;
+    overall_status: string;
+    components: {
+      equity: CompletenessComponent;
+      positions: CompletenessComponent;
+      realized_pnl: CompletenessComponent;
+      funding_fee: CompletenessComponent;
+      trading_fee: CompletenessComponent;
+      cash_flow: CompletenessComponent;
+    };
+  }>;
+};
+
 export type ReconciliationData = {
   totals: {
     initial_equity: number;

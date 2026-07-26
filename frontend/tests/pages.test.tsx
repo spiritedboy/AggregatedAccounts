@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountsPage from "@/app/accounts/page";
 import DashboardPage from "@/app/dashboard/page";
 import HistoryPage from "@/app/history/page";
+import LedgerPage from "@/app/ledger/page";
 import PnlPage from "@/app/pnl/page";
 import PositionsPage from "@/app/positions/page";
 import ReconciliationPage from "@/app/reconciliation/page";
@@ -186,6 +187,43 @@ const reconciliationData = {
   notice: "reconciliation notice",
 };
 
+const completenessData = {
+  summary: {
+    total_accounts: 1,
+    complete_components: 6,
+    partial_components: 0,
+    unsupported_components: 0,
+    checked_at: account.last_synced_at,
+  },
+  accounts: [
+    {
+      account_id: account.id,
+      exchange: account.exchange,
+      connection_name: account.connection_name,
+      overall_status: "COMPLETE",
+      components: Object.fromEntries(
+        [
+          "equity",
+          "positions",
+          "realized_pnl",
+          "funding_fee",
+          "trading_fee",
+          "cash_flow",
+        ].map((key) => [
+          key,
+          {
+            status: "COMPLETE",
+            last_synced_at: account.last_synced_at,
+            record_count: key === "positions" ? 0 : 1,
+            latest_record_at: account.last_synced_at,
+            reason: "最近一次数据拉取成功",
+          },
+        ]),
+      ),
+    },
+  ],
+};
+
 function installFetch(routes: Record<string, unknown>) {
   vi.stubGlobal(
     "fetch",
@@ -336,6 +374,46 @@ describe("portfolio pages", () => {
     expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每周" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();
+  });
+
+  it("renders accounting records, filters, export, and component coverage", async () => {
+    installFetch({
+      "/api/accounting/records": {
+        total: 1,
+        summary: {
+          realized_pnl: 120,
+          funding_fee: -2,
+          trading_fee: 3,
+          deposits: 10,
+          withdrawals: 0,
+          net_cash_flow: 10,
+          net_effect: 125,
+        },
+        items: [
+          {
+            id: "ledger-1",
+            exchange_account_id: account.id,
+            exchange: "BINANCE",
+            connection_name: account.connection_name,
+            record_type: "FUNDING_FEE",
+            subtype: "FUNDING_FEE",
+            asset: "USDT",
+            amount_usd: -2,
+            signed_amount_usd: -2,
+            symbol: "BTCUSDT",
+            record_time: account.last_synced_at,
+            source_record_id: "funding-source-1",
+          },
+        ],
+      },
+      "/api/data-completeness": completenessData,
+    });
+    render(<LedgerPage />);
+    expect(await screen.findByText("数据完整性明细")).toBeInTheDocument();
+    expect(screen.getAllByText("资金费").length).toBeGreaterThan(0);
+    expect(screen.getByText("funding-source-1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
+    expect(screen.getByText("6 项完整")).toBeInTheDocument();
   });
 
   it("renders the account page as configuration-managed read-only status", async () => {
