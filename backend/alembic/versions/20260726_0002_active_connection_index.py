@@ -15,14 +15,30 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("uq_active_connection", "exchange_accounts", type_="unique")
-    op.create_index(
-        "uq_active_connection",
-        "exchange_accounts",
-        ["exchange", "connection_name"],
-        unique=True,
-        postgresql_where=sa.text("is_active"),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    constraint_names = {
+        item["name"] for item in inspector.get_unique_constraints("exchange_accounts")
+    }
+    index_names = {item["name"] for item in inspector.get_indexes("exchange_accounts")}
+
+    if "uq_active_connection" in constraint_names:
+        op.drop_constraint("uq_active_connection", "exchange_accounts", type_="unique")
+        op.create_index(
+            "uq_active_connection",
+            "exchange_accounts",
+            ["exchange", "connection_name"],
+            unique=True,
+            postgresql_where=sa.text("is_active"),
+        )
+    elif "uq_active_connection" not in index_names:
+        op.create_index(
+            "uq_active_connection",
+            "exchange_accounts",
+            ["exchange", "connection_name"],
+            unique=True,
+            postgresql_where=sa.text("is_active"),
+        )
 
 
 def downgrade() -> None:
