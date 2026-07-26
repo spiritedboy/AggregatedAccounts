@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -45,7 +46,13 @@ class ExchangeAccount(Base, TimestampMixin):
     __tablename__ = "exchange_accounts"
     __table_args__ = (
         Index("ix_exchange_accounts_exchange_active", "exchange", "is_active"),
-        UniqueConstraint("exchange", "connection_name", "is_active", name="uq_active_connection"),
+        Index(
+            "uq_active_connection",
+            "exchange",
+            "connection_name",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)

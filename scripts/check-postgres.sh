@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${PGPASSWORD:?Set PGPASSWORD for the local PostgreSQL administrator}"
-db_user="${POSTGRES_USER:-postgres}"
+: "${DATABASE_URL_SYNC:?DATABASE_URL_SYNC is required}"
+database_auth="${DATABASE_URL_SYNC#*://}"
+database_auth="${database_auth%%@*}"
+db_user="${database_auth%%:*}"
+export PGPASSWORD="${database_auth#*:}"
 db_host="${POSTGRES_HOST:-127.0.0.1}"
 
 for database in exchange_aggregator exchange_aggregator_test; do

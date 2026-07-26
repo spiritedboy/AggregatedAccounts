@@ -37,7 +37,7 @@ lint:
 	$(COMPOSE_DEV) run --rm frontend npm run lint
 
 dev-up: init
-	@PGPASSWORD=123456 bash scripts/check-postgres.sh
+	@set -a; . ./.env; set +a; bash scripts/check-postgres.sh
 	$(COMPOSE_DEV) build
 	$(COMPOSE_DEV) run --rm backend alembic upgrade head
 	$(COMPOSE_DEV) up -d
