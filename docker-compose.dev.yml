@@ -1,0 +1,4 @@
+services:
+  gateway:
+    ports:
+      - "0.0.0.0:8000:80"
