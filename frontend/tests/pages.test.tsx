@@ -175,6 +175,8 @@ describe("portfolio pages", () => {
     });
     render(<PositionsPage />);
     expect(await screen.findAllByText("BTC-USDT-PERP")).not.toHaveLength(0);
+    expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/统计期变化/)).not.toHaveLength(0);
     expect(screen.queryByRole("button", { name: /平仓/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /下单/ })).not.toBeInTheDocument();
   });

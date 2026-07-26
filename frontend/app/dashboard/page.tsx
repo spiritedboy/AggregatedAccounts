@@ -174,7 +174,7 @@ function DashboardContent() {
     {
       label: "未实现收益变化",
       value: data.unrealized_pnl_change,
-      detail: "已扣除初始仓位基线",
+      detail: "仅计算添加 API Key 后的变化",
       icon: Activity,
       tone: data.unrealized_pnl_change >= 0 ? "positive" : "negative",
       accent: "from-amber-400/25 to-orange-500/5 text-amber-600 dark:text-amber-300",
@@ -278,9 +278,12 @@ function DashboardContent() {
                   <p className="mono-number mt-1 text-sm">{usd(position.position_value_usd, hidden)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="muted text-[10px] uppercase">收益变化</p>
-                  <p className={`mono-number mt-1 text-sm ${position.tracking_unrealized_pnl_change >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                    {usd(position.tracking_unrealized_pnl_change, hidden)}
+                  <p className="muted text-[10px] uppercase">当前未实现盈亏</p>
+                  <p className={`mono-number mt-1 text-sm ${position.unrealized_pnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                    {usd(position.unrealized_pnl, hidden)}
+                  </p>
+                  <p className="muted mono-number mt-1 text-[10px]">
+                    统计期变化 {usd(position.tracking_unrealized_pnl_change, hidden)}
                   </p>
                 </div>
               </div>

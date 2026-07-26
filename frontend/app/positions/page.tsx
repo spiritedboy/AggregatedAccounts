@@ -47,7 +47,7 @@ function PositionsContent() {
     return rows.sort((a, b) =>
       sort === "value"
         ? b.position_value_usd - a.position_value_usd
-        : b.tracking_unrealized_pnl_change - a.tracking_unrealized_pnl_change,
+        : b.unrealized_pnl - a.unrealized_pnl,
     );
   }, [result, sort]);
 
@@ -90,7 +90,7 @@ function PositionsContent() {
         </FilterSelect>
         <FilterSelect value={sort} onChange={(value) => setSort(value as "value" | "pnl")} label="排序">
           <option value="value">仓位价值</option>
-          <option value="pnl">收益变化</option>
+          <option value="pnl">当前未实现盈亏</option>
         </FilterSelect>
       </section>
 
@@ -108,7 +108,7 @@ function PositionsContent() {
             <table className="w-full min-w-[1000px] text-left text-sm">
               <thead className="muted border-b text-[10px] uppercase tracking-wider" style={{ borderColor: "var(--line)" }}>
                 <tr>
-                  {["交易对 / 账户", "方向", "数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "未实现收益变化", "更新时间"].map((title) => (
+                  {["交易对 / 账户", "方向", "数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "当前未实现盈亏", "更新时间"].map((title) => (
                     <th key={title} className="px-5 py-3.5 font-semibold">{title}</th>
                   ))}
                 </tr>
@@ -136,10 +136,12 @@ function PositionsContent() {
                       <p className="muted mt-1 text-xs">{position.margin_mode}</p>
                     </td>
                     <td className="px-5 py-4">
-                      <p className={`mono-number font-semibold ${position.tracking_unrealized_pnl_change >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                        {usd(position.tracking_unrealized_pnl_change, hidden)}
+                      <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                        {usd(position.unrealized_pnl, hidden)}
                       </p>
-                      <p className="muted mono-number mt-1 text-xs">{number(position.unrealized_pnl_percent, 2)}%</p>
+                      <p className="muted mono-number mt-1 text-xs">
+                        {number(position.unrealized_pnl_percent, 2)}% · 统计期变化 {usd(position.tracking_unrealized_pnl_change, hidden)}
+                      </p>
                     </td>
                     <td className="muted px-5 py-4 text-xs">{dateTime(position.update_time)}</td>
                   </tr>
@@ -159,13 +161,14 @@ function PositionsContent() {
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd, hidden)} />
-                  <Metric label="收益变化" value={usd(position.tracking_unrealized_pnl_change, hidden)} tone={position.tracking_unrealized_pnl_change >= 0 ? "positive" : "negative"} />
+                  <Metric label="当前未实现盈亏" value={usd(position.unrealized_pnl, hidden)} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
+                  <Metric label="统计期变化" value={usd(position.tracking_unrealized_pnl_change, hidden)} tone={position.tracking_unrealized_pnl_change >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price, hidden)} / ${usd(position.mark_price, hidden)}`} />
                   <Metric label="数量 / 杠杆" value={`${number(position.position_size)} / ${number(position.leverage, 1)}×`} />
                 </div>
                 {position.is_initial_position && (
                   <p className="muted mt-4 border-t pt-3 text-[11px]" style={{ borderColor: "var(--line)" }}>
-                    初始仓位：收益只计算添加 API Key 后的变化
+                    当前未实现盈亏包含建仓以来的完整浮盈亏；统计期收益仍只计算添加 API Key 后的变化。
                   </p>
                 )}
               </article>
