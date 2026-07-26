@@ -132,6 +132,8 @@ class HyperliquidAdapter(ExchangeAdapter):
         for row in spot.get("balances", []):
             total = float(row.get("total") or 0)
             hold = float(row.get("hold") or 0)
+            if not total and not hold:
+                continue
             token = int(row.get("token") or 0)
             price = prices.get(token)
             balances.append(
