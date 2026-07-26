@@ -15,6 +15,7 @@ Web 界面。
 - 每个连接独立的 `tracking_started_at`、初始权益快照和初始仓位收益基线
 - 15 张以上 PostgreSQL 业务、安全和同步表，包含索引、唯一约束和幂等来源 ID
 - Binance、OKX、Bitget、Hyperliquid 和 Polymarket 独立只读 Adapter
+- Hyperliquid 权益同时覆盖永续账户与 Spot 账户，非 USDC 现货按官方 Spot 市场价格折算
 - 账户摘要、余额、当前仓位、历史仓位、日/周/月收益和交易所收益贡献 API
 - 历史仓位 CSV 导出及公式注入防护
 - APScheduler 定时同步、账户级互斥、隔离失败、耗时/记录数/安全错误日志
@@ -170,9 +171,23 @@ Webhook 通知。
 资金费、交易手续费和出入金分别进入对应记录表。任一账务接口失败时，本轮资产与仓位
 仍可成功更新，但账户完整性会降为 `PARTIAL`，避免把缺失流水误报为完整数据。
 
+Hyperliquid 总权益由永续账户 `accountValue` 与 Spot 代币余额共同组成；Spot USDC
+按 1 美元计价，其他代币通过官方 `spotMetaAndAssetCtxs` 市场价格换算。HyperCore
+的 `send`、充值、提现和账户间划转均会按钱包方向归一化为转入或转出，外部入金不会
+被误算为交易收益。
+
 “账务流水”页面联合展示四类记录，并统一转换为对权益的正负影响：收益、收到的资金费
 和转入显示为正数，手续费和转出显示为负数。页面支持交易所、流水类型和日期筛选，
 最多导出当前筛选条件下的 10,000 条 CSV 记录。
+
+如需对适配器新增的账务类型补拉既有统计周期，可先预览、再幂等应用：
+
+```bash
+docker compose exec backend python scripts/backfill_accounting_history.py \
+  --exchange HYPERLIQUID --connection-name hype
+docker compose exec backend python scripts/backfill_accounting_history.py \
+  --exchange HYPERLIQUID --connection-name hype --apply
+```
 
 页面同时按账户展示六类数据覆盖情况。每一类会区分 `COMPLETE`、`PARTIAL` 和
 `UNSUPPORTED`，展示最后同步时间、实际记录数、最新业务记录时间及原因说明。

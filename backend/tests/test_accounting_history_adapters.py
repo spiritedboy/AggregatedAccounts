@@ -14,6 +14,84 @@ TIME_MS = int((START.timestamp() + 60) * 1000)
 
 
 @pytest.mark.asyncio
+async def test_hyperliquid_summary_includes_perp_and_spot_usdc(monkeypatch):
+    adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
+
+    async def fake_info(request_type, **_):
+        if request_type == "clearinghouseState":
+            return {
+                "marginSummary": {
+                    "accountValue": "50",
+                    "totalNtlPos": "20",
+                    "totalRawUsd": "18",
+                    "totalMarginUsed": "10",
+                }
+            }
+        return {
+            "balances": [
+                {
+                    "coin": "USDC",
+                    "token": 0,
+                    "total": "200.662483",
+                    "hold": "0.5",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(adapter, "_info", fake_info)
+    try:
+        summary = await adapter.get_account_summary()
+    finally:
+        await adapter.close()
+
+    assert summary == {
+        "total_equity_usd": 250.662483,
+        "available_balance_usd": 240.162483,
+        "margin_balance_usd": 10,
+        "unrealized_pnl_usd": 2,
+        "unvalued_asset_count": 0,
+        "price_source": "HYPERLIQUID_PERP_AND_SPOT",
+    }
+
+
+@pytest.mark.asyncio
+async def test_hyperliquid_summary_values_non_usdc_spot_assets(monkeypatch):
+    adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
+
+    async def fake_info(request_type, **_):
+        if request_type == "clearinghouseState":
+            return {
+                "marginSummary": {
+                    "accountValue": "0",
+                    "totalNtlPos": "0",
+                    "totalRawUsd": "0",
+                    "totalMarginUsed": "0",
+                }
+            }
+        return {
+            "balances": [
+                {"coin": "HYPE", "token": 150, "total": "2", "hold": "0.25"},
+                {"coin": "UNKNOWN", "token": 999, "total": "3", "hold": "0"},
+            ]
+        }
+
+    market_data = [
+        {"universe": [{"tokens": [150, 0], "name": "HYPE/USDC"}]},
+        [{"markPx": "25"}],
+    ]
+    monkeypatch.setattr(adapter, "_info", fake_info)
+    monkeypatch.setattr(adapter, "_spot_market_data", AsyncMock(return_value=market_data))
+    try:
+        summary = await adapter.get_account_summary()
+    finally:
+        await adapter.close()
+
+    assert summary["total_equity_usd"] == 50
+    assert summary["available_balance_usd"] == 43.75
+    assert summary["unvalued_asset_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_binance_history_bundle_classifies_accounting_streams(monkeypatch):
     adapter = BinanceAdapter(api_key="key", api_secret="secret")
     monkeypatch.setattr(
@@ -173,7 +251,8 @@ async def test_bitget_history_bundle_classifies_contract_bills(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_hyperliquid_history_bundle_normalizes_public_ledger(monkeypatch):
-    adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
+    wallet = "0x" + "a" * 40
+    adapter = HyperliquidAdapter(wallet_address=wallet)
 
     async def fake_info(request_type, **_):
         if request_type == "userFillsByTime":
@@ -200,7 +279,31 @@ async def test_hyperliquid_history_bundle_normalizes_public_ledger(monkeypatch):
                 "hash": "0xdeposit",
                 "time": TIME_MS,
                 "delta": {"type": "deposit", "usdc": "15"},
-            }
+            },
+            {
+                "hash": "0xsend-in",
+                "time": TIME_MS,
+                "delta": {
+                    "type": "send",
+                    "user": "0x" + "b" * 40,
+                    "destination": wallet,
+                    "token": "USDC",
+                    "amount": "200.3",
+                    "usdcValue": "200.3",
+                },
+            },
+            {
+                "hash": "0xsend-out",
+                "time": TIME_MS,
+                "delta": {
+                    "type": "send",
+                    "user": wallet,
+                    "destination": "0x" + "c" * 40,
+                    "token": "USDC",
+                    "amount": "12",
+                    "usdcValue": "12",
+                },
+            },
         ]
 
     monkeypatch.setattr(adapter, "_info", fake_info)
@@ -212,3 +315,10 @@ async def test_hyperliquid_history_bundle_normalizes_public_ledger(monkeypatch):
     assert bundle["funding"][0]["amount_usd"] == -0.25
     assert bundle["fees"][0]["amount_usd"] == 0.05
     assert bundle["cash_flows"][0]["amount_usd"] == 15
+    assert [
+        (row["amount_usd"], row["flow_type"]) for row in bundle["cash_flows"]
+    ] == [
+        (15, "DEPOSIT"),
+        (200.3, "DEPOSIT"),
+        (12, "WITHDRAWAL"),
+    ]

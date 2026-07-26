@@ -40,21 +40,83 @@ class HyperliquidAdapter(ExchangeAdapter):
         }
 
     async def get_account_summary(self) -> dict[str, Any]:
-        data = await self._info("clearinghouseState")
+        data, spot = await asyncio.gather(
+            self._info("clearinghouseState"),
+            self._info("spotClearinghouseState"),
+        )
         summary = data.get("marginSummary", {})
+        spot_prices = {0: 1.0}
+        non_usdc_balances = [
+            row
+            for row in spot.get("balances", [])
+            if int(row.get("token") or 0) != 0 and float(row.get("total") or 0)
+        ]
+        if non_usdc_balances:
+            spot_prices.update(self._spot_token_prices(await self._spot_market_data()))
+
+        spot_equity = 0.0
+        spot_available = 0.0
+        unvalued_asset_count = 0
+        for row in spot.get("balances", []):
+            total = float(row.get("total") or 0)
+            if not total:
+                continue
+            price = spot_prices.get(int(row.get("token") or 0))
+            if price is None:
+                unvalued_asset_count += 1
+                continue
+            hold = float(row.get("hold") or 0)
+            spot_equity += total * price
+            spot_available += max(0, total - hold) * price
+
+        perp_equity = float(summary.get("accountValue") or 0)
+        margin_used = float(summary.get("totalMarginUsed") or 0)
         return {
-            "total_equity_usd": float(summary.get("accountValue") or 0),
-            "available_balance_usd": max(
-                0,
-                float(summary.get("accountValue") or 0)
-                - float(summary.get("totalMarginUsed") or 0),
-            ),
-            "margin_balance_usd": float(summary.get("totalMarginUsed") or 0),
+            "total_equity_usd": perp_equity + spot_equity,
+            "available_balance_usd": max(0, perp_equity - margin_used) + spot_available,
+            "margin_balance_usd": margin_used,
             "unrealized_pnl_usd": float(summary.get("totalNtlPos") or 0)
             - float(summary.get("totalRawUsd") or 0),
-            "unvalued_asset_count": 0,
-            "price_source": "HYPERLIQUID_CLEARINGHOUSE",
+            "unvalued_asset_count": unvalued_asset_count,
+            "price_source": "HYPERLIQUID_PERP_AND_SPOT",
         }
+
+    async def _spot_market_data(self) -> Any:
+        return await self._request(
+            "POST",
+            self.info_url,
+            headers={"Content-Type": "application/json"},
+            json={"type": "spotMetaAndAssetCtxs"},
+        )
+
+    @staticmethod
+    def _spot_token_prices(data: Any) -> dict[int, float]:
+        if not isinstance(data, list) or len(data) != 2:
+            return {}
+        metadata, contexts = data
+        universe = metadata.get("universe", []) if isinstance(metadata, dict) else []
+        markets: list[tuple[int, int, float]] = []
+        for market, context in zip(universe, contexts, strict=False):
+            tokens = market.get("tokens", [])
+            if len(tokens) != 2:
+                continue
+            price = float(context.get("markPx") or context.get("midPx") or 0)
+            if price > 0:
+                markets.append((int(tokens[0]), int(tokens[1]), price))
+
+        prices = {0: 1.0}
+        for _ in range(len(markets)):
+            changed = False
+            for base_token, quote_token, market_price in markets:
+                if quote_token in prices and base_token not in prices:
+                    prices[base_token] = prices[quote_token] * market_price
+                    changed = True
+                elif base_token in prices and quote_token not in prices:
+                    prices[quote_token] = prices[base_token] / market_price
+                    changed = True
+            if not changed:
+                break
+        return prices
 
     async def get_balances(self) -> list[dict[str, Any]]:
         spot = await self._info("spotClearinghouseState")
@@ -256,7 +318,7 @@ class HyperliquidAdapter(ExchangeAdapter):
             return "WITHDRAWAL"
         if event_type == "accountClassTransfer":
             return "DEPOSIT" if bool(delta.get("toPerp")) else "WITHDRAWAL"
-        if event_type in {"internalTransfer", "subAccountTransfer", "spotTransfer"}:
+        if event_type in {"internalTransfer", "subAccountTransfer", "spotTransfer", "send"}:
             destination = str(delta.get("destination") or "").lower()
             user = str(delta.get("user") or "").lower()
             if destination == wallet and user == wallet:
