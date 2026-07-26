@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePrivacy } from "@/components/app-shell";
+import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { Chart } from "@/components/chart";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
@@ -57,11 +58,12 @@ function PnlContent() {
   const [byExchange, setByExchange] = useState<ExchangePnl[]>([]);
   const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [error, setError] = useState("");
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
 
   const load = useCallback(() => {
     setError("");
-    Promise.all([
+    return Promise.all([
       apiFetch<PnlSummary>("/api/pnl/summary"),
       apiFetch<PnlPoint[]>("/api/pnl/daily"),
       apiFetch<PnlPoint[]>("/api/pnl/weekly"),
@@ -74,11 +76,15 @@ function PnlContent() {
         setWeekly(weekData);
         setMonthly(monthData);
         setByExchange(exchangeData);
+        setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
   }, []);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const autoRefresh = useAutoRefresh(load);
 
   const selected = period === "daily" ? daily : period === "weekly" ? weekly : monthly;
   const cumulative = daily.map((_, index) =>
@@ -159,7 +165,17 @@ function PnlContent() {
 
   return (
     <>
-      <PageHeader eyebrow="收益节奏" title="收益分析" description="看清每天的起伏：充值不算收益，提现也不算亏损。" action={<Badge tone="mint">当前统计周期</Badge>} />
+      <PageHeader
+        eyebrow="收益节奏"
+        title="收益分析"
+        description="看清每天的起伏：充值不算收益，提现也不算亏损。"
+        action={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Badge tone="mint">当前统计周期</Badge>
+            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
+          </div>
+        }
+      />
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {metrics.map((metric) => {
           const Icon = metric.icon;

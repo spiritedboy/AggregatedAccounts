@@ -4,6 +4,7 @@ import { Filter, Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePrivacy } from "@/components/app-shell";
+import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -27,6 +28,7 @@ function PositionsContent() {
   const [side, setSide] = useState("");
   const [symbol, setSymbol] = useState("");
   const [sort, setSort] = useState<"value" | "pnl">("value");
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
 
   const load = useCallback(() => {
@@ -35,12 +37,18 @@ function PositionsContent() {
     if (side) params.set("side", side);
     if (symbol) params.set("symbol", symbol);
     setError("");
-    apiFetch<PositionResult>(`/api/positions/current?${params}`)
-      .then(setResult)
+    return apiFetch<PositionResult>(`/api/positions/current?${params}`)
+      .then((nextResult) => {
+        setResult(nextResult);
+        setLastLoadedAt(new Date().toISOString());
+      })
       .catch((reason) => setError(reason.message));
   }, [exchange, side, symbol]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const autoRefresh = useAutoRefresh(load);
 
   const positions = useMemo(() => {
     const rows = [...(result?.items ?? [])];
@@ -50,6 +58,14 @@ function PositionsContent() {
         : b.unrealized_pnl - a.unrealized_pnl,
     );
   }, [result, sort]);
+  const lastUpdatedAt =
+    positions.reduce<string | null>(
+      (latest, position) =>
+        !latest || Date.parse(position.update_time) > Date.parse(latest)
+          ? position.update_time
+          : latest,
+      null,
+    ) ?? lastLoadedAt;
 
   return (
     <>
@@ -58,10 +74,13 @@ function PositionsContent() {
         title="当前仓位"
         description="统一查看各交易所当前敞口。页面没有平仓、杠杆调整或任何交易操作。"
         action={
-          <Badge tone="mint">
-            <SlidersHorizontal className="mr-1 h-3 w-3" />
-            只读
-          </Badge>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Badge tone="mint">
+              <SlidersHorizontal className="mr-1 h-3 w-3" />
+              只读
+            </Badge>
+            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastUpdatedAt} />
+          </div>
         }
       />
 

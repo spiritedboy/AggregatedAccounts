@@ -4,6 +4,7 @@ import { Download, Filter, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { usePrivacy } from "@/components/app-shell";
+import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -29,6 +30,7 @@ function HistoryContent() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
 
   const params = useCallback(() => {
@@ -43,12 +45,18 @@ function HistoryContent() {
 
   const load = useCallback(() => {
     setError("");
-    apiFetch<HistoryResult>(`/api/positions/history?${params()}`)
-      .then(setResult)
+    return apiFetch<HistoryResult>(`/api/positions/history?${params()}`)
+      .then((nextResult) => {
+        setResult(nextResult);
+        setLastLoadedAt(new Date().toISOString());
+      })
       .catch((reason) => setError(reason.message));
   }, [params]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const autoRefresh = useAutoRefresh(load);
 
   function exportCsv() {
     const query = params();
@@ -64,10 +72,13 @@ function HistoryContent() {
         title="历史仓位"
         description="只展示当前统计周期开始之后关闭的仓位；重建记录会明确标注来源。"
         action={
-          <button type="button" className="button-secondary" onClick={exportCsv}>
-            <Download className="h-4 w-4" />
-            导出 CSV
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
+            <button type="button" className="button-secondary" onClick={exportCsv}>
+              <Download className="h-4 w-4" />
+              导出 CSV
+            </button>
+          </div>
         }
       />
 

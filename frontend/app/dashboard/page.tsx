@@ -6,7 +6,6 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CircleDollarSign,
-  Clock3,
   Coins,
   Gauge,
   ShieldAlert,
@@ -15,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Chart } from "@/components/chart";
+import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { usePrivacy } from "@/components/app-shell";
@@ -33,16 +33,23 @@ export default function DashboardPage() {
 function DashboardContent() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
 
   const load = useCallback(() => {
     setError("");
-    apiFetch<DashboardData>("/api/dashboard/summary")
-      .then(setData)
+    return apiFetch<DashboardData>("/api/dashboard/summary")
+      .then((nextData) => {
+        setData(nextData);
+        setLastLoadedAt(new Date().toISOString());
+      })
       .catch((reason) => setError(reason.message));
   }, []);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const autoRefresh = useAutoRefresh(load);
 
   const equityOption = useMemo<EChartsOption>(
     () => ({
@@ -194,10 +201,10 @@ function DashboardContent() {
         title="资产总览"
         description="五个平台，一张轻松看懂的资产地图。"
         action={
-          <div className="muted flex items-center gap-2 text-xs">
-            <Clock3 className="h-4 w-4" />
-            更新于 {dateTime(data.last_updated_at)}
-          </div>
+          <AutoRefreshStatus
+            state={autoRefresh}
+            lastUpdatedAt={data.last_updated_at ?? lastLoadedAt}
+          />
         }
       />
 
