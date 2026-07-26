@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, case_sensitive=False, extra="ignore")
 
     app_env: str = "development"
-    app_access_password: str = Field(min_length=8)
+    app_access_password: str = Field(min_length=6)
     app_encryption_key: str = Field(min_length=32)
     session_secret: str = Field(min_length=32)
     cookie_secure: bool = False
