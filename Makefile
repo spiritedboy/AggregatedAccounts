@@ -29,7 +29,7 @@ migrate:
 	$(COMPOSE_DEV) run --rm backend alembic upgrade head
 
 test:
-	$(COMPOSE_DEV) run --rm backend pytest
+	$(COMPOSE_DEV) run --rm backend python -m pytest
 	$(COMPOSE_DEV) run --rm frontend npm run test
 
 lint:
