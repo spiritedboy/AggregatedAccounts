@@ -1,11 +1,18 @@
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ClosedPosition, DailyPnlSnapshot, SecurityAuditLog
+from app.config import settings
+from app.models import (
+    AccountBalanceSnapshot,
+    ClosedPosition,
+    DailyPnlSnapshot,
+    SecurityAuditLog,
+    SyncJob,
+)
 
 
 def canonical_polymarket_closed_source_id(source_record_id: str) -> str:
@@ -95,6 +102,67 @@ async def cleanup_polymarket_closed_positions(
     db.add(
         SecurityAuditLog(
             action="POLYMARKET_DUPLICATES_CLEANED",
+            outcome="SUCCESS",
+            client_ip="maintenance",
+            details=result,
+        )
+    )
+    await db.commit()
+    return result
+
+
+async def apply_data_retention(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Prune operational/high-frequency rows while retaining business history.
+
+    Balance rows are removed only when the corresponding daily aggregate
+    already exists, so an interrupted aggregation never causes data loss.
+    """
+    current_time = now or datetime.now(UTC)
+    job_cutoff = current_time - timedelta(
+        days=max(settings.sync_job_retention_days, 1)
+    )
+    balance_cutoff = current_time - timedelta(
+        days=max(settings.balance_snapshot_retention_days, 1)
+    )
+    deleted_jobs = (
+        await db.execute(
+            delete(SyncJob).where(
+                SyncJob.started_at < job_cutoff,
+                SyncJob.status != "RUNNING",
+            )
+        )
+    ).rowcount or 0
+    summarized_day_exists = exists(
+        select(DailyPnlSnapshot.id).where(
+            DailyPnlSnapshot.exchange_account_id
+            == AccountBalanceSnapshot.exchange_account_id,
+            DailyPnlSnapshot.tracking_period_id
+            == AccountBalanceSnapshot.tracking_period_id,
+            func.date(DailyPnlSnapshot.snapshot_date)
+            == func.date(AccountBalanceSnapshot.recorded_at),
+        )
+    )
+    deleted_balances = (
+        await db.execute(
+            delete(AccountBalanceSnapshot).where(
+                AccountBalanceSnapshot.recorded_at < balance_cutoff,
+                summarized_day_exists,
+            )
+        )
+    ).rowcount or 0
+    result = {
+        "sync_jobs_deleted": deleted_jobs,
+        "balance_snapshots_deleted": deleted_balances,
+        "sync_job_cutoff": job_cutoff.isoformat(),
+        "balance_snapshot_cutoff": balance_cutoff.isoformat(),
+    }
+    db.add(
+        SecurityAuditLog(
+            action="DATA_RETENTION_APPLIED",
             outcome="SUCCESS",
             client_ip="maintenance",
             details=result,

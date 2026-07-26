@@ -16,6 +16,7 @@ from app.models import (
     DailyPnlSnapshot,
     ExchangeAccount,
     FundingRecord,
+    IncomeRecord,
     InitialAccountSnapshot,
     SyncError,
     SyncJob,
@@ -240,12 +241,18 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
             select(TradingFeeRecord).where(TradingFeeRecord.tracking_period_id.in_(period_ids))
         )
     ).all()
+    income_records = (
+        await db.scalars(
+            select(IncomeRecord).where(IncomeRecord.tracking_period_id.in_(period_ids))
+        )
+    ).all()
 
     positions_by_period: dict[uuid.UUID, list[CurrentPosition]] = defaultdict(list)
     closed_by_period: dict[uuid.UUID, list[ClosedPosition]] = defaultdict(list)
     cash_by_period: dict[uuid.UUID, list[CashFlowRecord]] = defaultdict(list)
     funding_by_period: dict[uuid.UUID, list[FundingRecord]] = defaultdict(list)
     fees_by_period: dict[uuid.UUID, list[TradingFeeRecord]] = defaultdict(list)
+    income_by_period: dict[uuid.UUID, list[IncomeRecord]] = defaultdict(list)
     for row in current_positions:
         positions_by_period[row.tracking_period_id].append(row)
     for row in closed_positions:
@@ -256,6 +263,8 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         funding_by_period[row.tracking_period_id].append(row)
     for row in fee_records:
         fees_by_period[row.tracking_period_id].append(row)
+    for row in income_records:
+        income_by_period[row.tracking_period_id].append(row)
 
     items: list[dict[str, Any]] = []
     for account in accounts:
@@ -276,15 +285,31 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
             if row.flow_type.upper() in {"WITHDRAW", "WITHDRAWAL"}
         )
         net_cash_flow = deposits - withdrawals
-        realized_pnl = sum(
-            _number(row.realized_pnl) for row in closed_by_period.get(period_id, [])
+        income_items = income_by_period.get(period_id, [])
+        funding_items = funding_by_period.get(period_id, [])
+        fee_items = fees_by_period.get(period_id, [])
+        realized_pnl = (
+            sum(_number(row.amount_usd) for row in income_items)
+            if income_items
+            else sum(
+                _number(row.realized_pnl) for row in closed_by_period.get(period_id, [])
+            )
         )
-        funding_fee = sum(
-            _number(row.amount_usd) for row in funding_by_period.get(period_id, [])
-        ) + sum(_number(row.funding_fee) for row in closed_by_period.get(period_id, []))
-        trading_fee = sum(
-            abs(_number(row.amount_usd)) for row in fees_by_period.get(period_id, [])
-        ) + sum(abs(_number(row.trading_fee)) for row in closed_by_period.get(period_id, []))
+        funding_fee = (
+            sum(_number(row.amount_usd) for row in funding_items)
+            if funding_items
+            else sum(
+                _number(row.funding_fee) for row in closed_by_period.get(period_id, [])
+            )
+        )
+        trading_fee = (
+            sum(_number(row.amount_usd) for row in fee_items)
+            if fee_items
+            else sum(
+                abs(_number(row.trading_fee))
+                for row in closed_by_period.get(period_id, [])
+            )
+        )
         unrealized_change = sum(
             _number(row.tracking_unrealized_pnl_change)
             for row in positions_by_period.get(period_id, [])

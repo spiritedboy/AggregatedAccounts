@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from decimal import Decimal
 from typing import Any
@@ -20,11 +20,14 @@ from app.models import (
     DailyPnlSnapshot,
     EncryptedCredential,
     ExchangeAccount,
+    FundingRecord,
+    IncomeRecord,
     InitialAccountSnapshot,
     SecurityAuditLog,
     SyncError,
     SyncJob,
     TrackingPeriod,
+    TradingFeeRecord,
 )
 from app.schemas import ExchangeAccountCreate
 from app.security import CredentialCipher, EncryptedField, mask_identifier
@@ -32,6 +35,7 @@ from app.security import CredentialCipher, EncryptedField, mask_identifier
 cipher = CredentialCipher(settings.app_encryption_key)
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
 PUBLIC_ADDRESS_EXCHANGES = {"HYPERLIQUID", "POLYMARKET"}
+HISTORY_STREAMS = frozenset({"income", "funding", "fees", "cash_flows"})
 
 
 def _make_adapter(payload: ExchangeAccountCreate) -> ExchangeAdapter:
@@ -352,6 +356,77 @@ async def _upsert_closed_positions(
     return len(positions)
 
 
+async def _upsert_amount_records(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    model: type[IncomeRecord | FundingRecord | TradingFeeRecord | CashFlowRecord],
+    records: list[dict[str, Any]],
+) -> int:
+    valid_records = [
+        item
+        for item in records
+        if period.started_at <= item["record_time"]
+        and item["record_time"] <= datetime.now(UTC)
+    ]
+    if not valid_records:
+        return 0
+    source_ids = [str(item["source_record_id"])[:160] for item in valid_records]
+    existing_rows = (
+        await db.scalars(
+            select(model).where(
+                model.exchange_account_id == account.id,
+                model.tracking_period_id == period.id,
+                model.source_record_id.in_(source_ids),
+            )
+        )
+    ).all()
+    existing = {row.source_record_id: row for row in existing_rows}
+    for item, source_id in zip(valid_records, source_ids, strict=True):
+        row = existing.get(source_id)
+        if row is None:
+            kwargs: dict[str, Any] = {
+                "exchange": account.exchange,
+                "exchange_account_id": account.id,
+                "tracking_period_id": period.id,
+                "source_record_id": source_id,
+            }
+            if model is IncomeRecord:
+                kwargs["income_type"] = item.get("income_type", "UNKNOWN")
+            elif model is CashFlowRecord:
+                kwargs["flow_type"] = item.get("flow_type", "UNKNOWN")
+            elif model in {FundingRecord, TradingFeeRecord}:
+                kwargs["symbol"] = item.get("symbol")
+            row = model(**kwargs)
+            db.add(row)
+            existing[source_id] = row
+        row.asset = str(item.get("asset") or "USD").upper()
+        row.amount_usd = Decimal(str(item.get("amount_usd", 0)))
+        row.record_time = item["record_time"]
+        if model is IncomeRecord:
+            row.income_type = item.get("income_type", "UNKNOWN")
+        elif model is CashFlowRecord:
+            row.flow_type = item.get("flow_type", "UNKNOWN")
+        elif model in {FundingRecord, TradingFeeRecord}:
+            row.symbol = item.get("symbol")
+    return len(valid_records)
+
+
+async def _last_full_history_sync(
+    db: AsyncSession, account: ExchangeAccount
+) -> SyncJob | None:
+    return await db.scalar(
+        select(SyncJob)
+        .where(
+            SyncJob.exchange_account_id == account.id,
+            SyncJob.job_type == "FULL_ACCOUNT",
+            SyncJob.status == "SUCCESS",
+        )
+        .order_by(SyncJob.finished_at.desc())
+        .limit(1)
+    )
+
+
 async def _write_daily_snapshot(
     db: AsyncSession,
     account: ExchangeAccount,
@@ -393,6 +468,33 @@ async def _write_daily_snapshot(
             ClosedPosition.close_time <= recorded_at,
         )
     )
+    income_count, income_today = (
+        await db.execute(
+            select(func.count(IncomeRecord.id), func.sum(IncomeRecord.amount_usd)).where(
+                IncomeRecord.exchange_account_id == account.id,
+                IncomeRecord.tracking_period_id == period.id,
+                IncomeRecord.record_time >= day_start,
+                IncomeRecord.record_time <= recorded_at,
+                IncomeRecord.income_type == "REALIZED_PNL",
+            )
+        )
+    ).one()
+    funding_today = await db.scalar(
+        select(func.sum(FundingRecord.amount_usd)).where(
+            FundingRecord.exchange_account_id == account.id,
+            FundingRecord.tracking_period_id == period.id,
+            FundingRecord.record_time >= day_start,
+            FundingRecord.record_time <= recorded_at,
+        )
+    )
+    fees_today = await db.scalar(
+        select(func.sum(TradingFeeRecord.amount_usd)).where(
+            TradingFeeRecord.exchange_account_id == account.id,
+            TradingFeeRecord.tracking_period_id == period.id,
+            TradingFeeRecord.record_time >= day_start,
+            TradingFeeRecord.record_time <= recorded_at,
+        )
+    )
     row = await db.scalar(
         select(DailyPnlSnapshot).where(
             DailyPnlSnapshot.exchange_account_id == account.id,
@@ -412,10 +514,12 @@ async def _write_daily_snapshot(
     current_equity = Decimal(str(summary.get("total_equity_usd", 0)))
     current_unrealized = Decimal(str(summary.get("unrealized_pnl_usd", 0)))
     row.equity_usd = current_equity
-    row.realized_pnl = realized_today or Decimal("0")
+    row.realized_pnl = (
+        income_today or Decimal("0") if income_count else realized_today or Decimal("0")
+    )
     row.unrealized_pnl_change = current_unrealized - initial.initial_unrealized_pnl
-    row.funding_fee = Decimal("0")
-    row.trading_fee = Decimal("0")
+    row.funding_fee = funding_today or Decimal("0")
+    row.trading_fee = fees_today or Decimal("0")
     row.net_cash_flow = net_cash_flow
     row.investment_return = current_equity - initial.initial_equity - net_cash_flow
 
@@ -449,6 +553,15 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 )
                 if not period:
                     raise AdapterError("没有启用中的统计周期")
+                last_full_sync = await _last_full_history_sync(db, account)
+                history_due = (
+                    last_full_sync is None
+                    or started
+                    - (last_full_sync.finished_at or last_full_sync.started_at)
+                    >= timedelta(seconds=max(settings.sync_history_seconds, 60))
+                )
+                if history_due:
+                    job.job_type = "FULL_ACCOUNT"
                 adapter = await adapter_for_account(db, account)
                 try:
                     summary, positions, closed_positions = await asyncio.gather(
@@ -456,6 +569,22 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                         adapter.get_open_positions(),
                         adapter.get_closed_positions(account.tracking_started_at, started),
                     )
+                    history_bundle: dict[str, Any] | None = None
+                    history_error: Exception | None = None
+                    if history_due and adapter.history_streams:
+                        history_start = account.tracking_started_at
+                        if last_full_sync:
+                            history_start = max(
+                                account.tracking_started_at,
+                                (last_full_sync.finished_at or last_full_sync.started_at)
+                                - timedelta(minutes=5),
+                            )
+                        try:
+                            history_bundle = await adapter.get_history_bundle(
+                                history_start, started
+                            )
+                        except Exception as exc:
+                            history_error = exc
                 finally:
                     await adapter.close()
                 await _write_summary(db, account, period, summary, started)
@@ -463,8 +592,44 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 closed_count = await _upsert_closed_positions(
                     db, account, period, closed_positions
                 )
+                history_count = 0
+                if history_due:
+                    if history_bundle is not None:
+                        history_count += await _upsert_amount_records(
+                            db, account, period, IncomeRecord, history_bundle["income"]
+                        )
+                        history_count += await _upsert_amount_records(
+                            db, account, period, FundingRecord, history_bundle["funding"]
+                        )
+                        history_count += await _upsert_amount_records(
+                            db, account, period, TradingFeeRecord, history_bundle["fees"]
+                        )
+                        history_count += await _upsert_amount_records(
+                            db,
+                            account,
+                            period,
+                            CashFlowRecord,
+                            history_bundle["cash_flows"],
+                        )
+                        account.data_completeness = (
+                            "COMPLETE"
+                            if adapter.history_streams == HISTORY_STREAMS
+                            and bool(history_bundle.get("complete"))
+                            else "PARTIAL"
+                        )
+                    else:
+                        account.data_completeness = "PARTIAL"
+                    if history_error is not None:
+                        db.add(
+                            SyncError(
+                                exchange_account_id=account.id,
+                                error_type=type(history_error).__name__,
+                                safe_message="资产同步成功，但账务流水同步不完整",
+                                occurred_at=datetime.now(UTC),
+                            )
+                        )
                 await _write_daily_snapshot(db, account, period, summary, started)
-                job.records_written = len(positions) + closed_count + 2
+                job.records_written = len(positions) + closed_count + history_count + 2
                 account.last_synced_at = started
                 account.connection_status = "CONNECTED"
             job.status = "SUCCESS"

@@ -349,8 +349,8 @@ describe("portfolio pages", () => {
     expect(screen.getByText(/账户由服务器配置文件统一管理/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "添加账户" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /测试连接/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /立即同步/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /测试连接/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /立即同步/ })).not.toBeInTheDocument();
   });
 
   it("renders reconciliation and risk analytics", async () => {

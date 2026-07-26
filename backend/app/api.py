@@ -27,12 +27,7 @@ from app.security.session import (
     require_csrf,
     require_session,
 )
-from app.services.accounts import (
-    adapter_for_account,
-    create_account,
-    delete_account,
-    sync_account,
-)
+from app.services.accounts import create_account, delete_account, sync_account
 from app.services.analytics import (
     build_reconciliation,
     build_risk_metrics,
@@ -120,32 +115,21 @@ async def get_account(
 @router.post("/exchange-accounts/{account_id}/test")
 async def test_account(
     account_id: uuid.UUID,
+    _: AppSession = Depends(require_csrf),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    account = await _active_account(db, account_id)
-    if account.is_demo:
-        return envelope({"connected": True, "mode": "DEMO"})
-    adapter = await adapter_for_account(db, account)
-    try:
-        connected = await adapter.test_connection()
-        permissions = await adapter.get_permissions()
-    except Exception:
-        raise HTTPException(status_code=400, detail="连接测试失败") from None
-    finally:
-        await adapter.close()
-    account.permission_status = permissions
-    account.connection_status = "CONNECTED" if connected else "ERROR"
-    await db.commit()
-    return envelope({"connected": connected, "permissions": permissions})
+    del account_id, db
+    raise HTTPException(status_code=403, detail="公开只读模式不允许触发连接测试")
 
 
 @router.post("/exchange-accounts/{account_id}/sync")
 async def sync_one_account(
     account_id: uuid.UUID,
+    _: AppSession = Depends(require_csrf),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    account = await _active_account(db, account_id)
-    return envelope(await sync_account(db, account))
+    del account_id, db
+    raise HTTPException(status_code=403, detail="公开只读模式不允许触发手动同步")
 
 
 @router.delete("/exchange-accounts/{account_id}")

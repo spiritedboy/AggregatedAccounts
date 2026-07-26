@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     sync_history_seconds: int = 300
     sync_closed_position_seconds: int = 600
     sync_health_seconds: int = 60
+    sync_job_retention_days: int = 30
+    balance_snapshot_retention_days: int = 90
+    maintenance_hour_utc: int = 4
+    maintenance_minute_utc: int = 20
     request_timeout_seconds: float = 12
     exchange_accounts_config: str = "/app/config/exchange_accounts.json"
 

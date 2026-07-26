@@ -20,6 +20,7 @@ class BitgetAdapter(ExchangeAdapter):
     """
 
     base_url = "https://api.bitget.com"
+    history_streams = frozenset({"income", "funding", "fees", "cash_flows"})
 
     def _headers(self, method: str, request_path: str) -> dict[str, str]:
         timestamp = str(int(time.time() * 1000))
@@ -126,23 +127,146 @@ class BitgetAdapter(ExchangeAdapter):
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        rows = await self._get(
-            "/api/v2/spot/account/bills",
-            {
-                "startTime": int(start_time.timestamp() * 1000),
-                "endTime": int(end_time.timestamp() * 1000),
-                "limit": 500,
-            },
-        )
-        return [
-            {
-                "source_record_id": row["billId"],
-                "asset": row.get("coin", "USD").upper(),
-                "amount": float(row.get("size") or 0),
-                "income_type": row.get("businessType", "UNKNOWN"),
-                "record_time": datetime.fromtimestamp(int(row["cTime"]) / 1000, tz=UTC),
-                "symbol": None,
+        return (await self.get_history_bundle(start_time, end_time))["income"]
+
+    async def _bill_rows(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        base_params: dict[str, Any] = {
+            "productType": "USDT-FUTURES",
+            "startTime": int(start_time.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000),
+            "limit": 100,
+        }
+        rows: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(50):
+            params = {**base_params}
+            if cursor:
+                params["idLessThan"] = cursor
+            payload = await self._get("/api/v2/mix/account/bill", params)
+            page = (payload or {}).get("bills", [])
+            rows.extend(page)
+            next_cursor = str((payload or {}).get("endId") or "")
+            if len(page) < 100 or not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+        return rows
+
+    async def get_history_bundle(
+        self, start_time: datetime, end_time: datetime
+    ) -> dict[str, Any]:
+        rows = await self._bill_rows(start_time, end_time)
+        bundle: dict[str, Any] = {
+            "income": [],
+            "funding": [],
+            "fees": [],
+            "cash_flows": [],
+            "complete": True,
+        }
+        realized_types = {
+            "close_long",
+            "close_short",
+            "force_close_long",
+            "force_close_short",
+            "force_buy",
+            "force_sell",
+            "burst_long_loss_query",
+            "burst_short_loss_query",
+            "burst_buy",
+            "burst_sell",
+            "delivery_long",
+            "delivery_short",
+            "tracking_trader_income",
+        }
+        deposit_types = {
+            "trans_from_exchange",
+            "trans_from_contract",
+            "trans_from_otc",
+            "trans_from_cross",
+            "trans_from_isolated",
+        }
+        withdrawal_types = {
+            "trans_to_exchange",
+            "trans_to_contract",
+            "trans_to_otc",
+            "trans_to_cross",
+            "trans_to_isolated",
+        }
+        stable_assets = {"USD", "USDT", "USDC"}
+        for row in rows:
+            timestamp = int(row.get("cTime") or 0)
+            if timestamp < int(start_time.timestamp() * 1000):
+                continue
+            asset = str(row.get("coin") or "USD").upper()
+            if asset not in stable_assets:
+                bundle["complete"] = False
+                continue
+            bill_id = str(row.get("billId") or timestamp)
+            business_type = str(row.get("businessType") or "unknown").lower()
+            amount = float(row.get("amount") or 0)
+            common = {
+                "asset": asset,
+                "record_time": datetime.fromtimestamp(timestamp / 1000, tz=UTC),
+                "symbol": row.get("symbol") or None,
             }
-            for row in rows
-            if int(row["cTime"]) >= int(start_time.timestamp() * 1000)
-        ]
+            recognized = False
+            if business_type in realized_types and amount:
+                recognized = True
+                bundle["income"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:pnl",
+                        "amount_usd": amount,
+                        "income_type": "REALIZED_PNL",
+                    }
+                )
+            if business_type == "contract_settle_fee" and amount:
+                recognized = True
+                bundle["funding"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:funding",
+                        "amount_usd": amount,
+                    }
+                )
+            fee = float(row.get("fee") or 0)
+            if fee:
+                recognized = True
+                bundle["fees"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:fee",
+                        "amount_usd": -fee,
+                    }
+                )
+            if business_type in deposit_types | withdrawal_types and amount:
+                recognized = True
+                bundle["cash_flows"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:cash",
+                        "amount_usd": abs(amount),
+                        "flow_type": (
+                            "DEPOSIT" if business_type in deposit_types else "WITHDRAWAL"
+                        ),
+                    }
+                )
+            if amount and not recognized:
+                bundle["complete"] = False
+        return bundle
+
+    async def get_funding_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["funding"]
+
+    async def get_fee_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["fees"]
+
+    async def get_cash_flow_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["cash_flows"]

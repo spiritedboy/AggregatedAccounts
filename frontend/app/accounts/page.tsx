@@ -2,10 +2,8 @@
 
 import {
   Activity,
-  CheckCircle2,
   CircleAlert,
   Eye,
-  RefreshCw,
   Settings2,
   ShieldCheck,
   Timer,
@@ -37,7 +35,6 @@ function AccountsContent() {
   const [accounts, setAccounts] = useState<ExchangeAccount[] | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatusData | null>(null);
   const [error, setError] = useState("");
-  const [actionId, setActionId] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -68,27 +65,12 @@ function AccountsContent() {
       null,
     ) ?? lastLoadedAt;
 
-  async function action(account: ExchangeAccount, type: "test" | "sync") {
-    setActionId(`${account.id}-${type}`);
-    setError("");
-    try {
-      await apiFetch(`/api/exchange-accounts/${account.id}/${type}`, {
-        method: "POST",
-      });
-      load();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "操作失败");
-    } finally {
-      setActionId("");
-    }
-  }
-
   return (
     <>
       <PageHeader
         eyebrow="连接中心"
         title="交易所账户"
-        description="账户由服务器配置文件统一管理；此页面展示连接状态并保留测试与同步。"
+        description="账户由服务器配置文件统一管理；此页面仅展示连接与同步状态。"
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Badge tone="mint">
@@ -103,8 +85,8 @@ function AccountsContent() {
       <div className="mb-4 flex items-start gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-600 dark:text-violet-200">
         <Settings2 className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          新增、修改或停用账户请调整服务器配置及对应环境变量；页面仅保留连接测试和
-          立即同步，不提供添加与删除操作。
+          新增、修改或停用账户请调整服务器配置及对应环境变量；公网页面不提供连接测试、
+          手动同步、添加或删除操作，后台定时同步不受影响。
         </p>
       </div>
 
@@ -266,30 +248,6 @@ function AccountsContent() {
                 )}
               </div>
 
-              <div className="mt-5 flex gap-2">
-                <button
-                  type="button"
-                  className="button-secondary flex-1"
-                  disabled={account.is_demo || !!actionId}
-                  onClick={() => action(account, "test")}
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {actionId === `${account.id}-test` ? "测试中…" : "测试连接"}
-                </button>
-                <button
-                  type="button"
-                  className="button-secondary flex-1"
-                  disabled={!!actionId}
-                  onClick={() => action(account, "sync")}
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${
-                      actionId === `${account.id}-sync` ? "animate-spin" : ""
-                    }`}
-                  />
-                  立即同步
-                </button>
-              </div>
             </article>
           ))}
         </section>

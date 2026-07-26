@@ -6,13 +6,19 @@ from sqlalchemy import func, select
 
 from app.database import SessionLocal
 from app.models import (
+    AccountBalanceSnapshot,
     ClosedPosition,
     DailyPnlSnapshot,
     ExchangeAccount,
+    SecurityAuditLog,
+    SyncJob,
     TrackingPeriod,
 )
 from app.services.analytics import calculate_max_drawdown, calculate_risk_level
-from app.services.maintenance import cleanup_polymarket_closed_positions
+from app.services.maintenance import (
+    apply_data_retention,
+    cleanup_polymarket_closed_positions,
+)
 
 
 def test_risk_calculations():
@@ -112,3 +118,84 @@ async def test_polymarket_duplicate_cleanup_is_previewable_and_recalculates_dail
         assert rows[0].source_record_id == "poly-closed:stable-asset"
         daily = await db.scalar(select(DailyPnlSnapshot))
         assert daily.realized_pnl == Decimal("6")
+
+
+@pytest.mark.asyncio
+async def test_data_retention_prunes_only_safely_summarized_operational_rows():
+    now = datetime(2026, 7, 26, 12, tzinfo=UTC)
+    old_time = now - timedelta(days=120)
+    async with SessionLocal() as db:
+        account = ExchangeAccount(
+            exchange="BINANCE",
+            connection_name="retention-test",
+            masked_identifier="abc••••xyz",
+            tracking_started_at=old_time,
+            last_synced_at=now,
+        )
+        db.add(account)
+        await db.flush()
+        period = TrackingPeriod(
+            exchange=account.exchange,
+            exchange_account_id=account.id,
+            started_at=old_time,
+            is_active=True,
+        )
+        db.add(period)
+        await db.flush()
+        summarized = AccountBalanceSnapshot(
+            exchange=account.exchange,
+            exchange_account_id=account.id,
+            tracking_period_id=period.id,
+            source_record_id="old-summarized",
+            recorded_at=old_time,
+        )
+        unsummarized = AccountBalanceSnapshot(
+            exchange=account.exchange,
+            exchange_account_id=account.id,
+            tracking_period_id=period.id,
+            source_record_id="old-unsummarized",
+            recorded_at=old_time + timedelta(days=1),
+        )
+        db.add_all([summarized, unsummarized])
+        db.add(
+            DailyPnlSnapshot(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id=f"daily-{old_time.date()}",
+                snapshot_date=old_time.date(),
+            )
+        )
+        db.add_all(
+            [
+                SyncJob(
+                    exchange_account_id=account.id,
+                    job_type="ACCOUNT_REFRESH",
+                    status="SUCCESS",
+                    started_at=now - timedelta(days=40),
+                ),
+                SyncJob(
+                    exchange_account_id=account.id,
+                    job_type="ACCOUNT_REFRESH",
+                    status="SUCCESS",
+                    started_at=now - timedelta(days=2),
+                ),
+            ]
+        )
+        await db.commit()
+
+        result = await apply_data_retention(db, now=now)
+
+        assert result["sync_jobs_deleted"] == 1
+        assert result["balance_snapshots_deleted"] == 1
+        remaining_sources = set(
+            await db.scalars(select(AccountBalanceSnapshot.source_record_id))
+        )
+        assert remaining_sources == {"old-unsummarized"}
+        assert await db.scalar(select(func.count()).select_from(SyncJob)) == 1
+        audit = await db.scalar(
+            select(SecurityAuditLog).where(
+                SecurityAuditLog.action == "DATA_RETENTION_APPLIED"
+            )
+        )
+        assert audit is not None

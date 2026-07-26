@@ -16,6 +16,7 @@ class OkxAdapter(ExchangeAdapter):
     """
 
     base_url = "https://www.okx.com"
+    history_streams = frozenset({"income", "funding", "fees", "cash_flows"})
 
     def _headers(self, method: str, request_path: str) -> dict[str, str]:
         timestamp = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -109,23 +110,126 @@ class OkxAdapter(ExchangeAdapter):
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        rows = await self._get(
-            "/api/v5/account/bills-archive",
-            {
-                "begin": int(start_time.timestamp() * 1000),
-                "end": int(end_time.timestamp() * 1000),
-                "limit": 100,
-            },
-        )
-        return [
-            {
-                "source_record_id": row["billId"],
-                "asset": row.get("ccy", "USD"),
-                "amount": float(row.get("balChg") or 0),
-                "income_type": row.get("subType", row.get("type", "UNKNOWN")),
-                "record_time": datetime.fromtimestamp(int(row["ts"]) / 1000, tz=UTC),
-                "symbol": row.get("instId"),
+        return (await self.get_history_bundle(start_time, end_time))["income"]
+
+    async def _bill_rows(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        base_params: dict[str, Any] = {
+            "begin": int(start_time.timestamp() * 1000),
+            "end": int(end_time.timestamp() * 1000),
+            "limit": 100,
+        }
+        rows: list[dict[str, Any]] = []
+        after: str | None = None
+        for _ in range(50):
+            params = {**base_params}
+            if after:
+                params["after"] = after
+            page = await self._get("/api/v5/account/bills-archive", params)
+            rows.extend(page)
+            if len(page) < 100:
+                break
+            next_after = str(page[-1].get("billId") or "")
+            if not next_after or next_after == after:
+                break
+            after = next_after
+        return rows
+
+    async def get_history_bundle(
+        self, start_time: datetime, end_time: datetime
+    ) -> dict[str, Any]:
+        rows = await self._bill_rows(start_time, end_time)
+        bundle: dict[str, Any] = {
+            "income": [],
+            "funding": [],
+            "fees": [],
+            "cash_flows": [],
+            "complete": True,
+        }
+        stable_assets = {"USD", "USDT", "USDC"}
+        for row in rows:
+            timestamp = int(row.get("ts") or 0)
+            if timestamp < int(start_time.timestamp() * 1000):
+                continue
+            asset = str(row.get("ccy") or "USD").upper()
+            if asset not in stable_assets:
+                bundle["complete"] = False
+                continue
+            bill_id = str(row.get("billId") or f"{timestamp}")
+            subtype = str(row.get("subType") or "")
+            record_time = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
+            common = {
+                "asset": asset,
+                "record_time": record_time,
+                "symbol": row.get("instId") or None,
             }
-            for row in rows
-            if int(row["ts"]) >= int(start_time.timestamp() * 1000)
-        ]
+            recognized = False
+            pnl = float(row.get("pnl") or 0)
+            if pnl and subtype not in {"173", "174"}:
+                recognized = True
+                bundle["income"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:pnl",
+                        "amount_usd": pnl,
+                        "income_type": "REALIZED_PNL",
+                    }
+                )
+            if subtype in {"173", "174"}:
+                recognized = True
+                amount = pnl or float(row.get("balChg") or 0)
+                bundle["funding"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:funding",
+                        "amount_usd": amount,
+                    }
+                )
+            fee = float(row.get("fee") or 0)
+            if fee:
+                recognized = True
+                bundle["fees"].append(
+                    {
+                        **common,
+                        "source_record_id": f"{bill_id}:fee",
+                        "amount_usd": -fee,
+                    }
+                )
+            source_account = str(row.get("from") or "")
+            destination_account = str(row.get("to") or "")
+            if source_account and destination_account and "18" in {
+                source_account,
+                destination_account,
+            }:
+                amount = abs(float(row.get("balChg") or 0))
+                if amount:
+                    recognized = True
+                    bundle["cash_flows"].append(
+                        {
+                            **common,
+                            "source_record_id": f"{bill_id}:cash",
+                            "amount_usd": amount,
+                            "flow_type": (
+                                "DEPOSIT" if destination_account == "18" else "WITHDRAWAL"
+                            ),
+                        }
+                    )
+            if float(row.get("balChg") or 0) and not recognized:
+                bundle["complete"] = False
+        return bundle
+
+    async def get_funding_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["funding"]
+
+    async def get_fee_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["fees"]
+
+    async def get_cash_flow_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["cash_flows"]

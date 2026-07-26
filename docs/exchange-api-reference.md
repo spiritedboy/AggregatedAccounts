@@ -17,7 +17,7 @@
 - `GET /sapi/v1/account/apiRestrictions`：API Key 权限
 - `GET /fapi/v3/account`：USD-M 账户权益
 - `GET /fapi/v3/positionRisk`：当前仓位
-- `GET /fapi/v1/income`：统计起点后的收益流水
+- `GET /fapi/v1/income`：统计起点后的已实现收益、资金费、手续费和合约账户资金流
 
 签名为查询字符串的 HMAC-SHA256，使用 `X-MBX-APIKEY` 请求头。
 
@@ -32,7 +32,8 @@
 - `GET /api/v5/account/config`：账户配置与权限
 - `GET /api/v5/account/balance`：交易账户权益和余额
 - `GET /api/v5/account/positions`：当前仓位
-- `GET /api/v5/account/bills-archive`：统计起点后的账户流水
+- `GET /api/v5/account/bills-archive`：统计起点后的已实现收益、资金费、交易手续费和
+  Funding/Trading 账户划转；接口最多覆盖近 3 个月
 
 签名原文为 `timestamp + method + requestPath + body`，使用 HMAC-SHA256 后
 Base64 编码，并发送 OKX 的四个认证请求头。
@@ -53,7 +54,8 @@ Base64 编码，并发送 OKX 的四个认证请求头。
 - `GET /api/v2/spot/account/assets`：现货资产
 - `GET /api/v2/mix/account/accounts`：合约账户权益
 - `GET /api/v2/mix/position/all-position`：当前合约仓位
-- `GET /api/v2/spot/account/bills`：统计起点后的账户流水
+- `GET /api/v2/mix/account/bill`：统计起点后的合约已实现收益、资金费、手续费和
+  合约账户划转；单次时间区间不超过 30 天，接口最多覆盖近 90 天
 
 签名原文为 `timestamp + method + requestPath + body`，使用 HMAC-SHA256 后
 Base64 编码。
@@ -72,6 +74,8 @@ Base64 编码。
 - `spotClearinghouseState`：现货余额
 - `userFillsByTime`：统计起点后的成交与已实现收益
 - `userFunding`：统计起点后的资金费
+- `userFillsByTime.fee`：统计起点后的实际成交手续费
+- `userNonFundingLedgerUpdates`：充值、提现及永续/现货/子账户资金划转
 
 平台不会要求或保存 Hyperliquid 钱包私钥、助记词或签名密钥。
 
@@ -102,5 +106,7 @@ Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需�
 ## 覆盖限制
 
 不同账户类型、区域和 API Key 权限可能导致某些只读接口不可用。适配器会安全失败
-并将账户标记为异常或统计不完整，不会用猜测值补全。首次上线前应分别使用用户的
+并将账户标记为统计不完整；资产与当前仓位仍继续刷新，不会用猜测值补全。非
+USD/USDT/USDC 结算流水在没有可靠历史美元价格时不会冒充美元金额，并会把完整性
+降为 `PARTIAL`。首次上线前应分别使用用户的
 纯只读凭证或公开地址验证各平台；当前 Demo 验收不代表真实账户权限已验证。

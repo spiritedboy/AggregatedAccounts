@@ -1,4 +1,5 @@
-from datetime import datetime
+import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 from app.adapters.base import ExchangeAdapter
@@ -14,6 +15,7 @@ class HyperliquidAdapter(ExchangeAdapter):
     """
 
     info_url = "https://api.hyperliquid.xyz/info"
+    history_streams = frozenset({"income", "funding", "fees", "cash_flows"})
 
     async def _info(self, request_type: str, **kwargs: Any) -> Any:
         return await self._request(
@@ -125,8 +127,147 @@ class HyperliquidAdapter(ExchangeAdapter):
     async def get_funding_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
-        return await self._info(
-            "userFunding",
-            startTime=int(start_time.timestamp() * 1000),
-            endTime=int(end_time.timestamp() * 1000),
+        return (await self.get_history_bundle(start_time, end_time))["funding"]
+
+    async def get_fee_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["fees"]
+
+    async def get_cash_flow_history(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return (await self.get_history_bundle(start_time, end_time))["cash_flows"]
+
+    async def get_history_bundle(
+        self, start_time: datetime, end_time: datetime
+    ) -> dict[str, Any]:
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        fills, funding_rows, ledger_rows = await asyncio.gather(
+            self._info(
+                "userFillsByTime",
+                startTime=start_ms,
+                endTime=end_ms,
+                aggregateByTime=True,
+            ),
+            self._info("userFunding", startTime=start_ms, endTime=end_ms),
+            self._info(
+                "userNonFundingLedgerUpdates",
+                startTime=start_ms,
+                endTime=end_ms,
+            ),
         )
+        bundle: dict[str, Any] = {
+            "income": [],
+            "funding": [],
+            "fees": [],
+            "cash_flows": [],
+            "complete": True,
+        }
+        for row in fills:
+            timestamp = int(row.get("time") or 0)
+            if timestamp < start_ms:
+                continue
+            source_id = str(row.get("tid") or f"{row.get('hash')}:{timestamp}")
+            record_time = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
+            closed_pnl = float(row.get("closedPnl") or 0)
+            if closed_pnl:
+                bundle["income"].append(
+                    {
+                        "source_record_id": f"{source_id}:pnl",
+                        "asset": "USDC",
+                        "amount_usd": closed_pnl,
+                        "income_type": "REALIZED_PNL",
+                        "record_time": record_time,
+                        "symbol": row.get("coin"),
+                    }
+                )
+            fee = float(row.get("fee") or 0)
+            if fee:
+                fee_token = str(row.get("feeToken") or "USDC").upper()
+                if fee_token != "USDC":
+                    bundle["complete"] = False
+                else:
+                    bundle["fees"].append(
+                        {
+                            "source_record_id": f"{source_id}:fee",
+                            "asset": "USDC",
+                            "amount_usd": fee,
+                            "record_time": record_time,
+                            "symbol": row.get("coin"),
+                        }
+                    )
+
+        for row in funding_rows:
+            timestamp = int(row.get("time") or 0)
+            delta = row.get("delta") or row
+            amount = float(delta.get("usdc") or 0)
+            bundle["funding"].append(
+                {
+                    "source_record_id": (
+                        f"{row.get('hash') or 'funding'}:{delta.get('coin') or ''}:{timestamp}"
+                    ),
+                    "asset": "USDC",
+                    "amount_usd": amount,
+                    "record_time": datetime.fromtimestamp(timestamp / 1000, tz=UTC),
+                    "symbol": delta.get("coin"),
+                }
+            )
+
+        wallet = (self.wallet_address or "").lower()
+        for row in ledger_rows:
+            timestamp = int(row.get("time") or 0)
+            delta = row.get("delta") or {}
+            event_type = str(delta.get("type") or "")
+            amount = self._ledger_amount(delta)
+            flow_type = self._ledger_flow_type(delta, wallet)
+            if amount is None or flow_type is None:
+                if amount:
+                    bundle["complete"] = False
+                continue
+            bundle["cash_flows"].append(
+                {
+                    "source_record_id": (
+                        f"{row.get('hash') or event_type}:{event_type}:{timestamp}"
+                    ),
+                    "asset": "USDC",
+                    "amount_usd": abs(amount),
+                    "record_time": datetime.fromtimestamp(timestamp / 1000, tz=UTC),
+                    "flow_type": flow_type,
+                }
+            )
+        return bundle
+
+    @staticmethod
+    def _ledger_amount(delta: dict[str, Any]) -> float | None:
+        for field in ("usdc", "usdcValue", "netWithdrawnUsd", "requestedUsd"):
+            value = delta.get(field)
+            if value not in (None, ""):
+                return float(value)
+        return None
+
+    @staticmethod
+    def _ledger_flow_type(delta: dict[str, Any], wallet: str) -> str | None:
+        event_type = str(delta.get("type") or "")
+        if event_type in {"deposit", "vaultWithdraw", "vaultDistribution"}:
+            return "DEPOSIT"
+        if event_type in {"withdraw", "vaultDeposit"}:
+            return "WITHDRAWAL"
+        if event_type == "accountClassTransfer":
+            return "DEPOSIT" if bool(delta.get("toPerp")) else "WITHDRAWAL"
+        if event_type in {"internalTransfer", "subAccountTransfer", "spotTransfer"}:
+            destination = str(delta.get("destination") or "").lower()
+            user = str(delta.get("user") or "").lower()
+            if destination == wallet and user == wallet:
+                amount = HyperliquidAdapter._ledger_amount(delta)
+                if amount:
+                    return "DEPOSIT" if amount > 0 else "WITHDRAWAL"
+            if destination == wallet:
+                return "DEPOSIT"
+            if user == wallet:
+                return "WITHDRAWAL"
+            amount = HyperliquidAdapter._ledger_amount(delta)
+            if amount:
+                return "DEPOSIT" if amount > 0 else "WITHDRAWAL"
+        return None

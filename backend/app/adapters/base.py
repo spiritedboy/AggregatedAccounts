@@ -11,6 +11,8 @@ class AdapterError(Exception):
 
 
 class ExchangeAdapter(ABC):
+    history_streams: frozenset[str] = frozenset()
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -80,6 +82,31 @@ class ExchangeAdapter(ABC):
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
         return []
+
+    async def get_history_bundle(
+        self, start_time: datetime, end_time: datetime
+    ) -> dict[str, Any]:
+        """Return normalized accounting streams supported by this adapter.
+
+        Adapters with a shared ledger endpoint should override this method so
+        one remote response can populate multiple local record types.
+        """
+        method_by_stream = {
+            "income": self.get_income_history,
+            "funding": self.get_funding_history,
+            "fees": self.get_fee_history,
+            "cash_flows": self.get_cash_flow_history,
+        }
+        bundle: dict[str, Any] = {
+            "income": [],
+            "funding": [],
+            "fees": [],
+            "cash_flows": [],
+            "complete": bool(self.history_streams),
+        }
+        for stream in self.history_streams:
+            bundle[stream] = await method_by_stream[stream](start_time, end_time)
+        return bundle
 
     async def get_mark_prices(self, symbols: list[str]) -> dict[str, float]:
         return {}

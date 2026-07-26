@@ -23,11 +23,11 @@ def test_public_mode_disables_login_and_write_operations(client):
     assert client.post("/api/sync/refresh").status_code == 403
 
 
-def test_public_mode_keeps_single_account_test_and_sync(authenticated):
+def test_public_mode_blocks_single_account_test_and_sync(authenticated):
     client, _ = authenticated
     account_id = client.get("/api/exchange-accounts").json()["data"][0]["id"]
-    assert client.post(f"/api/exchange-accounts/{account_id}/test").status_code == 200
-    assert client.post(f"/api/exchange-accounts/{account_id}/sync").status_code == 200
+    assert client.post(f"/api/exchange-accounts/{account_id}/test").status_code == 403
+    assert client.post(f"/api/exchange-accounts/{account_id}/sync").status_code == 403
 
 
 def test_demo_dashboard_positions_and_pnl(authenticated):

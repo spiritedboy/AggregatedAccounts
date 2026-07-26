@@ -17,6 +17,7 @@ from app.schemas import envelope
 from app.services.accounts import sync_account
 from app.services.configured_accounts import provision_configured_accounts
 from app.services.demo import seed_demo_data
+from app.services.maintenance import apply_data_retention
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +45,12 @@ async def scheduled_sync() -> None:
     logger.info("scheduled account refresh completed accounts=%s", len(results))
 
 
+async def scheduled_retention() -> None:
+    async with SessionLocal() as db:
+        result = await apply_data_retention(db)
+    logger.info("scheduled data retention completed result=%s", result)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if settings.demo_mode:
@@ -58,6 +65,16 @@ async def lifespan(_: FastAPI):
             "interval",
             seconds=max(settings.sync_balance_seconds, 30),
             id="portfolio-sync",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            scheduled_retention,
+            "cron",
+            hour=min(max(settings.maintenance_hour_utc, 0), 23),
+            minute=min(max(settings.maintenance_minute_utc, 0), 59),
+            id="data-retention",
             max_instances=1,
             coalesce=True,
             replace_existing=True,
