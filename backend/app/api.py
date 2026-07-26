@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -394,7 +394,12 @@ async def current_positions(
     if account_id:
         query = query.where(CurrentPosition.exchange_account_id == account_id)
     if symbol:
-        query = query.where(CurrentPosition.normalized_symbol.ilike(f"%{symbol}%"))
+        query = query.where(
+            or_(
+                CurrentPosition.normalized_symbol.ilike(f"%{symbol}%"),
+                CurrentPosition.symbol.ilike(f"%{symbol}%"),
+            )
+        )
     if side:
         query = query.where(CurrentPosition.side == side.upper())
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
@@ -454,7 +459,12 @@ def _history_query(
     if account_id:
         query = query.where(ClosedPosition.exchange_account_id == account_id)
     if symbol:
-        query = query.where(ClosedPosition.normalized_symbol.ilike(f"%{symbol}%"))
+        query = query.where(
+            or_(
+                ClosedPosition.normalized_symbol.ilike(f"%{symbol}%"),
+                ClosedPosition.symbol.ilike(f"%{symbol}%"),
+            )
+        )
     if side:
         query = query.where(ClosedPosition.side == side.upper())
     if start_time:

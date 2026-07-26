@@ -82,6 +82,7 @@ function HistoryContent() {
           <option value="OKX">OKX</option>
           <option value="BITGET">Bitget</option>
           <option value="HYPERLIQUID">Hyperliquid</option>
+          <option value="POLYMARKET">Polymarket</option>
         </Select>
         <Select value={side} onChange={(value) => { setPage(1); setSide(value); }} label="方向">
           <option value="">全部方向</option>
@@ -119,10 +120,12 @@ function HistoryContent() {
                 {result.items.map((position) => (
                   <tr key={position.id}>
                     <td className="px-5 py-4">
-                      <p className="font-mono font-semibold">{position.normalized_symbol}</p>
+                      <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>
+                        {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
+                      </p>
                       <p className="muted mt-1 text-xs">{position.exchange}</p>
                     </td>
-                    <td className="px-5 py-4"><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{position.side}</Badge></td>
+                    <td className="px-5 py-4"><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{position.exchange === "POLYMARKET" ? "持有" : position.side}</Badge></td>
                     <td className="px-5 py-4">
                       <p className="text-xs">{dateTime(position.open_time)}</p>
                       <p className="muted mt-1 text-xs">{dateTime(position.close_time)}</p>

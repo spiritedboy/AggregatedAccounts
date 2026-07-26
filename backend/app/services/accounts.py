@@ -2,10 +2,11 @@ import asyncio
 import time
 import uuid
 from datetime import UTC, datetime
+from datetime import time as dt_time
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters import ADAPTERS
@@ -13,7 +14,10 @@ from app.adapters.base import AdapterError, ExchangeAdapter
 from app.config import settings
 from app.models import (
     AccountBalanceSnapshot,
+    CashFlowRecord,
+    ClosedPosition,
     CurrentPosition,
+    DailyPnlSnapshot,
     EncryptedCredential,
     ExchangeAccount,
     InitialAccountSnapshot,
@@ -27,6 +31,7 @@ from app.security import CredentialCipher, EncryptedField, mask_identifier
 
 cipher = CredentialCipher(settings.app_encryption_key)
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
+PUBLIC_ADDRESS_EXCHANGES = {"HYPERLIQUID", "POLYMARKET"}
 
 
 def _make_adapter(payload: ExchangeAccountCreate) -> ExchangeAdapter:
@@ -78,15 +83,15 @@ async def create_account(
         await adapter.close()
 
     started_at = datetime.now(UTC)
-    identifier = payload.wallet_address or payload.api_key or ""
+    identifier = adapter.wallet_address or payload.wallet_address or payload.api_key or ""
     account = ExchangeAccount(
         exchange=payload.exchange,
         connection_name=payload.connection_name,
-        public_identifier=payload.wallet_address,
+        public_identifier=adapter.wallet_address if payload.wallet_address else None,
         masked_identifier=mask_identifier(identifier),
         permission_status=permissions,
         connection_status="CONNECTED",
-        data_completeness="COMPLETE",
+        data_completeness="PARTIAL" if payload.exchange == "POLYMARKET" else "COMPLETE",
         tracking_started_at=started_at,
         last_synced_at=started_at,
     )
@@ -102,7 +107,7 @@ async def create_account(
     db.add(period)
     await db.flush()
 
-    if payload.exchange != "HYPERLIQUID":
+    if payload.exchange not in PUBLIC_ADDRESS_EXCHANGES:
         api_key = _encrypt_optional(payload.api_key, f"{account.id}:api_key")
         secret = _encrypt_optional(payload.api_secret, f"{account.id}:secret")
         passphrase = _encrypt_optional(payload.passphrase, f"{account.id}:passphrase")
@@ -150,7 +155,7 @@ async def create_account(
 
 
 async def adapter_for_account(db: AsyncSession, account: ExchangeAccount) -> ExchangeAdapter:
-    if account.exchange == "HYPERLIQUID":
+    if account.exchange in PUBLIC_ADDRESS_EXCHANGES:
         return ADAPTERS[account.exchange](
             wallet_address=account.public_identifier,
             timeout=settings.request_timeout_seconds,
@@ -230,7 +235,9 @@ async def _replace_positions(
                 is_initial_position=initial,
                 tracking_entry_price=Decimal(str(item.get("entry_price", 0))),
                 tracking_initial_mark_price=Decimal(str(item.get("mark_price", 0))),
-                tracking_initial_unrealized_pnl=Decimal(str(item.get("unrealized_pnl", 0))),
+                tracking_initial_unrealized_pnl=Decimal(
+                    str(item.get("unrealized_pnl", 0) if initial else 0)
+                ),
             )
             db.add(row)
         initial_pnl = row.tracking_initial_unrealized_pnl or Decimal("0")
@@ -247,13 +254,150 @@ async def _replace_positions(
             Decimal(str(item["liquidation_price"])) if item.get("liquidation_price") else None
         )
         row.leverage = Decimal(str(item["leverage"])) if item.get("leverage") else None
+        row.source_record_id = str(item["source_record_id"])
+        row.symbol = item["symbol"]
+        row.market_type = item.get("market_type", "PERPETUAL")
         row.margin_mode = item.get("margin_mode", "UNKNOWN")
         row.unrealized_pnl = current_pnl
         row.tracking_unrealized_pnl_change = current_pnl - initial_pnl
-        row.unrealized_pnl_percent = (
-            current_pnl / row.position_value_usd * 100 if row.position_value_usd else Decimal("0")
+        row.unrealized_pnl_percent = Decimal(
+            str(
+                item.get(
+                    "unrealized_pnl_percent",
+                    current_pnl / row.position_value_usd * 100
+                    if row.position_value_usd
+                    else 0,
+                )
+            )
         )
+        row.realized_pnl = Decimal(str(item.get("realized_pnl", 0)))
+        row.open_time = item.get("open_time")
         row.updated_at = recorded_at
+
+
+async def _upsert_closed_positions(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    positions: list[dict[str, Any]],
+) -> int:
+    if not positions:
+        return 0
+    source_ids = [str(item["source_record_id"]) for item in positions]
+    existing_rows = (
+        await db.scalars(
+            select(ClosedPosition).where(
+                ClosedPosition.exchange_account_id == account.id,
+                ClosedPosition.tracking_period_id == period.id,
+                ClosedPosition.source_record_id.in_(source_ids),
+            )
+        )
+    ).all()
+    existing = {row.source_record_id: row for row in existing_rows}
+    for item in positions:
+        source_id = str(item["source_record_id"])
+        row = existing.get(source_id)
+        if row is None:
+            row = ClosedPosition(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id=source_id,
+                symbol=item["symbol"],
+                normalized_symbol=item["normalized_symbol"],
+                side=item["side"],
+                open_time=item["open_time"],
+                close_time=item["close_time"],
+                tracking_started_at=account.tracking_started_at,
+            )
+            db.add(row)
+        row.symbol = item["symbol"]
+        row.normalized_symbol = item["normalized_symbol"]
+        row.side = item["side"]
+        row.open_time = item["open_time"]
+        row.close_time = item["close_time"]
+        for field in (
+            "average_entry_price",
+            "average_exit_price",
+            "max_position_size",
+            "realized_pnl",
+            "funding_fee",
+            "trading_fee",
+            "net_pnl",
+            "return_percent",
+        ):
+            setattr(row, field, Decimal(str(item.get(field, 0))))
+        row.data_source = item.get("data_source", "EXCHANGE_API")
+        row.data_completeness = item.get("data_completeness", "PARTIAL")
+    return len(positions)
+
+
+async def _write_daily_snapshot(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    summary: dict[str, Any],
+    recorded_at: datetime,
+) -> None:
+    initial = await db.scalar(
+        select(InitialAccountSnapshot).where(
+            InitialAccountSnapshot.tracking_period_id == period.id
+        )
+    )
+    if not initial:
+        return
+    cash_flows = (
+        await db.scalars(
+            select(CashFlowRecord).where(
+                CashFlowRecord.exchange_account_id == account.id,
+                CashFlowRecord.tracking_period_id == period.id,
+                CashFlowRecord.record_time >= period.started_at,
+                CashFlowRecord.record_time <= recorded_at,
+            )
+        )
+    ).all()
+    net_cash_flow = sum(
+        (
+            -row.amount_usd
+            if row.flow_type.upper() in {"WITHDRAW", "WITHDRAWAL"}
+            else row.amount_usd
+        )
+        for row in cash_flows
+    )
+    day_start = datetime.combine(recorded_at.date(), dt_time.min, tzinfo=UTC)
+    realized_today = await db.scalar(
+        select(func.sum(ClosedPosition.realized_pnl)).where(
+            ClosedPosition.exchange_account_id == account.id,
+            ClosedPosition.tracking_period_id == period.id,
+            ClosedPosition.close_time >= day_start,
+            ClosedPosition.close_time <= recorded_at,
+        )
+    )
+    row = await db.scalar(
+        select(DailyPnlSnapshot).where(
+            DailyPnlSnapshot.exchange_account_id == account.id,
+            DailyPnlSnapshot.tracking_period_id == period.id,
+            DailyPnlSnapshot.snapshot_date == recorded_at.date(),
+        )
+    )
+    if row is None:
+        row = DailyPnlSnapshot(
+            exchange=account.exchange,
+            exchange_account_id=account.id,
+            tracking_period_id=period.id,
+            source_record_id=f"daily-{recorded_at.date()}",
+            snapshot_date=recorded_at.date(),
+        )
+        db.add(row)
+    current_equity = Decimal(str(summary.get("total_equity_usd", 0)))
+    current_unrealized = Decimal(str(summary.get("unrealized_pnl_usd", 0)))
+    row.equity_usd = current_equity
+    row.realized_pnl = realized_today or Decimal("0")
+    row.unrealized_pnl_change = current_unrealized - initial.initial_unrealized_pnl
+    row.funding_fee = Decimal("0")
+    row.trading_fee = Decimal("0")
+    row.net_cash_flow = net_cash_flow
+    row.investment_return = current_equity - initial.initial_equity - net_cash_flow
 
 
 async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, Any]:
@@ -287,15 +431,20 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                     raise AdapterError("没有启用中的统计周期")
                 adapter = await adapter_for_account(db, account)
                 try:
-                    summary, positions = await asyncio.gather(
+                    summary, positions, closed_positions = await asyncio.gather(
                         adapter.get_account_summary(),
                         adapter.get_open_positions(),
+                        adapter.get_closed_positions(account.tracking_started_at, started),
                     )
                 finally:
                     await adapter.close()
                 await _write_summary(db, account, period, summary, started)
                 await _replace_positions(db, account, period, positions, started)
-                job.records_written = len(positions) + 1
+                closed_count = await _upsert_closed_positions(
+                    db, account, period, closed_positions
+                )
+                await _write_daily_snapshot(db, account, period, summary, started)
+                job.records_written = len(positions) + closed_count + 2
                 account.last_synced_at = started
                 account.connection_status = "CONNECTED"
             job.status = "SUCCESS"

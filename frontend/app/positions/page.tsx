@@ -82,6 +82,7 @@ function PositionsContent() {
           <option value="OKX">OKX</option>
           <option value="BITGET">Bitget</option>
           <option value="HYPERLIQUID">Hyperliquid</option>
+          <option value="POLYMARKET">Polymarket</option>
         </FilterSelect>
         <FilterSelect value={side} onChange={setSide} label="方向">
           <option value="">全部方向</option>
@@ -117,12 +118,14 @@ function PositionsContent() {
                 {positions.map((position) => (
                   <tr key={position.id} className="transition hover:bg-black/[0.025] dark:hover:bg-white/[0.025]">
                     <td className="px-5 py-4">
-                      <p className="font-mono font-semibold">{position.normalized_symbol}</p>
+                      <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>
+                        {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
+                      </p>
                       <p className="muted mt-1 text-xs">{position.exchange} · {position.market_type}</p>
                     </td>
                     <td className="px-5 py-4">
                       <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                        {position.side}
+                        {position.exchange === "POLYMARKET" ? "持有" : position.side}
                       </Badge>
                     </td>
                     <td className="mono-number px-5 py-4">{number(position.position_size)}</td>
@@ -154,10 +157,14 @@ function PositionsContent() {
               <article key={position.id} className="panel p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-mono font-semibold">{position.normalized_symbol}</p>
+                    <p className={position.exchange === "POLYMARKET" ? "font-semibold" : "font-mono font-semibold"}>
+                      {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
+                    </p>
                     <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>
                   </div>
-                  <Badge tone={position.side === "LONG" ? "positive" : "negative"}>{position.side}</Badge>
+                  <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
+                    {position.exchange === "POLYMARKET" ? "持有" : position.side}
+                  </Badge>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd, hidden)} />

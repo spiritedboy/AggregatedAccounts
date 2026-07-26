@@ -122,7 +122,7 @@ function DashboardContent() {
               name: item.exchange,
               value: item.equity,
               itemStyle: {
-                color: ["#8567f4", "#27cdb5", "#f06da9", "#f4b84a"][index],
+                color: ["#8567f4", "#27cdb5", "#f06da9", "#f4b84a", "#38a3ff"][index % 5],
               },
             })) ?? [],
         },
@@ -192,7 +192,7 @@ function DashboardContent() {
       <PageHeader
         eyebrow="今天的钱包"
         title="资产总览"
-        description="四个交易所，一张轻松看懂的资产地图。"
+        description="五个平台，一张轻松看懂的资产地图。"
         action={
           <div className="muted flex items-center gap-2 text-xs">
             <Clock3 className="h-4 w-4" />
@@ -266,9 +266,11 @@ function DashboardContent() {
               <div key={position.id} className="grid grid-cols-[1fr_auto] gap-4 px-5 py-4 sm:grid-cols-[1.1fr_.7fr_.7fr] sm:items-center">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-mono text-sm font-semibold">{position.normalized_symbol}</p>
+                    <p className={position.exchange === "POLYMARKET" ? "text-sm font-semibold" : "font-mono text-sm font-semibold"}>
+                      {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
+                    </p>
                     <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                      {position.side}
+                      {position.exchange === "POLYMARKET" ? "持有" : position.side}
                     </Badge>
                   </div>
                   <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>

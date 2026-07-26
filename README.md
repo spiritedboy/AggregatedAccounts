@@ -1,23 +1,24 @@
 # Atlas Ledger：多交易所账户资产聚合平台
 
-Atlas Ledger 是面向个人使用的只读数字资产看板，将 Binance、OKX、Bitget 与
-Hyperliquid 的账户权益、余额、仓位和统计周期收益聚合到一个响应式 Web 界面。
+Atlas Ledger 是面向个人使用的只读数字资产看板，将 Binance、OKX、Bitget、
+Hyperliquid 与 Polymarket 的账户权益、余额、仓位和统计周期收益聚合到一个响应式
+Web 界面。
 项目不包含下单、撤单、平仓、划转、提币、修改杠杆或其他交易能力。
 
 ## 已实现
 
 - 单访问密码登录、登录限频、HttpOnly 会话 Cookie、SameSite=Lax 与 CSRF 防护
 - API Key、Secret 和 Passphrase 使用 AES-256-GCM 分字段认证加密
-- Hyperliquid 只接收公开钱包地址，不接收私钥、助记词或密码
+- Hyperliquid 与 Polymarket 只接收公开钱包/Profile 地址，不接收私钥、助记词或密码
 - 凭证响应严格脱敏；密文、Nonce、认证标签和主密钥不会返回前端
 - 每个连接独立的 `tracking_started_at`、初始权益快照和初始仓位收益基线
 - 15 张以上 PostgreSQL 业务、安全和同步表，包含索引、唯一约束和幂等来源 ID
-- Binance、OKX、Bitget 和 Hyperliquid 独立只读 Adapter
+- Binance、OKX、Bitget、Hyperliquid 和 Polymarket 独立只读 Adapter
 - 账户摘要、余额、当前仓位、历史仓位、日/周/月收益和交易所收益贡献 API
 - 历史仓位 CSV 导出及公式注入防护
 - APScheduler 定时同步、账户级互斥、隔离失败、耗时/记录数/安全错误日志
 - Server-Sent Events 同步心跳
-- 四交易所 Demo 账户、当前仓位、历史仓位和 30 天净值数据
+- 四交易所 Demo 账户、真实 Polymarket 账户接入、当前仓位、历史仓位和 30 天净值数据
 - 深浅主题、金额隐藏、桌面侧栏和移动端底部导航
 - 375px、768px 和 1440px 重点响应式布局
 - 本地与生产 Compose 覆盖文件、三服务健康检查和内部 Docker 网络
@@ -113,9 +114,16 @@ make security-check
 - OKX：连接名称、API Key、API Secret、Passphrase
 - Bitget：连接名称、API Key、API Secret、Passphrase
 - Hyperliquid：连接名称、42 位公开钱包地址
+- Polymarket：连接名称、42 位登录钱包或 User Profile / Proxy Wallet 公开地址
 
 平台先调用只读接口测试连接并尽量检查权限。检测到现货交易、合约交易、划转或
 提币权限时拒绝保存。成功后才创建统计周期、加密凭证和保存初始快照。
+
+Polymarket 使用公开 Data API 和 Accounting Snapshot，不需要 API Key。请填写
+Polymarket 的登录钱包或 Profile / Proxy Wallet 地址，系统会自动解析实际的
+Profile 地址；平台不会请求或保存钱包私钥、助记词或登录密码。总权益来自
+Accounting Snapshot 的 `equity`，可用余额来自
+`cashBalance`，预测市场持仓价值来自 `positionsValue`。
 
 敏感字段不会写入 localStorage、sessionStorage 或 URL，成功提交后表单状态会
 被清空。
@@ -134,6 +142,11 @@ make security-check
 
 交易所覆盖不足时显示“统计不完整”，本地重建历史仓位标记为
 `RECONSTRUCTED`，不会伪装成交易所原始数据。
+
+Polymarket 当前持仓显示官方 `cashPnl`，因此添加账户之前已经产生的完整浮盈亏也会
+保留；“统计期变化”仍只计算添加账户后的变化。已平仓接口不提供可靠的原始开仓时间，
+因此这类记录使用统计起点并标记为 `PARTIAL`。若统计期发生外部充值或提现，在资金
+流水无法从公开接口完整确认时，收益完整性同样保持为 `PARTIAL`，不会把入金猜成盈利。
 
 ## 测试与质量
 

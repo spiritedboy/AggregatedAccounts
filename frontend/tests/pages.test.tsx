@@ -268,6 +268,17 @@ describe("portfolio pages", () => {
     expect(screen.getByText(/仅接受纯只读 API Key/)).toBeInTheDocument();
   });
 
+  it("accepts a public Polymarket profile address without secret fields", async () => {
+    installFetch({ "/api/exchange-accounts": [account] });
+    render(<AccountsPage />);
+    await screen.findByText("主账户只读");
+    await userEvent.click(screen.getByRole("button", { name: "添加账户" }));
+    await userEvent.click(screen.getByRole("button", { name: "POLYMARKET" }));
+    expect(screen.getByLabelText("Polymarket 钱包或 Profile Address")).toBeInTheDocument();
+    expect(screen.getByText(/自动解析 Profile 地址/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("API Secret")).not.toBeInTheDocument();
+  });
+
   it("requires explicit confirmation before deleting an account", async () => {
     installFetch({ "/api/exchange-accounts": [account] });
     render(<AccountsPage />);

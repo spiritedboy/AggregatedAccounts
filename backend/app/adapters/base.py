@@ -56,6 +56,11 @@ class ExchangeAdapter(ABC):
     @abstractmethod
     async def get_open_positions(self) -> list[dict[str, Any]]: ...
 
+    async def get_closed_positions(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return []
+
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:

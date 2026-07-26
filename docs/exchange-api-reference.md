@@ -75,8 +75,30 @@ Base64 编码。
 
 平台不会要求或保存 Hyperliquid 钱包私钥、助记词或签名密钥。
 
+## Polymarket
+
+官方资料：
+
+- <https://docs.polymarket.com/api-reference/introduction>
+- <https://docs.polymarket.com/api-reference/profiles/get-public-profile-by-wallet-address>
+- <https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user>
+- <https://docs.polymarket.com/api-reference/core/get-closed-positions-for-a-user>
+- <https://docs.polymarket.com/api-reference/misc/download-an-accounting-snapshot-zip-of-csvs>
+
+Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需要 API Key。
+账户连接时先通过 Public Profile API 将登录钱包地址解析为实际 Proxy Wallet：
+
+- `GET /public-profile`：解析并验证 Profile / Proxy Wallet 地址
+- `GET /v1/accounting/snapshot`：读取 `cashBalance`、`positionsValue` 和 `equity`
+- `GET /positions`：读取当前预测市场持仓、成本、现价和完整 `cashPnl`
+- `GET /closed-positions`：读取统计起点后关闭的仓位和已实现盈亏
+
+平台不会请求或保存 Polymarket 私钥、助记词、登录密码或交易凭证。官方已平仓接口
+没有可靠的原始开仓时间，相关历史记录会标记为 `PARTIAL`。公开接口也不能在所有账户
+类型下完整确认外部充值与提现，因此 Polymarket 账户默认显示为统计部分完整。
+
 ## 覆盖限制
 
 不同账户类型、区域和 API Key 权限可能导致某些只读接口不可用。适配器会安全失败
 并将账户标记为异常或统计不完整，不会用猜测值补全。首次上线前应分别使用用户的
-纯只读凭证验证四个交易所；当前 Demo 验收不代表真实账户权限已验证。
+纯只读凭证或公开地址验证各平台；当前 Demo 验收不代表真实账户权限已验证。

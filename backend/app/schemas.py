@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ExchangeName = Literal["BINANCE", "OKX", "BITGET", "HYPERLIQUID"]
+ExchangeName = Literal["BINANCE", "OKX", "BITGET", "HYPERLIQUID", "POLYMARKET"]
 
 
 class LoginRequest(BaseModel):
@@ -22,13 +22,15 @@ class ExchangeAccountCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_exchange_fields(self) -> "ExchangeAccountCreate":
-        if self.exchange == "HYPERLIQUID":
+        if self.exchange in {"HYPERLIQUID", "POLYMARKET"}:
             if not self.wallet_address or not re.fullmatch(
                 r"0x[a-fA-F0-9]{40}", self.wallet_address
             ):
-                raise ValueError("Hyperliquid 需要有效的 42 位公开钱包地址")
+                raise ValueError(f"{self.exchange} 需要有效的 42 位公开钱包地址")
+            if self.api_key:
+                raise ValueError(f"{self.exchange} 只读查询不接受 API Key")
             if self.api_secret or self.passphrase:
-                raise ValueError("Hyperliquid 只读查询不接受私钥、助记词或密码")
+                raise ValueError(f"{self.exchange} 只读查询不接受私钥、助记词或密码")
         else:
             if not self.api_key or not self.api_secret:
                 raise ValueError(f"{self.exchange} 需要 API Key 和 API Secret")

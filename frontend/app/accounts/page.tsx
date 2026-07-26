@@ -27,7 +27,7 @@ import { apiFetch } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import type { ExchangeAccount } from "@/lib/types";
 
-type Exchange = "BINANCE" | "OKX" | "BITGET" | "HYPERLIQUID";
+type Exchange = "BINANCE" | "OKX" | "BITGET" | "HYPERLIQUID" | "POLYMARKET";
 
 const initialForm = {
   exchange: "BINANCE" as Exchange,
@@ -77,7 +77,7 @@ function AccountsContent() {
     setPending(true);
     setError("");
     const payload =
-      form.exchange === "HYPERLIQUID"
+      form.exchange === "HYPERLIQUID" || form.exchange === "POLYMARKET"
         ? {
             exchange: form.exchange,
             connection_name: form.connection_name,
@@ -161,7 +161,7 @@ function AccountsContent() {
       {!accounts ? (
         error ? <ErrorState message={error} retry={load} /> : <LoadingState rows={5} />
       ) : accounts.length === 0 ? (
-        <div className="panel"><EmptyState title="还没有交易所账户" description="添加第一个纯只读 API Key 或 Hyperliquid 公开钱包地址。" /></div>
+        <div className="panel"><EmptyState title="还没有交易所账户" description="添加第一个纯只读 API Key 或公开账户地址。" /></div>
       ) : (
         <section className="grid gap-4 xl:grid-cols-2">
           {accounts.map((account) => (
@@ -223,7 +223,7 @@ function AccountsContent() {
         <Modal title="添加交易所账户" close={closeModal}>
           <form onSubmit={addAccount} autoComplete="off">
             <div className="grid grid-cols-2 gap-2">
-              {(["BINANCE", "OKX", "BITGET", "HYPERLIQUID"] as Exchange[]).map((exchange) => (
+              {(["BINANCE", "OKX", "BITGET", "HYPERLIQUID", "POLYMARKET"] as Exchange[]).map((exchange) => (
                 <button
                   key={exchange}
                   type="button"
@@ -239,13 +239,15 @@ function AccountsContent() {
               <Field label="连接名称">
                 <input className="input" value={form.connection_name} onChange={(event) => setForm((value) => ({ ...value, connection_name: event.target.value }))} maxLength={80} required placeholder="例如：主账户只读" autoComplete="off" />
               </Field>
-              {form.exchange === "HYPERLIQUID" ? (
+              {form.exchange === "HYPERLIQUID" || form.exchange === "POLYMARKET" ? (
                 <>
-                  <Field label="公开钱包地址">
+                  <Field label={form.exchange === "POLYMARKET" ? "Polymarket 钱包或 Profile Address" : "公开钱包地址"}>
                     <input className="input font-mono" value={form.wallet_address} onChange={(event) => setForm((value) => ({ ...value, wallet_address: event.target.value }))} required pattern="0x[a-fA-F0-9]{40}" placeholder="0x…" autoComplete="off" />
                   </Field>
                   <div className="rounded-xl bg-mint-400/10 p-3 text-xs leading-5 text-mint-500 dark:text-mint-300">
-                    Hyperliquid 只需要公开地址。请勿输入钱包私钥、助记词或任何密码。
+                    {form.exchange === "POLYMARKET"
+                      ? "可填写 Polymarket 登录钱包或公开 Profile / Proxy Wallet 地址，系统会自动解析 Profile 地址。请勿输入私钥、助记词或任何密码。"
+                      : "Hyperliquid 只需要公开地址。请勿输入钱包私钥、助记词或任何密码。"}
                   </div>
                 </>
               ) : (
