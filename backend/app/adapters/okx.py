@@ -107,6 +107,100 @@ class OkxAdapter(ExchangeAdapter):
             )
         return positions
 
+    async def _position_history_rows(
+        self,
+        inst_type: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        rows: list[dict[str, Any]] = []
+        after: str | None = None
+        seen_cursors: set[str] = set()
+        for _ in range(50):
+            params: dict[str, Any] = {"instType": inst_type, "limit": 100}
+            if after:
+                params["after"] = after
+            page = await self._get("/api/v5/account/positions-history", params)
+            if not page:
+                break
+
+            timestamps = [int(item.get("uTime") or 0) for item in page]
+            rows.extend(
+                item
+                for item, timestamp in zip(page, timestamps, strict=True)
+                if start_ms <= timestamp <= end_ms
+            )
+            oldest = min((timestamp for timestamp in timestamps if timestamp), default=0)
+            if oldest < start_ms or len(page) < 100:
+                break
+            next_after = str(oldest)
+            if next_after in seen_cursors:
+                break
+            seen_cursors.add(next_after)
+            after = next_after
+        return rows
+
+    async def get_closed_positions(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for inst_type in ("SWAP", "FUTURES"):
+            rows.extend(
+                await self._position_history_rows(inst_type, start_time, end_time)
+            )
+
+        positions_by_id: dict[str, dict[str, Any]] = {}
+        for item in rows:
+            close_timestamp = int(item.get("uTime") or 0)
+            if not close_timestamp:
+                continue
+            open_timestamp = int(item.get("cTime") or 0)
+            open_time = (
+                datetime.fromtimestamp(open_timestamp / 1000, tz=UTC)
+                if open_timestamp
+                else start_time
+            )
+            close_time = datetime.fromtimestamp(close_timestamp / 1000, tz=UTC)
+            pnl = float(item.get("pnl") or 0)
+            fee = float(item.get("fee") or 0)
+            funding_fee = float(item.get("fundingFee") or 0)
+            liquidation_penalty = float(item.get("liqPenalty") or 0)
+            settled_pnl = float(item.get("settledPnl") or 0)
+            net_pnl = float(
+                item.get("realizedPnl")
+                or pnl + fee + funding_fee + liquidation_penalty + settled_pnl
+            )
+            source_record_id = (
+                f"okx:{item.get('instType') or 'UNKNOWN'}:"
+                f"{item.get('posId') or item.get('instId') or 'position'}:"
+                f"{close_timestamp}"
+            )
+            positions_by_id[source_record_id] = {
+                "source_record_id": source_record_id,
+                "symbol": item["instId"],
+                "normalized_symbol": SymbolNormalizer.normalize(item["instId"]),
+                "side": normalize_side(
+                    str(item.get("direction") or item.get("posSide") or "")
+                ),
+                "open_time": open_time,
+                "close_time": close_time,
+                "average_entry_price": float(item.get("openAvgPx") or 0),
+                "average_exit_price": float(item.get("closeAvgPx") or 0),
+                "max_position_size": abs(
+                    float(item.get("openMaxPos") or item.get("closeTotalPos") or 0)
+                ),
+                "realized_pnl": pnl,
+                "funding_fee": funding_fee,
+                "trading_fee": -fee,
+                "net_pnl": net_pnl,
+                "return_percent": float(item.get("pnlRatio") or 0) * 100,
+                "data_source": "EXCHANGE_API",
+                "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",
+            }
+        return list(positions_by_id.values())
+
     async def get_income_history(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:

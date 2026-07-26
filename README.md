@@ -18,6 +18,7 @@ Web 界面。
 - Hyperliquid 权益同时覆盖永续账户与 Spot 账户，非 USDC 现货按官方 Spot 市场价格折算
 - 账户摘要、余额、当前仓位、历史仓位、日/周/月收益和交易所收益贡献 API
 - 历史仓位 CSV 导出及公式注入防护
+- OKX 与 Polymarket 已平仓仓位按交易所原始记录幂等同步
 - APScheduler 定时同步、账户级互斥、隔离失败、耗时/记录数/安全错误日志
 - Binance、OKX、Bitget、Hyperliquid 的已实现收益、资金费、手续费和资金流幂等同步
 - 账务流水页面：交易所/类型/日期筛选、分页、汇总卡片和 CSV 导出
@@ -165,6 +166,12 @@ Webhook 通知。
 
 交易所覆盖不足时显示“统计不完整”，本地重建历史仓位标记为
 `RECONSTRUCTED`，不会伪装成交易所原始数据。
+
+OKX 已平仓仓位来自官方 `account/positions-history` 接口，同时拉取永续合约和交割合约。
+平台仅保存当前统计周期开始后关闭的仓位，并以 `instType + posId + uTime` 组成幂等来源
+ID，避免 OKX 在不同持仓周期重复使用 `posId` 时覆盖旧记录。Binance、Bitget 和
+Hyperliquid 当前仍只同步已实现收益、资金费与手续费，尚未在“历史仓位”页重建完整的
+开平仓周期。
 
 中心化交易所和 Hyperliquid 每 5 分钟补拉一次账务流水，并与每分钟资产/持仓刷新
 分开处理。账务流水按交易所原始 ID 幂等写入：已实现收益进入 `income_records`，
