@@ -10,11 +10,12 @@ import {
   ReceiptText,
   ShieldCheck,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePrivacy } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
+import { SortButton, type SortDirection } from "@/components/sort-button";
 import {
   Badge,
   EmptyState,
@@ -68,6 +69,8 @@ function LedgerContent() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
+  const [financialImpactSort, setFinancialImpactSort] =
+    useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
 
@@ -100,6 +103,14 @@ function LedgerContent() {
     void load();
   }, [load]);
   const autoRefresh = useAutoRefresh(load);
+  const sortedItems = useMemo(() => {
+    const items = [...(records?.items ?? [])];
+    if (financialImpactSort === "none") return items;
+    return items.sort((left, right) => {
+      const difference = left.signed_amount_usd - right.signed_amount_usd;
+      return financialImpactSort === "asc" ? difference : -difference;
+    });
+  }, [financialImpactSort, records?.items]);
 
   function exportCsv() {
     const query = params();
@@ -240,13 +251,22 @@ function LedgerContent() {
                     "来源记录",
                   ].map((title) => (
                     <th key={title} className="px-5 py-3.5 font-semibold">
-                      {title}
+                      {title === "账务影响" ? (
+                        <span className="inline-flex items-center whitespace-nowrap">
+                          {title}
+                          <SortButton
+                            direction={financialImpactSort}
+                            label="账务影响"
+                            onChange={setFinancialImpactSort}
+                          />
+                        </span>
+                      ) : title}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--line)" }}>
-                {records.items.map((record) => (
+                {sortedItems.map((record) => (
                   <tr key={`${record.record_type}-${record.id}`}>
                     <td className="whitespace-nowrap px-5 py-4 text-xs">
                       {dateTime(record.record_time)}

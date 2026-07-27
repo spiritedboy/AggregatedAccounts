@@ -1,11 +1,12 @@
 "use client";
 
 import { Download, Filter, Search } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePrivacy } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
+import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, usd } from "@/lib/format";
@@ -33,6 +34,7 @@ function HistoryContent() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
+  const [netPnlSort, setNetPnlSort] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const { hidden } = usePrivacy();
@@ -67,6 +69,14 @@ function HistoryContent() {
     void apiFetch<ExchangeAccount[]>("/api/exchange-accounts").then(setAccounts);
   }, []);
   const autoRefresh = useAutoRefresh(load);
+  const sortedItems = useMemo(() => {
+    const items = [...(result?.items ?? [])];
+    if (netPnlSort === "none") return items;
+    return items.sort((left, right) => {
+      const difference = left.net_pnl - right.net_pnl;
+      return netPnlSort === "asc" ? difference : -difference;
+    });
+  }, [netPnlSort, result?.items]);
 
   function exportCsv() {
     const query = params();
@@ -152,12 +162,23 @@ function HistoryContent() {
               <thead className="muted border-b text-[10px] uppercase tracking-wider" style={{ borderColor: "var(--line)" }}>
                 <tr>
                   {["交易对", "方向", "开仓 / 平仓时间", "均价", "最大数量", "已实现收益", "费用", "净收益", "数据来源"].map((title) => (
-                    <th key={title} className="px-5 py-3.5 font-semibold">{title}</th>
+                    <th key={title} className="px-5 py-3.5 font-semibold">
+                      {title === "净收益" ? (
+                        <span className="inline-flex items-center whitespace-nowrap">
+                          {title}
+                          <SortButton
+                            direction={netPnlSort}
+                            label="净收益"
+                            onChange={setNetPnlSort}
+                          />
+                        </span>
+                      ) : title}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--line)" }}>
-                {result.items.map((position) => (
+                {sortedItems.map((position) => (
                   <tr key={position.id}>
                     <td className="px-5 py-4">
                       <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>

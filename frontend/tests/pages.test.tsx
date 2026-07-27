@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -304,11 +304,12 @@ describe("portfolio pages", () => {
     expect(screen.queryByRole("button", { name: /下单/ })).not.toBeInTheDocument();
   });
 
-  it("renders history with CSV export and reconstruction label", async () => {
+  it("renders history and sorts filtered page results by net PnL", async () => {
+    const user = userEvent.setup();
     installFetch({
       "/api/exchange-accounts": [account],
       "/api/positions/history": {
-        total: 1,
+        total: 2,
         items: [
           {
             id: "c1",
@@ -330,6 +331,26 @@ describe("portfolio pages", () => {
             data_completeness: "PARTIAL",
             tracking_started_at: "2026-07-01T00:00:00Z",
           },
+          {
+            id: "c2",
+            exchange: "BINANCE",
+            symbol: "ETHUSDT",
+            normalized_symbol: "ETH-USDT-PERP",
+            side: "LONG",
+            open_time: "2026-07-03T00:00:00Z",
+            close_time: "2026-07-04T00:00:00Z",
+            average_entry_price: 2500,
+            average_exit_price: 2475,
+            max_position_size: 1,
+            realized_pnl: -25,
+            funding_fee: 0,
+            trading_fee: 1,
+            net_pnl: -26,
+            return_percent: -1.04,
+            data_source: "EXCHANGE_API",
+            data_completeness: "COMPLETE",
+            tracking_started_at: "2026-07-01T00:00:00Z",
+          },
         ],
       },
     });
@@ -339,6 +360,14 @@ describe("portfolio pages", () => {
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /净收益排序：未排序/ }));
+    let rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("ETH-USDT-PERP")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /净收益排序：升序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("CXMT-USDT-PERP")).toBeInTheDocument();
   });
 
   it("renders PnL analytics and all period selectors", async () => {
@@ -387,10 +416,11 @@ describe("portfolio pages", () => {
     expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();
   });
 
-  it("renders accounting records, filters, export, and component coverage", async () => {
+  it("renders accounting records and sorts filtered page results by financial impact", async () => {
+    const user = userEvent.setup();
     installFetch({
       "/api/accounting/records": {
-        total: 1,
+        total: 2,
         summary: {
           realized_pnl: 120,
           funding_fee: -2,
@@ -401,6 +431,20 @@ describe("portfolio pages", () => {
           net_effect: 125,
         },
         items: [
+          {
+            id: "ledger-2",
+            exchange_account_id: account.id,
+            exchange: "BINANCE",
+            connection_name: account.connection_name,
+            record_type: "DEPOSIT",
+            subtype: "DEPOSIT",
+            asset: "USDT",
+            amount_usd: 10,
+            signed_amount_usd: 10,
+            symbol: null,
+            record_time: account.last_synced_at,
+            source_record_id: "deposit-source-2",
+          },
           {
             id: "ledger-1",
             exchange_account_id: account.id,
@@ -425,6 +469,14 @@ describe("portfolio pages", () => {
     expect(screen.getByText("funding-source-1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
     expect(screen.getByText("8 项完整")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /账务影响排序：未排序/ }));
+    let rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("funding-source-1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /账务影响排序：升序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("deposit-source-2")).toBeInTheDocument();
   });
 
   it("renders the account page as configuration-managed read-only status", async () => {
