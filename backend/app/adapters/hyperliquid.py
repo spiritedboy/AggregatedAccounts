@@ -17,6 +17,11 @@ class HyperliquidAdapter(ExchangeAdapter):
     info_url = "https://api.hyperliquid.xyz/info"
     history_streams = frozenset({"income", "funding", "fees", "cash_flows"})
 
+    @staticmethod
+    def _normalized_perp_symbol(coin: str) -> str:
+        """Normalize first-party and HIP-3 ``dex:coin`` symbols."""
+        return SymbolNormalizer.normalize(coin.rsplit(":", 1)[-1])
+
     async def _info(self, request_type: str, **kwargs: Any) -> Any:
         return await self._request(
             "POST",
@@ -39,12 +44,55 @@ class HyperliquidAdapter(ExchangeAdapter):
             "public_address_only": True,
         }
 
-    async def get_account_summary(self) -> dict[str, Any]:
-        data, spot = await asyncio.gather(
-            self._info("clearinghouseState"),
-            self._info("spotClearinghouseState"),
+    async def _load_perp_dex_names(self) -> list[str]:
+        rows = await self._request(
+            "POST",
+            self.info_url,
+            headers={"Content-Type": "application/json"},
+            json={"type": "perpDexs"},
         )
-        summary = data.get("marginSummary", {})
+        names = [""]
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    async def _perp_dex_names(self) -> list[str]:
+        task = getattr(self, "_perp_dex_names_task", None)
+        if task is None:
+            task = asyncio.create_task(self._load_perp_dex_names())
+            self._perp_dex_names_task = task
+        return await asyncio.shield(task)
+
+    async def _load_perp_states(self) -> list[tuple[str, dict[str, Any]]]:
+        dex_names = await self._perp_dex_names()
+        states = await asyncio.gather(
+            *(self._info("clearinghouseState", dex=dex) for dex in dex_names)
+        )
+        return [
+            (dex, state)
+            for dex, state in zip(dex_names, states, strict=True)
+            if isinstance(state, dict)
+        ]
+
+    async def _perp_states(self) -> list[tuple[str, dict[str, Any]]]:
+        # Summary and positions run concurrently during a sync, so share the
+        # same DEX discovery and clearinghouse requests.
+        task = getattr(self, "_perp_states_task", None)
+        if task is None:
+            task = asyncio.create_task(self._load_perp_states())
+            self._perp_states_task = task
+        return await asyncio.shield(task)
+
+    async def get_account_summary(self) -> dict[str, Any]:
+        perp_states, spot, abstraction = await asyncio.gather(
+            self._perp_states(),
+            self._info("spotClearinghouseState"),
+            self._info("userAbstraction"),
+        )
         spot_prices = {0: 1.0}
         non_usdc_balances = [
             row
@@ -69,16 +117,45 @@ class HyperliquidAdapter(ExchangeAdapter):
             spot_equity += total * price
             spot_available += max(0, total - hold) * price
 
-        perp_equity = float(summary.get("accountValue") or 0)
-        margin_used = float(summary.get("totalMarginUsed") or 0)
+        perp_equity = 0.0
+        perp_available = 0.0
+        margin_used = 0.0
+        unrealized_pnl = 0.0
+        for _dex, state in perp_states:
+            summary = state.get("marginSummary", {})
+            account_value = float(summary.get("accountValue") or 0)
+            state_margin = float(summary.get("totalMarginUsed") or 0)
+            perp_equity += account_value
+            margin_used += state_margin
+            withdrawable = state.get("withdrawable")
+            perp_available += max(
+                0.0,
+                float(withdrawable)
+                if withdrawable not in (None, "")
+                else account_value - state_margin,
+            )
+            unrealized_pnl += sum(
+                float((wrapper.get("position") or {}).get("unrealizedPnl") or 0)
+                for wrapper in state.get("assetPositions", [])
+            )
+
+        # Unified and portfolio accounts expose the single source of balance
+        # truth in spotClearinghouseState. Per-DEX equity must not be added a
+        # second time, but positions, margin and unrealized PnL still matter.
+        unified = abstraction in {"unifiedAccount", "portfolioMargin"}
         return {
-            "total_equity_usd": perp_equity + spot_equity,
-            "available_balance_usd": max(0, perp_equity - margin_used) + spot_available,
+            "total_equity_usd": spot_equity if unified else perp_equity + spot_equity,
+            "available_balance_usd": (
+                spot_available if unified else perp_available + spot_available
+            ),
             "margin_balance_usd": margin_used,
-            "unrealized_pnl_usd": float(summary.get("totalNtlPos") or 0)
-            - float(summary.get("totalRawUsd") or 0),
+            "unrealized_pnl_usd": unrealized_pnl,
             "unvalued_asset_count": unvalued_asset_count,
-            "price_source": "HYPERLIQUID_PERP_AND_SPOT",
+            "price_source": (
+                "HYPERLIQUID_UNIFIED"
+                if unified
+                else "HYPERLIQUID_PERP_AND_SPOT"
+            ),
         }
 
     async def _spot_market_data(self) -> Any:
@@ -153,35 +230,44 @@ class HyperliquidAdapter(ExchangeAdapter):
         return balances
 
     async def get_open_positions(self) -> list[dict[str, Any]]:
-        state = await self._info("clearinghouseState")
+        states = await self._perp_states()
         positions = []
-        for wrapper in state.get("assetPositions", []):
-            item = wrapper.get("position", {})
-            size = float(item.get("szi") or 0)
-            if not size:
-                continue
-            value = abs(float(item.get("positionValue") or 0))
-            entry = float(item.get("entryPx") or 0)
-            mark = value / abs(size) if size else 0
-            positions.append(
-                {
-                    "source_record_id": f"{item['coin']}:{normalize_side('', size)}",
-                    "symbol": item["coin"],
-                    "normalized_symbol": SymbolNormalizer.normalize(item["coin"]),
-                    "side": normalize_side("", size),
-                    "position_size": abs(size),
-                    "position_value_usd": value,
-                    "entry_price": entry,
-                    "mark_price": mark,
-                    "liquidation_price": float(item.get("liquidationPx") or 0) or None,
-                    "leverage": float((item.get("leverage") or {}).get("value") or 0),
-                    "margin_mode": "CROSS"
-                    if (item.get("leverage") or {}).get("type") == "cross"
-                    else "ISOLATED",
-                    "margin_used": float(item.get("marginUsed") or 0),
-                    "unrealized_pnl": float(item.get("unrealizedPnl") or 0),
-                }
-            )
+        for _dex, state in states:
+            for wrapper in state.get("assetPositions", []):
+                item = wrapper.get("position", {})
+                size = float(item.get("szi") or 0)
+                if not size:
+                    continue
+                value = abs(float(item.get("positionValue") or 0))
+                entry = float(item.get("entryPx") or 0)
+                mark = value / abs(size) if size else 0
+                positions.append(
+                    {
+                        "source_record_id": (
+                            f"{item['coin']}:{normalize_side('', size)}"
+                        ),
+                        "symbol": item["coin"],
+                        "normalized_symbol": self._normalized_perp_symbol(item["coin"]),
+                        "side": normalize_side("", size),
+                        "position_size": abs(size),
+                        "position_value_usd": value,
+                        "entry_price": entry,
+                        "mark_price": mark,
+                        "liquidation_price": (
+                            float(item.get("liquidationPx") or 0) or None
+                        ),
+                        "leverage": float(
+                            (item.get("leverage") or {}).get("value") or 0
+                        ),
+                        "margin_mode": (
+                            "CROSS"
+                            if (item.get("leverage") or {}).get("type") == "cross"
+                            else "ISOLATED"
+                        ),
+                        "margin_used": float(item.get("marginUsed") or 0),
+                        "unrealized_pnl": float(item.get("unrealizedPnl") or 0),
+                    }
+                )
         return positions
 
     async def _time_paginated_info(
@@ -403,7 +489,7 @@ class HyperliquidAdapter(ExchangeAdapter):
                         f"hyperliquid:{cycle['coin']}:{cycle['closing_fill_id']}"
                     ),
                     "symbol": cycle["coin"],
-                    "normalized_symbol": SymbolNormalizer.normalize(cycle["coin"]),
+                    "normalized_symbol": self._normalized_perp_symbol(cycle["coin"]),
                     "side": cycle["side"],
                     "open_time": cycle["open_time"],
                     "close_time": cycle["close_time"],
@@ -417,7 +503,7 @@ class HyperliquidAdapter(ExchangeAdapter):
                     "return_percent": (
                         realized_pnl / initial_notional * 100 if initial_notional else 0
                     ),
-                    "data_source": "RECONSTRUCTED",
+                    "data_source": "EXCHANGE_FILLS_RECONSTRUCTED",
                     "data_completeness": (
                         "COMPLETE" if cycle["complete"] else "PARTIAL"
                     ),

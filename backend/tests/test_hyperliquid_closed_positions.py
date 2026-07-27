@@ -72,7 +72,7 @@ async def test_hyperliquid_closed_positions_reconstruct_zero_to_zero_cycle(monke
     assert position["funding_fee"] == pytest.approx(-0.2)
     assert position["trading_fee"] == pytest.approx(0.3)
     assert position["net_pnl"] == pytest.approx(-10.5)
-    assert position["data_source"] == "RECONSTRUCTED"
+    assert position["data_source"] == "EXCHANGE_FILLS_RECONSTRUCTED"
     assert position["data_completeness"] == "COMPLETE"
 
 
@@ -99,3 +99,34 @@ async def test_hyperliquid_initial_position_uses_fill_implied_entry(monkeypatch)
     assert position["average_exit_price"] == 90
     assert position["max_position_size"] == 2
     assert position["data_completeness"] == "PARTIAL"
+
+
+@pytest.mark.asyncio
+async def test_hyperliquid_hip3_closed_position_keeps_asset_name(monkeypatch):
+    adapter = HyperliquidAdapter(
+        wallet_address="0x0000000000000000000000000000000000000001"
+    )
+    start_time = datetime(2026, 7, 27, 1, tzinfo=UTC)
+    end_time = datetime(2026, 7, 27, 2, tzinfo=UTC)
+    fills = [
+        {
+            **_fill(10, "B", 0, 2, 6, 0, 0.01, 1785114000000),
+            "coin": "xyz:CXMT",
+        },
+        {
+            **_fill(11, "A", 2, 2, 7, 2, 0.01, 1785114060000),
+            "coin": "xyz:CXMT",
+        },
+    ]
+
+    async def fake_history(request_type, *_args, **_kwargs):
+        return fills if request_type == "userFillsByTime" else []
+
+    monkeypatch.setattr(adapter, "_time_paginated_info", fake_history)
+    try:
+        positions = await adapter.get_closed_positions(start_time, end_time)
+    finally:
+        await adapter.close()
+
+    assert positions[0]["symbol"] == "xyz:CXMT"
+    assert positions[0]["normalized_symbol"] == "CXMT-USDT-PERP"

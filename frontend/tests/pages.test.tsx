@@ -312,9 +312,9 @@ describe("portfolio pages", () => {
         items: [
           {
             id: "c1",
-            exchange: "OKX",
-            symbol: "ETH-USDT-SWAP",
-            normalized_symbol: "ETH-USDT-PERP",
+            exchange: "HYPERLIQUID",
+            symbol: "xyz:CXMT",
+            normalized_symbol: "CXMT-USDT-PERP",
             side: "SHORT",
             open_time: "2026-07-01T00:00:00Z",
             close_time: "2026-07-02T00:00:00Z",
@@ -326,7 +326,7 @@ describe("portfolio pages", () => {
             trading_fee: 4,
             net_pnl: 194,
             return_percent: 2.5,
-            data_source: "RECONSTRUCTED",
+            data_source: "EXCHANGE_FILLS_RECONSTRUCTED",
             data_completeness: "PARTIAL",
             tracking_started_at: "2026-07-01T00:00:00Z",
           },
@@ -334,7 +334,7 @@ describe("portfolio pages", () => {
       },
     });
     render(<HistoryPage />);
-    expect(await screen.findByText("本地重建")).toBeInTheDocument();
+    expect(await screen.findByText("交易所成交重建")).toBeInTheDocument();
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();

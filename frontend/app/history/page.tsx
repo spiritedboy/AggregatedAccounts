@@ -183,8 +183,14 @@ function HistoryContent() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap gap-1.5">
-                        <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
-                          {position.data_source === "EXCHANGE_API" ? "交易所 API" : "本地重建"}
+                        <Badge
+                          tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}
+                        >
+                          {position.data_source === "EXCHANGE_API"
+                            ? "交易所 API"
+                            : position.data_source === "EXCHANGE_FILLS_RECONSTRUCTED"
+                              ? "交易所成交重建"
+                              : "本地重建"}
                         </Badge>
                         <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>
                           {position.data_completeness === "COMPLETE" ? "完整" : "部分完整"}

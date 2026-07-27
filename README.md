@@ -17,7 +17,8 @@ Web 界面。
 - Binance、OKX、Bitget、Hyperliquid 和 Polymarket 独立只读 Adapter
 - Adapter 契约测试强制五个平台实现已平仓能力；不支持的数据流必须显式声明，禁止静默空实现
 - Binance 总权益覆盖现货与 USDⓈ-M，Bitget 覆盖现货、USDT 合约与 USDC 合约
-- Hyperliquid 权益同时覆盖永续账户与 Spot 账户，非 USDC 现货按官方 Spot 市场价格折算
+- Hyperliquid 自动发现默认永续与全部 HIP-3 DEX（如 `xyz:CXMT`）；统一账户以
+  Spot clearinghouse 为唯一余额口径，非 USDC 现货按官方 Spot 市场价格折算
 - 账户摘要、逐资产余额、当前仓位、持仓快照、历史仓位、日/周/月收益和交易所收益贡献 API
 - 历史仓位 CSV 导出及公式注入防护
 - 五个平台的已平仓仓位均按原始记录或可审计成交重建结果幂等同步
@@ -182,9 +183,12 @@ OKX 已平仓仓位来自官方 `account/positions-history`，同时拉取永续
 来自 `mix/position/history-position`，覆盖 USDT 与 USDC 合约。两者均只保存当前统计
 周期开始后关闭的仓位，并使用仓位 ID、产品类型和关闭时间组成幂等来源 ID。
 
-Hyperliquid 根据 `userFillsByTime` 的 `startPosition` 重建从开仓到仓位归零的周期，并
-将同周期资金费和 USDC 手续费纳入净收益；统计开始时已经存在的仓位会使用平仓成交的
-`closedPnl` 反推入场均价并标记 `PARTIAL`。Binance 根据 USDⓈ-M `userTrades` 的成交
+Hyperliquid 自动读取 `perpDexs` 并逐个查询默认永续和 HIP-3 DEX 的持仓；`xyz:CXMT`
+会保留 DEX 来源，同时展示为 `CXMT-USDT-PERP`。已平仓数据根据官方
+`userFillsByTime` 的 `startPosition` 重建从开仓到仓位归零的周期，并将同周期资金费和
+USDC 手续费纳入净收益；页面明确标为“交易所成交重建”，不再误写成“本地重建”。
+统计开始时已经存在的仓位会使用平仓成交的 `closedPnl` 反推入场均价并标记 `PARTIAL`。
+Binance 根据 USDⓈ-M `userTrades` 的成交
 方向、`positionSide` 和逐笔 `realizedPnl` 重建单向或双向持仓周期。由于 Binance
 成交记录没有原生仓位周期 ID，且资金费不能可靠分配给同时存在的多空两侧，重建结果
 统一标记 `RECONSTRUCTED / PARTIAL`；资金费仍在账务流水和收益汇总中独立准确统计。
@@ -196,10 +200,12 @@ Polymarket 使用官方 closed positions 数据，并按 outcome token 生成稳
 资金费、交易手续费和出入金分别进入对应记录表。任一账务接口失败时，本轮资产与仓位
 仍可成功更新，但账户完整性会降为 `PARTIAL`，避免把缺失流水误报为完整数据。
 
-Hyperliquid 总权益由永续账户 `accountValue` 与 Spot 代币余额共同组成；Spot USDC
-按 1 美元计价，其他代币通过官方 `spotMetaAndAssetCtxs` 市场价格换算。HyperCore
-的 `send`、充值、提现和账户间划转均会按钱包方向归一化为转入或转出，外部入金不会
-被误算为交易收益。
+Hyperliquid 会先读取 `userAbstraction`。统一账户和组合保证金账户按官方规则以
+`spotClearinghouseState` 为唯一余额来源，避免把各 HIP-3 DEX 的虚拟账户权益重复
+相加；标准账户才汇总各 DEX `accountValue` 与 Spot 余额。所有模式都会汇总各 DEX 的
+保证金和未实现收益。Spot USDC 按 1 美元计价，其他代币通过官方
+`spotMetaAndAssetCtxs` 市场价格换算。HyperCore 的 `send`、充值、提现和账户间划转
+均会按钱包方向归一化为转入或转出，外部入金不会被误算为交易收益。
 
 “账务流水”页面联合展示四类记录，并统一转换为对权益的正负影响：收益、收到的资金费
 和转入显示为正数，手续费和转出显示为负数。页面支持交易所、流水类型和日期筛选，

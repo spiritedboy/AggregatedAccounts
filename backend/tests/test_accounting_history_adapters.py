@@ -137,15 +137,8 @@ async def test_hyperliquid_summary_includes_perp_and_spot_usdc(monkeypatch):
     adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
 
     async def fake_info(request_type, **_):
-        if request_type == "clearinghouseState":
-            return {
-                "marginSummary": {
-                    "accountValue": "50",
-                    "totalNtlPos": "20",
-                    "totalRawUsd": "18",
-                    "totalMarginUsed": "10",
-                }
-            }
+        if request_type == "userAbstraction":
+            return "disabled"
         return {
             "balances": [
                 {
@@ -158,6 +151,27 @@ async def test_hyperliquid_summary_includes_perp_and_spot_usdc(monkeypatch):
         }
 
     monkeypatch.setattr(adapter, "_info", fake_info)
+    monkeypatch.setattr(
+        adapter,
+        "_perp_states",
+        AsyncMock(
+            return_value=[
+                (
+                    "",
+                    {
+                        "marginSummary": {
+                            "accountValue": "50",
+                            "totalMarginUsed": "10",
+                        },
+                        "withdrawable": "40",
+                        "assetPositions": [
+                            {"position": {"unrealizedPnl": "2"}}
+                        ],
+                    },
+                )
+            ]
+        ),
+    )
     try:
         summary = await adapter.get_account_summary()
     finally:
@@ -178,15 +192,8 @@ async def test_hyperliquid_summary_values_non_usdc_spot_assets(monkeypatch):
     adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
 
     async def fake_info(request_type, **_):
-        if request_type == "clearinghouseState":
-            return {
-                "marginSummary": {
-                    "accountValue": "0",
-                    "totalNtlPos": "0",
-                    "totalRawUsd": "0",
-                    "totalMarginUsed": "0",
-                }
-            }
+        if request_type == "userAbstraction":
+            return "disabled"
         return {
             "balances": [
                 {"coin": "HYPE", "token": 150, "total": "2", "hold": "0.25"},
@@ -199,6 +206,7 @@ async def test_hyperliquid_summary_values_non_usdc_spot_assets(monkeypatch):
         [{"markPx": "25"}],
     ]
     monkeypatch.setattr(adapter, "_info", fake_info)
+    monkeypatch.setattr(adapter, "_perp_states", AsyncMock(return_value=[]))
     monkeypatch.setattr(adapter, "_spot_market_data", AsyncMock(return_value=market_data))
     try:
         summary = await adapter.get_account_summary()
@@ -208,6 +216,131 @@ async def test_hyperliquid_summary_values_non_usdc_spot_assets(monkeypatch):
     assert summary["total_equity_usd"] == 50
     assert summary["available_balance_usd"] == 43.75
     assert summary["unvalued_asset_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_hyperliquid_unified_summary_does_not_double_count_hip3(monkeypatch):
+    adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
+
+    async def fake_info(request_type, **_):
+        if request_type == "userAbstraction":
+            return "unifiedAccount"
+        return {
+            "balances": [
+                {
+                    "coin": "USDC",
+                    "token": 0,
+                    "total": "197.789317",
+                    "hold": "63.200324",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(adapter, "_info", fake_info)
+    monkeypatch.setattr(
+        adapter,
+        "_perp_states",
+        AsyncMock(
+            return_value=[
+                (
+                    "xyz",
+                    {
+                        "marginSummary": {
+                            "accountValue": "63.265874",
+                            "totalMarginUsed": "63.265874",
+                        },
+                        "withdrawable": "0",
+                        "assetPositions": [
+                            {
+                                "position": {
+                                    "coin": "xyz:CXMT",
+                                    "unrealizedPnl": "-15.80895",
+                                }
+                            }
+                        ],
+                    },
+                )
+            ]
+        ),
+    )
+    try:
+        summary = await adapter.get_account_summary()
+    finally:
+        await adapter.close()
+
+    assert summary["total_equity_usd"] == 197.789317
+    assert summary["available_balance_usd"] == pytest.approx(134.588993)
+    assert summary["margin_balance_usd"] == 63.265874
+    assert summary["unrealized_pnl_usd"] == -15.80895
+    assert summary["price_source"] == "HYPERLIQUID_UNIFIED"
+
+
+@pytest.mark.asyncio
+async def test_hyperliquid_open_positions_include_hip3_dex(monkeypatch):
+    adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
+    monkeypatch.setattr(
+        adapter,
+        "_perp_states",
+        AsyncMock(
+            return_value=[
+                ("", {"assetPositions": []}),
+                (
+                    "xyz",
+                    {
+                        "assetPositions": [
+                            {
+                                "position": {
+                                    "coin": "xyz:CXMT",
+                                    "szi": "-28.5",
+                                    "positionValue": "215.30895",
+                                    "entryPx": "7.0",
+                                    "liquidationPx": "9.3091002172",
+                                    "leverage": {
+                                        "type": "isolated",
+                                        "value": 5,
+                                    },
+                                    "marginUsed": "63.265874",
+                                    "unrealizedPnl": "-15.80895",
+                                }
+                            }
+                        ]
+                    },
+                ),
+            ]
+        ),
+    )
+    try:
+        positions = await adapter.get_open_positions()
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    assert positions[0]["symbol"] == "xyz:CXMT"
+    assert positions[0]["normalized_symbol"] == "CXMT-USDT-PERP"
+    assert positions[0]["side"] == "SHORT"
+    assert positions[0]["position_size"] == 28.5
+
+
+@pytest.mark.asyncio
+async def test_hyperliquid_discovers_default_and_builder_perp_dexs(monkeypatch):
+    adapter = HyperliquidAdapter(wallet_address="0x" + "a" * 40)
+    monkeypatch.setattr(
+        adapter,
+        "_request",
+        AsyncMock(return_value=[None, {"name": "xyz"}, {"name": "flx"}]),
+    )
+
+    async def fake_info(request_type, **kwargs):
+        assert request_type == "clearinghouseState"
+        return {"dex": kwargs["dex"], "assetPositions": []}
+
+    monkeypatch.setattr(adapter, "_info", fake_info)
+    try:
+        states = await adapter._perp_states()
+    finally:
+        await adapter.close()
+
+    assert [dex for dex, _state in states] == ["", "xyz", "flx"]
 
 
 @pytest.mark.asyncio
