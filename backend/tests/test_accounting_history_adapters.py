@@ -62,6 +62,39 @@ async def test_binance_summary_and_asset_details_include_spot(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_binance_positions_use_v2_leverage_and_margin_type(monkeypatch):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+
+    async def fake_signed_get(_base, path, _params=None):
+        assert path == "/fapi/v2/positionRisk"
+        return [
+            {
+                "symbol": "GOOGLUSDT",
+                "positionSide": "LONG",
+                "positionAmt": "5.62",
+                "entryPrice": "325.38",
+                "markPrice": "325.38",
+                "liquidationPrice": "0",
+                "leverage": "20",
+                "marginType": "cross",
+                "isolatedMargin": "0",
+                "unRealizedProfit": "-170.34",
+            }
+        ]
+
+    monkeypatch.setattr(adapter, "_signed_get", fake_signed_get)
+    try:
+        positions = await adapter.get_open_positions()
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    assert positions[0]["normalized_symbol"] == "GOOGL-USDT-PERP"
+    assert positions[0]["leverage"] == 20
+    assert positions[0]["margin_mode"] == "CROSS"
+
+
+@pytest.mark.asyncio
 async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch):
     adapter = BitgetAdapter(api_key="key", api_secret="secret", passphrase="pass")
 

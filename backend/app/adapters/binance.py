@@ -167,7 +167,10 @@ class BinanceAdapter(ExchangeAdapter):
         return balances
 
     async def get_open_positions(self) -> list[dict[str, Any]]:
-        rows = await self._signed_get(self.futures_base, "/fapi/v3/positionRisk")
+        # Position Information V3 omits leverage and marginType. V2 remains
+        # the authoritative read-only response for those fields, including
+        # Binance TradFi perpetuals such as GOOGLUSDT.
+        rows = await self._signed_get(self.futures_base, "/fapi/v2/positionRisk")
         positions = []
         for item in rows:
             amount = float(item.get("positionAmt", 0))

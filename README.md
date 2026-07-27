@@ -17,6 +17,8 @@ Web 界面。
 - Binance、OKX、Bitget、Hyperliquid 和 Polymarket 独立只读 Adapter
 - Adapter 契约测试强制五个平台实现已平仓能力；不支持的数据流必须显式声明，禁止静默空实现
 - Binance 总权益覆盖现货与 USDⓈ-M，Bitget 覆盖现货、USDT 合约与 USDC 合约
+- Binance 当前仓位使用保留杠杆和保证金模式字段的 Position Information V2，
+  包括 GOOGL 等 TradFi 永续合约
 - Hyperliquid 自动发现默认永续与全部 HIP-3 DEX（如 `xyz:CXMT`）；统一账户以
   Spot clearinghouse 为唯一余额口径，非 USDC 现货按官方 Spot 市场价格折算
 - 账户摘要、逐资产余额、当前仓位、持仓快照、历史仓位、日/周/月收益和交易所收益贡献 API
