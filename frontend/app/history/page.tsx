@@ -9,7 +9,7 @@ import { ProtectedPage } from "@/components/protected-page";
 import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, usd } from "@/lib/format";
+import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type { ClosedPosition, ExchangeAccount } from "@/lib/types";
 
 type HistoryResult = { items: ClosedPosition[]; total: number };
@@ -125,8 +125,8 @@ function HistoryContent() {
         </Select>
         <Select value={side} onChange={(value) => { setPage(1); setSide(value); }} label="方向">
           <option value="">全部方向</option>
-          <option value="LONG">多仓</option>
-          <option value="SHORT">空仓</option>
+          <option value="LONG">做多</option>
+          <option value="SHORT">做空</option>
         </Select>
         <Select value={pnlResult} onChange={(value) => { setPage(1); setPnlResult(value); }} label="盈亏">
           <option value="">全部盈亏</option>
@@ -186,7 +186,7 @@ function HistoryContent() {
                       </p>
                       <p className="muted mt-1 text-xs">{position.exchange}</p>
                     </td>
-                    <td className="px-5 py-4"><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{position.exchange === "POLYMARKET" ? "持有" : position.side}</Badge></td>
+                    <td className="px-5 py-4"><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></td>
                     <td className="px-5 py-4">
                       <p className="text-xs">{dateTime(position.open_time)}</p>
                       <p className="muted mt-1 text-xs">{dateTime(position.close_time)}</p>

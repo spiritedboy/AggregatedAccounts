@@ -29,3 +29,11 @@ export function compactDate(value?: string | null): string {
     day: "2-digit",
   }).format(new Date(value));
 }
+
+export function positionSideLabel(
+  side: "LONG" | "SHORT",
+  exchange?: string,
+): string {
+  if (exchange === "POLYMARKET") return "持有";
+  return side === "LONG" ? "做多" : "做空";
+}

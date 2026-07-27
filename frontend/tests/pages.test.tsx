@@ -84,6 +84,29 @@ const position = {
   update_time: "2026-07-26T00:00:00Z",
 };
 
+const shortPosition = {
+  ...position,
+  id: "p2",
+  symbol: "ETHUSDT",
+  normalized_symbol: "ETH-USDT-PERP",
+  side: "SHORT",
+  position_value_usd: 50000,
+  unrealized_pnl: 1000,
+  unrealized_pnl_percent: 2,
+};
+
+const polymarketPosition = {
+  ...position,
+  id: "p3",
+  exchange: "POLYMARKET",
+  symbol: "Will the market close higher?",
+  normalized_symbol: "POLYMARKET-POSITION",
+  market_type: "PREDICTION",
+  position_value_usd: 40000,
+  unrealized_pnl: -50,
+  unrealized_pnl_percent: -0.125,
+};
+
 const riskData = {
   summary: {
     risk_level: "LOW",
@@ -289,19 +312,45 @@ describe("portfolio pages", () => {
     expect(screen.getByText(/当前为演示数据/)).toBeInTheDocument();
     expect(screen.getByText("净值曲线")).toBeInTheDocument();
     expect(screen.getByText("资产分布")).toBeInTheDocument();
+    expect(screen.getByText("做多")).toBeInTheDocument();
   });
 
-  it("renders current positions without trading controls", async () => {
+  it("renders localized position sides and sorts current positions by value and PnL", async () => {
+    const user = userEvent.setup();
     installFetch({
-      "/api/positions/current": { items: [position], total: 1 },
+      "/api/positions/current": {
+        items: [shortPosition, polymarketPosition, position],
+        total: 3,
+      },
       "/api/exchange-accounts": [account],
     });
     render(<PositionsPage />);
     expect(await screen.findAllByText("BTC-USDT-PERP")).not.toHaveLength(0);
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
     expect(screen.getAllByText(/统计期变化/)).not.toHaveLength(0);
+    expect(screen.getAllByText("做多")).not.toHaveLength(0);
+    expect(screen.getAllByText("做空")).not.toHaveLength(0);
+    expect(screen.getAllByText("持有")).not.toHaveLength(0);
+    expect(screen.queryByText("LONG")).not.toBeInTheDocument();
+    expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /平仓/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /下单/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /仓位价值排序：未排序/ }));
+    let rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("BTC-USDT-PERP")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /仓位价值排序：升序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("ETH-USDT-PERP")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /未实现盈亏排序：未排序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("Will the market close higher?")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /未实现盈亏排序：升序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("ETH-USDT-PERP")).toBeInTheDocument();
   });
 
   it("renders history and sorts filtered page results by net PnL", async () => {
@@ -360,6 +409,10 @@ describe("portfolio pages", () => {
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
+    expect(screen.getByText("做多")).toBeInTheDocument();
+    expect(screen.getByText("做空")).toBeInTheDocument();
+    expect(screen.queryByText("LONG")).not.toBeInTheDocument();
+    expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /净收益排序：未排序/ }));
     let rows = screen.getAllByRole("row").slice(1);

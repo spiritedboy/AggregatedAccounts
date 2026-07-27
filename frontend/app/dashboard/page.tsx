@@ -20,7 +20,7 @@ import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { usePrivacy } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
-import { compactDate, dateTime, number, usd } from "@/lib/format";
+import { compactDate, dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type { DashboardData, RiskData } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -319,7 +319,7 @@ function DashboardContent() {
                       {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
                     </p>
                     <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                      {position.exchange === "POLYMARKET" ? "持有" : position.side}
+                      {positionSideLabel(position.side, position.exchange)}
                     </Badge>
                   </div>
                   <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>

@@ -6,12 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePrivacy } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
+import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, usd } from "@/lib/format";
+import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type { ExchangeAccount, Position } from "@/lib/types";
 
 type PositionResult = { items: Position[]; total: number };
+type PositionSortField = "value" | "pnl";
 
 export default function PositionsPage() {
   return (
@@ -28,7 +30,8 @@ function PositionsContent() {
   const [accountId, setAccountId] = useState("");
   const [side, setSide] = useState("");
   const [symbol, setSymbol] = useState("");
-  const [sort, setSort] = useState<"value" | "pnl">("value");
+  const [sortField, setSortField] = useState<PositionSortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const { hidden } = usePrivacy();
@@ -58,12 +61,41 @@ function PositionsContent() {
 
   const positions = useMemo(() => {
     const rows = [...(result?.items ?? [])];
-    return rows.sort((a, b) =>
-      sort === "value"
-        ? b.position_value_usd - a.position_value_usd
-        : b.unrealized_pnl - a.unrealized_pnl,
-    );
-  }, [result, sort]);
+    if (!sortField || sortDirection === "none") return rows;
+    return rows.sort((left, right) => {
+      const difference =
+        sortField === "value"
+          ? left.position_value_usd - right.position_value_usd
+          : left.unrealized_pnl - right.unrealized_pnl;
+      return sortDirection === "asc" ? difference : -difference;
+    });
+  }, [result?.items, sortDirection, sortField]);
+
+  function changeSort(field: PositionSortField, direction: SortDirection) {
+    setSortField(direction === "none" ? null : field);
+    setSortDirection(direction);
+  }
+
+  function changeMobileSort(value: string) {
+    if (value === "none") {
+      setSortField(null);
+      setSortDirection("none");
+      return;
+    }
+    const [field, direction] = value.split("-") as [
+      PositionSortField,
+      Exclude<SortDirection, "none">,
+    ];
+    setSortField(field);
+    setSortDirection(direction);
+  }
+
+  const valueSortDirection = sortField === "value" ? sortDirection : "none";
+  const pnlSortDirection = sortField === "pnl" ? sortDirection : "none";
+  const mobileSortValue =
+    sortField && sortDirection !== "none"
+      ? `${sortField}-${sortDirection}`
+      : "none";
   const lastUpdatedAt =
     positions.reduce<string | null>(
       (latest, position) =>
@@ -90,7 +122,7 @@ function PositionsContent() {
         }
       />
 
-      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input
@@ -119,13 +151,18 @@ function PositionsContent() {
         </FilterSelect>
         <FilterSelect value={side} onChange={setSide} label="方向">
           <option value="">全部方向</option>
-          <option value="LONG">多仓</option>
-          <option value="SHORT">空仓</option>
+          <option value="LONG">做多</option>
+          <option value="SHORT">做空</option>
         </FilterSelect>
-        <FilterSelect value={sort} onChange={(value) => setSort(value as "value" | "pnl")} label="排序">
-          <option value="value">仓位价值</option>
-          <option value="pnl">当前未实现盈亏</option>
-        </FilterSelect>
+        <div className="sm:col-span-2 lg:hidden">
+          <FilterSelect value={mobileSortValue} onChange={changeMobileSort} label="排序">
+            <option value="none">默认排序</option>
+            <option value="value-asc">仓位价值升序</option>
+            <option value="value-desc">仓位价值降序</option>
+            <option value="pnl-asc">未实现盈亏升序</option>
+            <option value="pnl-desc">未实现盈亏降序</option>
+          </FilterSelect>
+        </div>
       </section>
 
       {error ? (
@@ -143,7 +180,27 @@ function PositionsContent() {
               <thead className="muted border-b text-[10px] uppercase tracking-wider" style={{ borderColor: "var(--line)" }}>
                 <tr>
                   {["交易对 / 账户", "方向", "数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "当前未实现盈亏", "更新时间"].map((title) => (
-                    <th key={title} className="px-5 py-3.5 font-semibold">{title}</th>
+                    <th key={title} className="px-5 py-3.5 font-semibold">
+                      {title === "仓位价值" ? (
+                        <span className="inline-flex items-center whitespace-nowrap">
+                          {title}
+                          <SortButton
+                            direction={valueSortDirection}
+                            label="仓位价值"
+                            onChange={(direction) => changeSort("value", direction)}
+                          />
+                        </span>
+                      ) : title === "当前未实现盈亏" ? (
+                        <span className="inline-flex items-center whitespace-nowrap">
+                          {title}
+                          <SortButton
+                            direction={pnlSortDirection}
+                            label="未实现盈亏"
+                            onChange={(direction) => changeSort("pnl", direction)}
+                          />
+                        </span>
+                      ) : title}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -158,7 +215,7 @@ function PositionsContent() {
                     </td>
                     <td className="px-5 py-4">
                       <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                        {position.exchange === "POLYMARKET" ? "持有" : position.side}
+                        {positionSideLabel(position.side, position.exchange)}
                       </Badge>
                     </td>
                     <td className="mono-number px-5 py-4">{number(position.position_size)}</td>
@@ -196,7 +253,7 @@ function PositionsContent() {
                     <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>
                   </div>
                   <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                    {position.exchange === "POLYMARKET" ? "持有" : position.side}
+                    {positionSideLabel(position.side, position.exchange)}
                   </Badge>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
