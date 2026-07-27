@@ -668,14 +668,15 @@ async def _write_daily_snapshot(
 
 
 async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, Any]:
-    lock = _account_locks.setdefault(account.id, asyncio.Lock())
+    account_id = account.id
+    lock = _account_locks.setdefault(account_id, asyncio.Lock())
     if lock.locked():
         return {"status": "SKIPPED", "reason": "sync_in_progress"}
     async with lock:
         started = datetime.now(UTC)
         timer = time.monotonic()
         job = SyncJob(
-            exchange_account_id=account.id,
+            exchange_account_id=account_id,
             job_type="MANUAL_OR_SCHEDULED",
             status="RUNNING",
             started_at=started,
@@ -830,12 +831,26 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
             job.status = "SUCCESS"
             return {"status": "SUCCESS", "records_written": job.records_written}
         except Exception as exc:
-            account.connection_status = "ERROR"
-            job.status = "FAILED"
+            # A database error during autoflush leaves the session in a failed
+            # transaction. Roll it back before recording the failure, otherwise
+            # the error status itself is lost and the scheduler appears healthy
+            # while the account silently keeps an old snapshot.
+            error_type = type(exc).__name__
+            await db.rollback()
+            failed_account = await db.get(ExchangeAccount, account_id)
+            if failed_account is not None:
+                failed_account.connection_status = "ERROR"
+            job = SyncJob(
+                exchange_account_id=account_id,
+                job_type="MANUAL_OR_SCHEDULED",
+                status="FAILED",
+                started_at=started,
+            )
+            db.add(job)
             db.add(
                 SyncError(
-                    exchange_account_id=account.id,
-                    error_type=type(exc).__name__,
+                    exchange_account_id=account_id,
+                    error_type=error_type,
                     safe_message="同步失败，请测试连接或检查只读 API 权限",
                     occurred_at=datetime.now(UTC),
                 )

@@ -16,6 +16,7 @@ from app.models import (
     InitialAccountSnapshot,
     PositionSnapshot,
     SyncError,
+    SyncJob,
     TrackingPeriod,
     TradingFeeRecord,
 )
@@ -109,6 +110,23 @@ class FakeAccountingAdapter:
 class FailingAccountingAdapter(FakeAccountingAdapter):
     async def get_history_bundle(self, *_):
         raise RuntimeError("secret upstream detail")
+
+
+class InvalidDatabaseValueAdapter(FakeAccountingAdapter):
+    async def get_closed_positions(self, *_):
+        now = datetime.now(UTC)
+        return [
+            {
+                "source_record_id": "invalid-source",
+                "symbol": "BTC",
+                "normalized_symbol": "BTC-USDC-PERP",
+                "side": "LONG",
+                "open_time": now - timedelta(minutes=1),
+                "close_time": now,
+                "data_source": "X" * 25,
+                "data_completeness": "COMPLETE",
+            }
+        ]
 
 
 def test_incremental_clean_window_does_not_erase_prior_partial_status():
@@ -242,3 +260,29 @@ async def test_accounting_failure_does_not_block_primary_asset_sync(monkeypatch)
         error = await db.scalar(select(SyncError))
         assert error.safe_message == "资产同步成功，但账务流水同步不完整"
         assert "secret upstream detail" not in error.safe_message
+
+
+@pytest.mark.asyncio
+async def test_database_flush_failure_is_rolled_back_and_recorded(monkeypatch):
+    account = await _create_account()
+    monkeypatch.setitem(ADAPTERS, "HYPERLIQUID", InvalidDatabaseValueAdapter)
+    async with SessionLocal() as db:
+        stored = await db.get(ExchangeAccount, account.id)
+        result = await sync_account(db, stored)
+        assert result["status"] == "FAILED"
+
+        failed_account = await db.get(ExchangeAccount, account.id)
+        assert failed_account.connection_status == "ERROR"
+        job = await db.scalar(
+            select(SyncJob)
+            .where(SyncJob.exchange_account_id == account.id)
+            .order_by(SyncJob.started_at.desc())
+        )
+        assert job.status == "FAILED"
+        error = await db.scalar(
+            select(SyncError)
+            .where(SyncError.exchange_account_id == account.id)
+            .order_by(SyncError.occurred_at.desc())
+        )
+        assert error.error_type == "DBAPIError"
+        assert error.safe_message == "同步失败，请测试连接或检查只读 API 权限"

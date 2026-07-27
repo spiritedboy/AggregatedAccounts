@@ -326,7 +326,7 @@ describe("portfolio pages", () => {
             trading_fee: 4,
             net_pnl: 194,
             return_percent: 2.5,
-            data_source: "EXCHANGE_FILLS_RECONSTRUCTED",
+            data_source: "EXCHANGE_FILLS",
             data_completeness: "PARTIAL",
             tracking_started_at: "2026-07-01T00:00:00Z",
           },

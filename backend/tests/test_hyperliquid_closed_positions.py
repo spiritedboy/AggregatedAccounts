@@ -72,7 +72,7 @@ async def test_hyperliquid_closed_positions_reconstruct_zero_to_zero_cycle(monke
     assert position["funding_fee"] == pytest.approx(-0.2)
     assert position["trading_fee"] == pytest.approx(0.3)
     assert position["net_pnl"] == pytest.approx(-10.5)
-    assert position["data_source"] == "EXCHANGE_FILLS_RECONSTRUCTED"
+    assert position["data_source"] == "EXCHANGE_FILLS"
     assert position["data_completeness"] == "COMPLETE"
 
 

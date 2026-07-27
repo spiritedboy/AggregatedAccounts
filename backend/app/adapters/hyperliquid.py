@@ -503,7 +503,7 @@ class HyperliquidAdapter(ExchangeAdapter):
                     "return_percent": (
                         realized_pnl / initial_notional * 100 if initial_notional else 0
                     ),
-                    "data_source": "EXCHANGE_FILLS_RECONSTRUCTED",
+                    "data_source": "EXCHANGE_FILLS",
                     "data_completeness": (
                         "COMPLETE" if cycle["complete"] else "PARTIAL"
                     ),

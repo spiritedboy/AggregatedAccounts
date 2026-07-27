@@ -42,7 +42,22 @@ async def scheduled_sync() -> None:
         *(run_one(account_id) for account_id in account_ids),
         return_exceptions=True,
     )
-    logger.info("scheduled account refresh completed accounts=%s", len(results))
+    failed = sum(
+        isinstance(result, Exception)
+        or (isinstance(result, dict) and result.get("status") == "FAILED")
+        for result in results
+    )
+    logger.info(
+        "scheduled account refresh completed accounts=%s failed=%s",
+        len(results),
+        failed,
+    )
+    for result in results:
+        if isinstance(result, Exception):
+            logger.error(
+                "scheduled account refresh raised error=%s",
+                type(result).__name__,
+            )
 
 
 async def scheduled_retention() -> None:
