@@ -368,7 +368,7 @@ describe("portfolio pages", () => {
     render(<PositionsPage />);
     expect(await screen.findAllByText("BTC-USDT-PERP")).not.toHaveLength(0);
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
-    expect(screen.getAllByText(/统计期变化/)).not.toHaveLength(0);
+    expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
     expect(screen.getAllByText("做多")).not.toHaveLength(0);
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
     expect(screen.getAllByText("持有")).not.toHaveLength(0);

@@ -257,8 +257,14 @@ function PositionsContent() {
                       <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                         {usd(position.unrealized_pnl, hidden)}
                       </p>
-                      <p className="muted mono-number mt-1 text-xs">
-                        {number(position.unrealized_pnl_percent, 2)}% · 统计期变化 {usd(position.tracking_unrealized_pnl_change, hidden)}
+                      <p
+                        className={`mono-number mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          position.unrealized_pnl_percent >= 0
+                            ? "bg-[var(--positive-soft)] text-positive"
+                            : "bg-[var(--negative-soft)] text-negative"
+                        }`}
+                      >
+                        {number(position.unrealized_pnl_percent, 2)}%
                       </p>
                     </td>
                     <td className="muted whitespace-nowrap text-xs">{dateTime(position.update_time)}</td>
@@ -284,15 +290,9 @@ function PositionsContent() {
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd, hidden)} />
                   <Metric label="当前未实现盈亏" value={usd(position.unrealized_pnl, hidden)} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
-                  <Metric label="统计期变化" value={usd(position.tracking_unrealized_pnl_change, hidden)} tone={position.tracking_unrealized_pnl_change >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price, hidden)} / ${usd(position.mark_price, hidden)}`} />
                   <Metric label="数量 / 杠杆" value={`${number(position.position_size)} / ${number(position.leverage, 1)}×`} />
                 </div>
-                {position.is_initial_position && (
-                  <p className="muted mt-4 border-t pt-3 text-[11px]" style={{ borderColor: "var(--line)" }}>
-                    当前未实现盈亏包含建仓以来的完整浮盈亏；统计期收益仍只计算添加 API Key 后的变化。
-                  </p>
-                )}
               </article>
             ))}
           </div>
