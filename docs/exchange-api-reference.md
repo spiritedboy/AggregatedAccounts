@@ -103,6 +103,12 @@ Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需�
 已平仓响应中的 `timestamp` 可能变化，平台使用官方响应里的 outcome token `asset`
 作为稳定幂等键，避免同一 outcome 在后续同步中被重复写入。
 
+市场标题的简体中文显示使用百度“LLM 大模型翻译”服务，不使用通用机器翻译接口。
+适配器会保存官方 `title`、`outcome`、`conditionId`、`outcomeIndex` 和 outcome token；
+后端以 outcome token 作为翻译缓存键，将“市场标题 · 结果”译为简体中文。当前与已平仓
+记录共用缓存，因此平仓不触发重复翻译。翻译请求只由后端后台任务发出，读 API 不会
+实时调用第三方服务；第三方不可用时 API 继续返回英文原文。
+
 ## 覆盖限制
 
 不同账户类型、区域和 API Key 权限可能导致某些只读接口不可用。适配器会安全失败

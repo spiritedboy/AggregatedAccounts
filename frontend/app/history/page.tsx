@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePrivacy } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
+import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -211,9 +212,9 @@ function HistoryContent() {
                 {sortedItems.map((position) => (
                   <tr key={position.id}>
                     <td>
-                      <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>
-                        {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
-                      </p>
+                      <div className="max-w-md">
+                        <PositionLabel position={position} />
+                      </div>
                       <p className="muted mt-1 text-xs">{position.exchange}</p>
                     </td>
                     <td><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></td>
@@ -258,9 +259,7 @@ function HistoryContent() {
               <article key={position.id} className="panel p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className={position.exchange === "POLYMARKET" ? "font-semibold" : "mono-number font-semibold"}>
-                      {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
-                    </p>
+                    <PositionLabel position={position} />
                     <p className="muted mt-1 text-xs">{position.exchange} · 平仓于 {dateTime(position.close_time)}</p>
                   </div>
                   <Badge tone={position.side === "LONG" ? "positive" : "negative"}>

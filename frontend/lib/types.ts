@@ -50,6 +50,10 @@ export type Position = {
   tracking_period_id: string;
   symbol: string;
   normalized_symbol: string;
+  display_symbol: string;
+  original_symbol: string;
+  translation_status: "NOT_APPLICABLE" | "PENDING" | "READY" | "FAILED";
+  translation_provider: string;
   market_type: string;
   side: "LONG" | "SHORT";
   position_size: number;
@@ -77,6 +81,10 @@ export type ClosedPosition = {
   exchange: string;
   symbol: string;
   normalized_symbol: string;
+  display_symbol: string;
+  original_symbol: string;
+  translation_status: "NOT_APPLICABLE" | "PENDING" | "READY" | "FAILED";
+  translation_provider: string;
   side: "LONG" | "SHORT";
   open_time: string;
   close_time: string;

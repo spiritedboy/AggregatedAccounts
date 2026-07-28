@@ -77,6 +77,9 @@ async def test_polymarket_maps_accounting_snapshot_and_positions():
     assert positions[0]["source_record_id"] == asset
     assert positions[0]["market_type"] == "PREDICTION"
     assert positions[0]["symbol"].endswith("· Yes")
+    assert positions[0]["translation_asset_id"] == asset
+    assert positions[0]["translation_source_title"] == "Will the integration test pass?"
+    assert positions[0]["translation_source_outcome"] == "Yes"
     assert positions[0]["unrealized_pnl"] == 20
     assert positions[0]["unrealized_pnl_percent"] == 114.2857
     assert adapter.wallet_address == "0x" + "9" * 40
@@ -129,6 +132,7 @@ async def test_polymarket_closed_positions_stop_at_tracking_boundary():
 
     assert len(rows) == 1
     assert rows[0]["source_record_id"] == "poly-closed:new"
+    assert rows[0]["translation_asset_id"] == "new"
     assert rows[0]["realized_pnl"] == 6
     assert rows[0]["data_completeness"] == "PARTIAL"
 

@@ -156,6 +156,19 @@ Profile 地址；平台不会请求或保存钱包私钥、助记词或登录密
 Accounting Snapshot 的 `equity`，可用余额来自
 `cashBalance`，预测市场持仓价值来自 `positionsValue`。
 
+Polymarket 市场标题可通过百度“LLM 大模型翻译”转换为简体中文。翻译仅在后端同步后
+异步执行，结果按官方 outcome token 持久化缓存；当前仓位和平仓后的历史仓位复用
+同一译文，不会因翻页、筛选或平仓重复请求翻译服务。页面同时保留英文原文和“AI译”
+标识，翻译失败时安全回退英文，不影响账户同步。启用时只在未提交的 `.env` 中填写：
+
+```dotenv
+BAIDU_TRANSLATION_ENABLED=true
+BAIDU_TRANSLATION_APPID=
+BAIDU_TRANSLATION_API_KEY=
+```
+
+应用代码、数据库与 API 响应均不会返回翻译凭证。
+
 “交易所账户”页面只展示配置、权限和同步状态，不提供添加、删除、连接测试或手动
 同步。对应 POST API 在公开模式下同样返回 `403`；后台定时同步不受影响。
 

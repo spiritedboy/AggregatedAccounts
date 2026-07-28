@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Chart } from "@/components/chart";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
+import { PositionLabel } from "@/components/position-label";
 import {
   Badge,
   ErrorState,
@@ -381,9 +382,7 @@ function DashboardContent() {
               <div key={position.id} className="grid grid-cols-[1fr_auto] gap-4 px-5 py-4 sm:grid-cols-[1.1fr_.7fr_.7fr] sm:items-center">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className={position.exchange === "POLYMARKET" ? "text-sm font-semibold" : "font-mono text-sm font-semibold"}>
-                      {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
-                    </p>
+                    <PositionLabel position={position} compact />
                     <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
                       {positionSideLabel(position.side, position.exchange)}
                     </Badge>

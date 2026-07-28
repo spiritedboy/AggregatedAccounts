@@ -36,14 +36,23 @@ ports:
 4. 复制 `.env.example` 为 `.env`，填写数据库密码、主加密密钥和已启用账户引用的环境变量。
 5. 运行 `make init` 自动生成缺失的主加密密钥和会话密钥。
 6. 将 `COOKIE_SECURE=true`、`APP_ENV=production`、`DEMO_MODE=false` 写入 `.env`。
-7. 永久保留生产数据库数据：
+7. 如需启用 Polymarket 简体中文标题，在 `.env` 中配置百度 LLM 翻译：
+
+```dotenv
+BAIDU_TRANSLATION_ENABLED=true
+BAIDU_TRANSLATION_APPID=<server-only-appid>
+BAIDU_TRANSLATION_API_KEY=<server-only-api-key>
+```
+
+   凭证只保存在服务器 `.env`，文件权限应为 `600`，不得提交 Git 或写入日志。
+8. 永久保留生产数据库数据：
 
 ```dotenv
 SYNC_JOB_RETENTION_DAYS=0
 BALANCE_SNAPSHOT_RETENTION_DAYS=0
 ```
 
-8. 启动生产覆盖：
+9. 启动生产覆盖：
 
 ```bash
 docker compose \
@@ -78,6 +87,19 @@ backend 每次启动都会读取配置：
 - 同交易所、同连接名称的启用账户保持不变；
 - 仅为缺失的启用账户测试只读权限并创建初始快照；
 - 不会因为配置项缺失或禁用而删除数据库中的已有账户和历史数据。
+
+Polymarket 翻译结果保存在独立的 `polymarket_translations` 表，迁移只新增表和索引，
+不修改账户、当前仓位或历史仓位。首次启用后可安全回填存量市场：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/backfill_polymarket_translations.py
+```
+
+脚本先按正常只读流程同步 Polymarket，再翻译尚未缓存的 outcome token。失败项保留
+英文原文并由后续任务重试；已成功的译文在仓位平仓后继续复用。
 
 网站为公开只读模式，不需要访问密码；添加、删除、连接测试和手动同步只能通过服务器
 配置、后台调度或运维流程完成，公网页面和对应写 API 均不能触发。

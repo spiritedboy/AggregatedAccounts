@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePrivacy } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
+import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -129,8 +130,8 @@ function PositionsContent() {
             className="input pl-10"
             value={symbol}
             onChange={(event) => setSymbol(event.target.value)}
-            placeholder="搜索交易对"
-            aria-label="搜索交易对"
+            placeholder="搜索交易对 / 市场"
+            aria-label="搜索交易对或市场"
           />
         </label>
         <FilterSelect value={exchange} onChange={setExchange} label="交易所">
@@ -233,9 +234,9 @@ function PositionsContent() {
                 {positions.map((position) => (
                   <tr key={position.id}>
                     <td>
-                      <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>
-                        {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
-                      </p>
+                      <div className="max-w-md">
+                        <PositionLabel position={position} />
+                      </div>
                       <p className="muted mt-1 text-xs">{position.exchange} · {position.market_type}</p>
                     </td>
                     <td>
@@ -278,9 +279,7 @@ function PositionsContent() {
               <article key={position.id} className="panel p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className={position.exchange === "POLYMARKET" ? "font-semibold" : "font-mono font-semibold"}>
-                      {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
-                    </p>
+                    <PositionLabel position={position} />
                     <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>
                   </div>
                   <Badge tone={position.side === "LONG" ? "positive" : "negative"}>

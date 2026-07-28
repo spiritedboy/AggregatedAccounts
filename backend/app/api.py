@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import desc, func, or_, select, text
+from sqlalchemy import and_, desc, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -22,6 +22,7 @@ from app.models import (
     DailyPnlSnapshot,
     ExchangeAccount,
     InitialAccountSnapshot,
+    PolymarketTranslation,
     PositionSnapshot,
     TrackingPeriod,
 )
@@ -48,6 +49,62 @@ router = APIRouter(prefix="/api")
 
 def _num(value: Decimal | float | None) -> float:
     return float(value or 0)
+
+
+def _polymarket_asset_id(row: CurrentPosition | ClosedPosition) -> str | None:
+    if row.exchange != "POLYMARKET":
+        return None
+    return row.source_record_id.removeprefix("poly-closed:")
+
+
+async def _polymarket_translation_map(
+    db: AsyncSession,
+    rows: list[CurrentPosition] | list[ClosedPosition],
+) -> dict[str, PolymarketTranslation]:
+    asset_ids = {
+        asset_id
+        for row in rows
+        if (asset_id := _polymarket_asset_id(row))
+    }
+    if not asset_ids:
+        return {}
+    translations = (
+        await db.scalars(
+            select(PolymarketTranslation).where(
+                PolymarketTranslation.asset_id.in_(asset_ids)
+            )
+        )
+    ).all()
+    return {row.asset_id: row for row in translations}
+
+
+def _translation_fields(
+    row: CurrentPosition | ClosedPosition,
+    translation: PolymarketTranslation | None,
+) -> dict[str, str]:
+    if row.exchange != "POLYMARKET":
+        return {
+            "display_symbol": row.symbol,
+            "original_symbol": row.symbol,
+            "translation_status": "NOT_APPLICABLE",
+            "translation_provider": "",
+        }
+    if translation is None:
+        return {
+            "display_symbol": row.symbol,
+            "original_symbol": row.symbol,
+            "translation_status": "PENDING",
+            "translation_provider": "BAIDU_LLM",
+        }
+    ready = translation.status == "READY" and bool(translation.translated_display)
+    return {
+        "display_symbol": (
+            translation.translated_display if ready else translation.source_display
+        ),
+        "original_symbol": translation.source_display,
+        "translation_status": translation.status,
+        "translation_provider": translation.provider,
+    }
 
 
 async def _active_account(db: AsyncSession, account_id: uuid.UUID) -> ExchangeAccount:
@@ -292,6 +349,8 @@ async def dashboard_summary(
             select(CurrentPosition).join(ExchangeAccount).where(ExchangeAccount.is_active.is_(True))
         )
     ).all()
+    dashboard_positions = current_positions[:6]
+    translations = await _polymarket_translation_map(db, dashboard_positions)
     daily_rows = await _daily_pnl_points(db)
     total_equity = sum(_num(row.total_equity_usd) for row, _ in latest)
     available = sum(_num(row.available_balance_usd) for row, _ in latest)
@@ -340,7 +399,13 @@ async def dashboard_summary(
                 }
                 for row in daily_rows
             ],
-            "positions": [_position_dict(item) for item in current_positions[:6]],
+            "positions": [
+                _position_dict(
+                    item,
+                    translations.get(_polymarket_asset_id(item) or ""),
+                )
+                for item in dashboard_positions
+            ],
             "notice": "仅统计添加 API Key 后产生的数据",
             "demo_mode": any(account.is_demo for _, account in latest),
         }
@@ -443,7 +508,10 @@ async def balances(
     )
 
 
-def _position_dict(row: CurrentPosition) -> dict[str, Any]:
+def _position_dict(
+    row: CurrentPosition,
+    translation: PolymarketTranslation | None = None,
+) -> dict[str, Any]:
     return {
         "id": row.id,
         "exchange": row.exchange,
@@ -471,6 +539,7 @@ def _position_dict(row: CurrentPosition) -> dict[str, Any]:
         "tracking_started_at": row.tracking_started_at,
         "is_initial_position": row.is_initial_position,
         "update_time": row.updated_at,
+        **_translation_fields(row, translation),
     }
 
 
@@ -495,6 +564,18 @@ async def current_positions(
             or_(
                 CurrentPosition.normalized_symbol.ilike(f"%{symbol}%"),
                 CurrentPosition.symbol.ilike(f"%{symbol}%"),
+                and_(
+                    CurrentPosition.exchange == "POLYMARKET",
+                    exists(
+                        select(1).where(
+                            PolymarketTranslation.asset_id
+                            == CurrentPosition.source_record_id,
+                            PolymarketTranslation.translated_display.ilike(
+                                f"%{symbol}%"
+                            ),
+                        )
+                    ),
+                ),
             )
         )
     if side:
@@ -507,7 +588,16 @@ async def current_positions(
             .limit(page_size)
         )
     ).all()
-    return envelope({"items": [_position_dict(row) for row in rows], "total": total})
+    translations = await _polymarket_translation_map(db, rows)
+    return envelope(
+        {
+            "items": [
+                _position_dict(row, translations.get(_polymarket_asset_id(row) or ""))
+                for row in rows
+            ],
+            "total": total,
+        }
+    )
 
 
 @router.get("/positions/snapshots")
@@ -568,7 +658,10 @@ async def position_snapshots(
     )
 
 
-def _closed_dict(row: ClosedPosition) -> dict[str, Any]:
+def _closed_dict(
+    row: ClosedPosition,
+    translation: PolymarketTranslation | None = None,
+) -> dict[str, Any]:
     return {
         "id": row.id,
         "exchange": row.exchange,
@@ -590,6 +683,7 @@ def _closed_dict(row: ClosedPosition) -> dict[str, Any]:
         "data_source": row.data_source,
         "data_completeness": row.data_completeness,
         "tracking_started_at": row.tracking_started_at,
+        **_translation_fields(row, translation),
     }
 
 
@@ -620,6 +714,21 @@ def _history_query(
             or_(
                 ClosedPosition.normalized_symbol.ilike(f"%{symbol}%"),
                 ClosedPosition.symbol.ilike(f"%{symbol}%"),
+                and_(
+                    ClosedPosition.exchange == "POLYMARKET",
+                    exists(
+                        select(1).where(
+                            ClosedPosition.source_record_id
+                            == func.concat(
+                                "poly-closed:",
+                                PolymarketTranslation.asset_id,
+                            ),
+                            PolymarketTranslation.translated_display.ilike(
+                                f"%{symbol}%"
+                            ),
+                        )
+                    ),
+                ),
             )
         )
     if side:
@@ -683,7 +792,16 @@ async def position_history(
             .limit(page_size)
         )
     ).all()
-    return envelope({"items": [_closed_dict(row) for row in rows], "total": total})
+    translations = await _polymarket_translation_map(db, rows)
+    return envelope(
+        {
+            "items": [
+                _closed_dict(row, translations.get(_polymarket_asset_id(row) or ""))
+                for row in rows
+            ],
+            "total": total,
+        }
+    )
 
 
 def _safe_csv(value: Any) -> Any:
@@ -725,6 +843,7 @@ async def export_history(
             .limit(10_000)
         )
     ).all()
+    translations = await _polymarket_translation_map(db, rows)
     output = io.StringIO()
     writer = csv.writer(output)
     headers = [
@@ -741,11 +860,14 @@ async def export_history(
     ]
     writer.writerow(headers)
     for row in rows:
-        item = _closed_dict(row)
+        item = _closed_dict(
+            row,
+            translations.get(_polymarket_asset_id(row) or ""),
+        )
         writer.writerow(
             [
                 _safe_csv(item["exchange"]),
-                _safe_csv(item["symbol"]),
+                _safe_csv(item["display_symbol"]),
                 item["side"],
                 item["open_time"],
                 item["close_time"],

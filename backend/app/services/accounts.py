@@ -34,6 +34,9 @@ from app.models import (
 )
 from app.schemas import ExchangeAccountCreate
 from app.security import CredentialCipher, EncryptedField, mask_identifier
+from app.services.polymarket_translation import (
+    capture_polymarket_translation_sources,
+)
 
 cipher = CredentialCipher(settings.app_encryption_key)
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
@@ -735,6 +738,11 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 await _apply_asset_coverage_baseline(
                     db, account, period, summary
                 )
+                if account.exchange == "POLYMARKET":
+                    await capture_polymarket_translation_sources(
+                        db,
+                        [*positions, *closed_positions],
+                    )
                 await _write_summary(db, account, period, summary, started)
                 await _write_asset_balances(db, account, period, balances, started)
                 await _replace_positions(db, account, period, positions, started)

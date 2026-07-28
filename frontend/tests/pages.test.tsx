@@ -101,6 +101,10 @@ const polymarketPosition = {
   exchange: "POLYMARKET",
   symbol: "Will the market close higher?",
   normalized_symbol: "POLYMARKET-POSITION",
+  display_symbol: "集成测试会通过吗？ · 是",
+  original_symbol: "Will the integration test pass? · Yes",
+  translation_status: "READY",
+  translation_provider: "BAIDU_LLM",
   market_type: "PREDICTION",
   position_value_usd: 40000,
   unrealized_pnl: -50,
@@ -373,6 +377,9 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("做多")).not.toHaveLength(0);
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
     expect(screen.getAllByText("持有")).not.toHaveLength(0);
+    expect(screen.getAllByText("集成测试会通过吗？ · 是")).not.toHaveLength(0);
+    expect(screen.getAllByText("AI译")).not.toHaveLength(0);
+    expect(screen.getAllByText("Will the integration test pass? · Yes")).not.toHaveLength(0);
     expect(screen.queryByText("LONG")).not.toBeInTheDocument();
     expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /平仓/ })).not.toBeInTheDocument();
@@ -388,7 +395,9 @@ describe("portfolio pages", () => {
 
     await user.click(screen.getByRole("button", { name: /未实现盈亏排序：未排序/ }));
     rows = screen.getAllByRole("row").slice(1);
-    expect(within(rows[0]).getByText("Will the market close higher?")).toBeInTheDocument();
+    expect(
+      within(rows[0]).getByText("Will the integration test pass? · Yes"),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /未实现盈亏排序：升序/ }));
     rows = screen.getAllByRole("row").slice(1);

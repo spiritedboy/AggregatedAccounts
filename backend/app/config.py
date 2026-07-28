@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     sync_job_retention_days: int = 30
     balance_snapshot_retention_days: int = 90
     equity_curve_cache_seconds: int = 30
+    baidu_translation_enabled: bool = False
+    baidu_translation_appid: str = ""
+    baidu_translation_api_key: str = ""
+    baidu_translation_endpoint: str = (
+        "https://fanyi-api.baidu.com/ait/api/aiTextTranslate"
+    )
+    baidu_translation_timeout_seconds: float = 20
+    baidu_translation_batch_size: int = 20
     maintenance_hour_utc: int = 4
     maintenance_minute_utc: int = 20
     request_timeout_seconds: float = 12

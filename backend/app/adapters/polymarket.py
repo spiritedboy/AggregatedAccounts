@@ -22,6 +22,16 @@ def _normalized_symbol(item: dict[str, Any]) -> str:
     return f"POLY-{condition_id[:16]}-{outcome_index}-{asset[-12:]}"[:80]
 
 
+def _translation_source(item: dict[str, Any], title: str, outcome: str) -> dict[str, Any]:
+    return {
+        "translation_asset_id": str(item.get("asset") or ""),
+        "translation_condition_id": str(item.get("conditionId") or ""),
+        "translation_outcome_index": int(item.get("outcomeIndex") or 0),
+        "translation_source_title": title.strip(),
+        "translation_source_outcome": outcome.strip(),
+    }
+
+
 def closed_position_source_id(item: dict[str, Any]) -> str:
     """Build a stable closed-position identity from the outcome token.
 
@@ -157,6 +167,7 @@ class PolymarketAdapter(ExchangeAdapter):
             outcome = str(item.get("outcome") or f"Outcome {item.get('outcomeIndex', 0)}")
             positions.append(
                 {
+                    **_translation_source(item, title, outcome),
                     "source_record_id": str(item.get("asset") or item.get("conditionId")),
                     "symbol": _display_symbol(title, outcome),
                     "normalized_symbol": _normalized_symbol(item),
@@ -213,6 +224,7 @@ class PolymarketAdapter(ExchangeAdapter):
                 outcome = str(item.get("outcome") or f"Outcome {item.get('outcomeIndex', 0)}")
                 source_record_id = closed_position_source_id(item)
                 positions_by_id[source_record_id] = {
+                    **_translation_source(item, title, outcome),
                     "source_record_id": source_record_id,
                     "asset_id": str(item.get("asset") or ""),
                     "symbol": _display_symbol(title, outcome),

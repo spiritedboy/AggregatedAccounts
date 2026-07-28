@@ -22,6 +22,9 @@ from app.services.equity_curve import (
     capture_portfolio_equity_point,
 )
 from app.services.maintenance import apply_data_retention
+from app.services.polymarket_translation import (
+    process_pending_polymarket_translations,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +67,16 @@ async def scheduled_sync() -> None:
             )
     async with SessionLocal() as db:
         try:
+            translation_result = await process_pending_polymarket_translations(db)
+            if translation_result.get("translated") or translation_result.get("failed"):
+                logger.info(
+                    "polymarket translations processed result=%s",
+                    translation_result,
+                )
+        except Exception:
+            logger.exception("polymarket translation processing failed")
+    async with SessionLocal() as db:
+        try:
             await capture_portfolio_equity_point(db)
         except Exception:
             logger.exception("portfolio equity sample failed")
@@ -86,10 +99,12 @@ async def lifespan(_: FastAPI):
         if settings.app_env != "test":
             backfilled = await backfill_portfolio_equity_points(db)
             captured = await capture_portfolio_equity_point(db)
+            translation_result = await process_pending_polymarket_translations(db)
             logger.info(
-                "portfolio equity series ready backfilled=%s captured=%s",
+                "portfolio equity series ready backfilled=%s captured=%s translations=%s",
                 backfilled,
                 bool(captured),
+                translation_result,
             )
     if settings.app_env != "test":
         scheduler.add_job(

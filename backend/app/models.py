@@ -262,6 +262,28 @@ class ClosedPosition(Base, BusinessMixin):
     tracking_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class PolymarketTranslation(Base, TimestampMixin):
+    __tablename__ = "polymarket_translations"
+    __table_args__ = (
+        Index("ix_polymarket_translation_status", "status", "updated_at"),
+    )
+
+    asset_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    condition_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcome_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_title: Mapped[str] = mapped_column(Text, nullable=False)
+    source_outcome: Mapped[str] = mapped_column(String(320), nullable=False)
+    source_display: Mapped[str] = mapped_column(Text, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    translated_display: Mapped[str | None] = mapped_column(Text)
+    target_language: Mapped[str] = mapped_column(String(16), default="zh", nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), default="BAIDU_LLM", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(240))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AmountRecordMixin(BusinessMixin):
     asset: Mapped[str] = mapped_column(String(24), default="USD")
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
