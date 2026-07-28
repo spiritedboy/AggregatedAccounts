@@ -56,6 +56,7 @@ function DashboardContent() {
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [curve, setCurve] = useState<EquityCurveData | null>(null);
   const [curveRange, setCurveRange] = useState<EquityCurveRange>("1d");
+  const [isDark, setIsDark] = useState(true);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { hidden } = usePrivacy();
@@ -79,6 +80,17 @@ function DashboardContent() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setIsDark(root.classList.contains("dark"));
+    const observer = new MutationObserver(syncTheme);
+
+    syncTheme();
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
   const autoRefresh = useAutoRefresh(load);
 
   const equityOption = useMemo<EChartsOption>(
@@ -99,9 +111,9 @@ function DashboardContent() {
         type: "category",
         boundaryGap: false,
         data: curve?.points.map((point) => point.timestamp) ?? [],
-        axisLine: { lineStyle: { color: "#cdd3e1" } },
+        axisLine: { lineStyle: { color: isDark ? "rgba(205,190,255,.24)" : "#cdd3e1" } },
         axisLabel: {
-          color: "#687086",
+          color: isDark ? "#c3bad9" : "#687086",
           hideOverlap: true,
           formatter: (value: string) => {
             const current = new Date(value);
@@ -124,9 +136,9 @@ function DashboardContent() {
       yAxis: {
         type: "value",
         scale: true,
-        splitLine: { lineStyle: { color: "rgba(104,112,134,.12)" } },
+        splitLine: { lineStyle: { color: isDark ? "rgba(205,190,255,.1)" : "rgba(104,112,134,.12)" } },
         axisLabel: {
-          color: "#687086",
+          color: isDark ? "#c3bad9" : "#687086",
           formatter: (value: number) => `${Math.round(value / 1000)}k`,
         },
       },
@@ -136,7 +148,7 @@ function DashboardContent() {
           smooth: 0.35,
           symbol: "none",
           data: curve?.points.map((point) => point.equity) ?? [],
-          lineStyle: { color: "#7c5cfc", width: 3 },
+          lineStyle: { color: isDark ? "#62f1d6" : "#7c5cfc", width: isDark ? 3.5 : 3 },
           areaStyle: {
             color: {
               type: "linear",
@@ -145,16 +157,16 @@ function DashboardContent() {
               x2: 0,
               y2: 1,
               colorStops: [
-                { offset: 0, color: "rgba(124,92,252,.32)" },
-                { offset: 0.55, color: "rgba(32,189,169,.12)" },
-                { offset: 1, color: "rgba(124,92,252,0)" },
+                { offset: 0, color: isDark ? "rgba(98,241,214,.38)" : "rgba(124,92,252,.32)" },
+                { offset: 0.55, color: isDark ? "rgba(170,140,255,.13)" : "rgba(32,189,169,.12)" },
+                { offset: 1, color: isDark ? "rgba(98,241,214,0)" : "rgba(124,92,252,0)" },
               ],
             },
           },
         },
       ],
     }),
-    [curve, curveRange, hidden],
+    [curve, curveRange, hidden, isDark],
   );
 
   const allocationOption = useMemo<EChartsOption>(
@@ -379,9 +391,6 @@ function DashboardContent() {
                   <p className="metric-label">当前未实现盈亏</p>
                   <p className={`mono-number mt-1 text-sm ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                     {usd(position.unrealized_pnl, hidden)}
-                  </p>
-                  <p className="muted mono-number mt-1 text-[10px]">
-                    统计期变化 {usd(position.tracking_unrealized_pnl_change, hidden)}
                   </p>
                 </div>
               </div>

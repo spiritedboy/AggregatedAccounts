@@ -346,6 +346,7 @@ describe("portfolio pages", () => {
     expect(screen.getByText(/净值变化：/)).toBeInTheDocument();
     expect(screen.getByText("1年")).toBeInTheDocument();
     expect(screen.getByText("做多")).toBeInTheDocument();
+    expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "1年" }));
     await waitFor(() =>
