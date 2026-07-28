@@ -155,8 +155,10 @@ make security-check
 ```
 
 脚本执行 `pg_dump` custom format、SHA-256 校验和 `pg_restore --list`，随后将备份
-恢复到随机命名的 `atlas_restore_check_*` 临时数据库，验证业务表与 Alembic 版本
-后删除临时库。默认备份目录是仓库同级的 `backups`，默认保留 90 天。
+恢复到随机命名的 `atlas_restore_check_*` 临时数据库。恢复过程先创建 TimescaleDB
+扩展并执行 `timescaledb_pre_restore()`，完成后执行
+`timescaledb_post_restore()` 与 `ANALYZE`，再验证业务表与 Alembic 版本并删除临时库。
+恢复验证失败的文件不会保留。默认备份目录是仓库同级的 `backups`，默认保留 90 天。
 
 确认成功后，以 root 安装每日 03:17 的 cron、90 天备份保留与 7 天备份日志轮换：
 

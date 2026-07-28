@@ -54,8 +54,12 @@ mv "$temporary_file" "$backup_file"
 sha256sum "$backup_file" > "$backup_file.sha256"
 
 if [[ "$verify_restore" == "1" ]]; then
-  BACKUP_DATABASE_URL="$database_url" ENV_FILE="$env_file" \
-    "$script_dir/verify-postgres-backup.sh" "$backup_file"
+  if ! BACKUP_DATABASE_URL="$database_url" ENV_FILE="$env_file" \
+    "$script_dir/verify-postgres-backup.sh" "$backup_file"; then
+    rm -f "$backup_file" "$backup_file.sha256"
+    echo "Backup restore verification failed; unverified files removed" >&2
+    exit 1
+  fi
 fi
 
 find "$backup_dir" -maxdepth 1 -type f \

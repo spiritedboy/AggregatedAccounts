@@ -309,7 +309,9 @@ BALANCE_SNAPSHOT_RETENTION_DAYS=0
 
 备份脚本默认将文件保存到仓库同级的 `backups` 目录，权限为 `700`；每个备份使用
 PostgreSQL custom format，并生成 SHA-256 文件。备份完成后会恢复到随机命名的临时
-数据库，检查表数量与 Alembic 版本，然后自动删除临时库。
+数据库，按 TimescaleDB 要求执行 `timescaledb_pre_restore()` 和
+`timescaledb_post_restore()`，检查表数量与 Alembic 版本，然后自动删除临时库。
+恢复验证失败的备份会立即标记为无效并删除，不进入90天保留集合。
 
 ```bash
 # 立即执行一次完整备份和恢复验证

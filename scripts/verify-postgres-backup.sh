@@ -50,12 +50,18 @@ trap cleanup EXIT
 pg_restore --list "$backup_file" >/dev/null
 psql "$database_url" -v ON_ERROR_STOP=1 -q -c \
   "CREATE DATABASE \"$verify_database\";" >/dev/null
+psql "$verify_url" -v ON_ERROR_STOP=1 -q -c \
+  "CREATE EXTENSION IF NOT EXISTS timescaledb;" >/dev/null
+psql "$verify_url" -v ON_ERROR_STOP=1 -q -c \
+  "SELECT timescaledb_pre_restore();" >/dev/null
 pg_restore \
   --exit-on-error \
   --no-owner \
   --no-privileges \
   --dbname="$verify_url" \
   "$backup_file"
+psql "$verify_url" -v ON_ERROR_STOP=1 -q -c \
+  "SELECT timescaledb_post_restore(); ANALYZE;" >/dev/null
 
 table_count="$(
   psql "$verify_url" -v ON_ERROR_STOP=1 -Atq -c \
