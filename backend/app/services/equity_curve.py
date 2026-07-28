@@ -291,20 +291,54 @@ async def backfill_portfolio_equity_points(db: AsyncSession) -> int:
     result = await db.execute(
         text(
             """
-            WITH per_account AS (
-                SELECT
-                    time_bucket(INTERVAL '5 minutes', s.recorded_at) AS bucket_time,
-                    s.exchange_account_id,
-                    last(s.total_equity_usd, s.recorded_at) AS total_equity_usd,
-                    last(s.available_balance_usd, s.recorded_at) AS available_balance_usd,
-                    last(s.margin_balance_usd, s.recorded_at) AS margin_balance_usd,
-                    last(s.unrealized_pnl_usd, s.recorded_at) AS unrealized_pnl_usd,
-                    last(s.unvalued_asset_count, s.recorded_at) AS unvalued_asset_count,
-                    max(s.recorded_at) AS source_latest_at
+            WITH buckets AS (
+                SELECT DISTINCT
+                    time_bucket(INTERVAL '5 minutes', s.recorded_at) AS bucket_time
                 FROM account_balance_snapshots s
                 JOIN exchange_accounts a ON a.id = s.exchange_account_id
                 WHERE a.is_active = true
-                GROUP BY bucket_time, s.exchange_account_id
+            ),
+            eligible_accounts AS (
+                SELECT
+                    b.bucket_time,
+                    a.id AS exchange_account_id
+                FROM buckets b
+                JOIN exchange_accounts a
+                    ON a.is_active = true
+                    AND a.tracking_started_at < b.bucket_time + INTERVAL '5 minutes'
+            ),
+            per_account AS (
+                SELECT
+                    eligible.bucket_time,
+                    eligible.exchange_account_id,
+                    snapshot.total_equity_usd,
+                    snapshot.available_balance_usd,
+                    snapshot.margin_balance_usd,
+                    snapshot.unrealized_pnl_usd,
+                    snapshot.unvalued_asset_count,
+                    snapshot.recorded_at AS source_latest_at
+                FROM eligible_accounts eligible
+                JOIN LATERAL (
+                    SELECT
+                        s.total_equity_usd,
+                        s.available_balance_usd,
+                        s.margin_balance_usd,
+                        s.unrealized_pnl_usd,
+                        s.unvalued_asset_count,
+                        s.recorded_at
+                    FROM account_balance_snapshots s
+                    WHERE
+                        s.exchange_account_id = eligible.exchange_account_id
+                        AND s.recorded_at < eligible.bucket_time + INTERVAL '5 minutes'
+                        AND s.recorded_at >= eligible.bucket_time - INTERVAL '5 minutes'
+                    ORDER BY s.recorded_at DESC
+                    LIMIT 1
+                ) snapshot ON true
+            ),
+            expected_accounts AS (
+                SELECT bucket_time, count(*)::integer AS expected_count
+                FROM eligible_accounts
+                GROUP BY bucket_time
             ),
             aggregated AS (
                 SELECT
@@ -342,6 +376,8 @@ async def backfill_portfolio_equity_points(db: AsyncSession) -> int:
                 stale_account_count,
                 source_latest_at
             FROM aggregated
+            JOIN expected_accounts USING (bucket_time)
+            WHERE aggregated.account_count = expected_accounts.expected_count
             ON CONFLICT (bucket_time) DO UPDATE SET
                 total_equity_usd = EXCLUDED.total_equity_usd,
                 available_balance_usd = EXCLUDED.available_balance_usd,

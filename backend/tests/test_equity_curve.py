@@ -4,8 +4,14 @@ from decimal import Decimal
 import pytest
 
 from app.database import SessionLocal
-from app.models import AccountBalanceSnapshot, ExchangeAccount, TrackingPeriod
+from app.models import (
+    AccountBalanceSnapshot,
+    ExchangeAccount,
+    PortfolioEquityPoint,
+    TrackingPeriod,
+)
 from app.services.equity_curve import (
+    backfill_portfolio_equity_points,
     capture_portfolio_equity_point,
     curve_cache,
     get_equity_curve,
@@ -79,3 +85,50 @@ async def test_five_minute_equity_points_and_change_are_calculated_from_endpoint
 def test_equity_curve_rejects_unknown_range(client):
     response = client.get("/api/analytics/equity-curve?range=all")
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_backfill_carries_each_accounts_latest_nearby_snapshot_into_bucket():
+    bucket = datetime(2026, 7, 28, 2, 0, tzinfo=UTC)
+    async with SessionLocal() as db:
+        for index, (recorded_at, equity) in enumerate(
+            (
+                (bucket + timedelta(minutes=1), Decimal("100")),
+                (bucket - timedelta(minutes=1), Decimal("200")),
+            )
+        ):
+            account = ExchangeAccount(
+                exchange=("BINANCE", "OKX")[index],
+                connection_name=f"backfill-{index}",
+                masked_identifier=f"demo••••{index}",
+                tracking_started_at=bucket - timedelta(days=1),
+                last_synced_at=recorded_at,
+            )
+            db.add(account)
+            await db.flush()
+            period = TrackingPeriod(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                started_at=bucket - timedelta(days=1),
+                is_active=True,
+            )
+            db.add(period)
+            await db.flush()
+            db.add(
+                AccountBalanceSnapshot(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=f"backfill-{index}",
+                    total_equity_usd=equity,
+                    recorded_at=recorded_at,
+                )
+            )
+        await db.commit()
+
+        await backfill_portfolio_equity_points(db)
+        point = await db.get(PortfolioEquityPoint, bucket)
+
+    assert point is not None
+    assert point.account_count == 2
+    assert point.total_equity_usd == Decimal("300")
