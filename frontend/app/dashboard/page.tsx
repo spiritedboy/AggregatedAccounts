@@ -43,6 +43,13 @@ const curveRanges: Array<{ value: EquityCurveRange; label: string }> = [
   { value: "1y", label: "1年" },
 ];
 
+function equityAxisLabel(value: number): string {
+  const magnitude = Math.abs(value);
+  if (magnitude >= 1_000_000) return `${number(value / 1_000_000, 2)}m`;
+  if (magnitude >= 1_000) return `${number(value / 1_000, 2)}k`;
+  return number(value, 2);
+}
+
 export default function DashboardPage() {
   return (
     <ProtectedPage>
@@ -139,7 +146,7 @@ function DashboardContent() {
         splitLine: { lineStyle: { color: isDark ? "rgba(205,190,255,.1)" : "rgba(104,112,134,.12)" } },
         axisLabel: {
           color: isDark ? "#c3bad9" : "#687086",
-          formatter: (value: number) => `${Math.round(value / 1000)}k`,
+          formatter: equityAxisLabel,
         },
       },
       series: [
