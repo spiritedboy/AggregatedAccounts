@@ -94,7 +94,7 @@ async def test_backfill_carries_each_accounts_latest_nearby_snapshot_into_bucket
         for index, (recorded_at, equity) in enumerate(
             (
                 (bucket + timedelta(minutes=1), Decimal("100")),
-                (bucket - timedelta(minutes=1), Decimal("200")),
+                (bucket - timedelta(minutes=6), Decimal("200")),
             )
         ):
             account = ExchangeAccount(
@@ -131,4 +131,5 @@ async def test_backfill_carries_each_accounts_latest_nearby_snapshot_into_bucket
 
     assert point is not None
     assert point.account_count == 2
+    assert point.stale_account_count == 1
     assert point.total_equity_usd == Decimal("300")

@@ -330,7 +330,7 @@ async def backfill_portfolio_equity_points(db: AsyncSession) -> int:
                     WHERE
                         s.exchange_account_id = eligible.exchange_account_id
                         AND s.recorded_at < eligible.bucket_time + INTERVAL '5 minutes'
-                        AND s.recorded_at >= eligible.bucket_time - INTERVAL '5 minutes'
+                        AND s.recorded_at >= eligible.bucket_time - INTERVAL '15 minutes'
                     ORDER BY s.recorded_at DESC
                     LIMIT 1
                 ) snapshot ON true
@@ -349,7 +349,9 @@ async def backfill_portfolio_equity_points(db: AsyncSession) -> int:
                     sum(unrealized_pnl_usd) AS unrealized_pnl_usd,
                     sum(unvalued_asset_count)::integer AS unvalued_asset_count,
                     count(*)::integer AS account_count,
-                    0::integer AS stale_account_count,
+                    count(*) FILTER (
+                        WHERE source_latest_at < bucket_time - INTERVAL '3 minutes'
+                    )::integer AS stale_account_count,
                     max(source_latest_at) AS source_latest_at
                 FROM per_account
                 GROUP BY bucket_time
