@@ -66,7 +66,7 @@ function ReconciliationContent() {
   return (
     <>
       <PageHeader
-        eyebrow="准确性与风险"
+        eyebrow="资产体检"
         title="风险与收益对账"
         description="把权益变化拆成资金流、已实现收益、费用和未实现变化，并集中查看账户敞口。"
         action={<AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />}
@@ -102,8 +102,8 @@ function ReconciliationContent() {
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
-        <article className="panel p-5">
-          <p className="font-semibold">收益组成</p>
+        <article className="panel p-5 md:p-6">
+          <p className="section-label">收益组成</p>
           <p className="muted mt-1 text-xs">{reconciliation.notice}</p>
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Breakdown label="充值" value={totals.deposits} hidden={hidden} />
@@ -117,10 +117,10 @@ function ReconciliationContent() {
           </div>
         </article>
 
-        <article className="panel p-5">
+        <article className="panel p-5 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold">风险指标</p>
+              <p className="section-label">风险指标</p>
               <p className="muted mt-1 text-xs">按当前权益与持仓计算</p>
             </div>
             <Badge tone={riskTone}>{risk.summary.risk_level}</Badge>
@@ -142,43 +142,43 @@ function ReconciliationContent() {
         </article>
       </section>
 
-      <section className="panel mt-4 overflow-hidden">
+      <section className="data-panel mt-4">
         <div className="border-b px-5 py-4" style={{ borderColor: "var(--line)" }}>
-          <p className="font-semibold">账户对账明细</p>
+          <p className="section-label">账户对账明细</p>
           <p className="muted mt-1 text-xs">差额超过 1 USD 或当前权益的 0.1% 时标记复核。</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] text-left text-sm">
-            <thead className="muted border-b text-[10px] uppercase tracking-wider" style={{ borderColor: "var(--line)" }}>
+          <table className="data-table min-w-[1040px]">
+            <thead>
               <tr>
                 {["账户", "初始 / 当前权益", "净资金流", "权益收益", "组成收益", "差额", "完整性", "状态"].map((title) => (
-                  <th key={title} className="px-5 py-3.5 font-semibold">{title}</th>
+                  <th key={title} data-numeric={["初始 / 当前权益", "净资金流", "权益收益", "组成收益", "差额"].includes(title)}>{title}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y" style={{ borderColor: "var(--line)" }}>
+            <tbody>
               {reconciliation.accounts.map((item) => (
                 <tr key={item.account_id}>
-                  <td className="px-5 py-4">
+                  <td>
                     <p className="font-semibold">{item.connection_name}</p>
                     <p className="muted mt-1 text-xs">{item.exchange} · {dateTime(item.last_synced_at)}</p>
                   </td>
-                  <td className="mono-number px-5 py-4">
+                  <td className="mono-number" data-numeric="true">
                     <p>{usd(item.initial_equity, hidden)}</p>
                     <p className="muted mt-1 text-xs">{usd(item.current_equity, hidden)}</p>
                   </td>
-                  <td className="mono-number px-5 py-4">{usd(item.net_cash_flow, hidden)}</td>
-                  <td className="mono-number px-5 py-4">{usd(item.equity_return, hidden)}</td>
-                  <td className="mono-number px-5 py-4">{usd(item.component_return, hidden)}</td>
-                  <td className={`mono-number px-5 py-4 ${Math.abs(item.variance) > item.tolerance ? "text-amber-500" : "text-emerald-500"}`}>
+                  <td className="mono-number" data-numeric="true">{usd(item.net_cash_flow, hidden)}</td>
+                  <td className="mono-number" data-numeric="true">{usd(item.equity_return, hidden)}</td>
+                  <td className="mono-number" data-numeric="true">{usd(item.component_return, hidden)}</td>
+                  <td className={`mono-number ${Math.abs(item.variance) > item.tolerance ? "text-warning" : "text-positive"}`} data-numeric="true">
                     {usd(item.variance, hidden)}
                   </td>
-                  <td className="px-5 py-4">
+                  <td>
                     <Badge tone={item.data_completeness === "COMPLETE" ? "positive" : "warning"}>
                       {item.data_completeness === "COMPLETE" ? "完整" : "部分"}
                     </Badge>
                   </td>
-                  <td className="px-5 py-4">
+                  <td>
                     <Badge tone={item.status === "MATCHED" ? "positive" : "warning"}>
                       {item.status === "MATCHED" ? "已对平" : "需复核"}
                     </Badge>
@@ -191,8 +191,8 @@ function ReconciliationContent() {
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-2">
-        <article className="panel p-5">
-          <p className="font-semibold">交易所集中度</p>
+        <article className="panel p-5 md:p-6">
+          <p className="section-label">交易所集中度</p>
           <div className="mt-5 space-y-4">
             {risk.exchange_concentration.map((item) => (
               <ProgressRow
@@ -204,8 +204,8 @@ function ReconciliationContent() {
             ))}
           </div>
         </article>
-        <article className="panel p-5">
-          <p className="font-semibold">最大持仓敞口</p>
+        <article className="panel p-5 md:p-6">
+          <p className="section-label">最大持仓敞口</p>
           <div className="mt-5 space-y-4">
             {risk.top_exposures.slice(0, 6).map((item) => (
               <ProgressRow
@@ -236,10 +236,10 @@ function SummaryCard({
   tone?: "neutral" | "positive" | "warning" | "negative";
 }) {
   const colors = {
-    neutral: "text-violet-500",
-    positive: "text-emerald-500",
-    warning: "text-amber-500",
-    negative: "text-rose-500",
+    neutral: "text-[var(--accent)]",
+    positive: "text-positive",
+    warning: "text-warning",
+    negative: "text-negative",
   };
   return (
     <article className="panel p-5">
@@ -255,9 +255,9 @@ function SummaryCard({
 
 function Breakdown({ label, value, hidden }: { label: string; value: number; hidden: boolean }) {
   return (
-    <div className="rounded-2xl bg-black/[0.025] p-3 dark:bg-white/[0.035]">
-      <p className="muted text-[10px] uppercase">{label}</p>
-      <p className={`mono-number mt-2 text-sm font-semibold ${value > 0 ? "text-emerald-500" : value < 0 ? "text-rose-500" : ""}`}>
+    <div className="soft-block p-3">
+      <p className="metric-label">{label}</p>
+      <p className={`mono-number mt-2 text-sm font-semibold ${value > 0 ? "text-positive" : value < 0 ? "text-negative" : ""}`}>
         {usd(value, hidden)}
       </p>
     </div>
@@ -274,8 +274,8 @@ function RiskMetric({
   empty?: string;
 }) {
   return (
-    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--line)" }}>
-      <p className="muted text-[10px] uppercase">{label}</p>
+    <div className="soft-block p-3">
+      <p className="metric-label">{label}</p>
       <p className="mono-number mt-2 text-sm font-semibold">
         {value === null ? empty : `${number(value, 1)}%`}
       </p>
@@ -298,9 +298,9 @@ function ProgressRow({
         <p className="truncate font-medium">{label}</p>
         <p className="mono-number shrink-0">{value}</p>
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5 dark:bg-white/5">
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--surface-soft)]">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-400 to-amber-300"
+          className="h-full rounded-full bg-[var(--accent)]"
           style={{ width: `${Math.min(Math.max(percent, 0), 100)}%` }}
         />
       </div>

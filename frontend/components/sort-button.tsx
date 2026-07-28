@@ -29,7 +29,7 @@ export function SortButton({
   return (
     <button
       type="button"
-      className="ml-1 inline-flex h-6 w-5 flex-col items-center justify-center rounded-sm align-middle leading-[0.5rem] transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 dark:hover:bg-white/10"
+      className="ml-1 inline-flex h-7 w-7 flex-col items-center justify-center rounded-md align-middle leading-[0.5rem] transition hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       aria-label={description}
       title={description}
       onClick={() => onChange(next)}
@@ -37,7 +37,7 @@ export function SortButton({
       <span
         aria-hidden="true"
         className={`text-[8px] ${
-          direction === "asc" ? "text-violet-500" : "text-slate-400/50 dark:text-slate-500/60"
+          direction === "asc" ? "text-[var(--accent)]" : "text-[var(--muted)] opacity-35"
         }`}
       >
         ▲
@@ -45,7 +45,7 @@ export function SortButton({
       <span
         aria-hidden="true"
         className={`text-[8px] ${
-          direction === "desc" ? "text-violet-500" : "text-slate-400/50 dark:text-slate-500/60"
+          direction === "desc" ? "text-[var(--accent)]" : "text-[var(--muted)] opacity-35"
         }`}
       >
         ▼

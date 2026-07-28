@@ -17,6 +17,10 @@ from app.schemas import envelope
 from app.services.accounts import sync_account
 from app.services.configured_accounts import provision_configured_accounts
 from app.services.demo import seed_demo_data
+from app.services.equity_curve import (
+    backfill_portfolio_equity_points,
+    capture_portfolio_equity_point,
+)
 from app.services.maintenance import apply_data_retention
 
 logging.basicConfig(
@@ -58,6 +62,11 @@ async def scheduled_sync() -> None:
                 "scheduled account refresh raised error=%s",
                 type(result).__name__,
             )
+    async with SessionLocal() as db:
+        try:
+            await capture_portfolio_equity_point(db)
+        except Exception:
+            logger.exception("portfolio equity sample failed")
 
 
 async def scheduled_retention() -> None:
@@ -74,6 +83,14 @@ async def lifespan(_: FastAPI):
     async with SessionLocal() as db:
         configured = await provision_configured_accounts(db)
         logger.info("configured account provisioning completed result=%s", configured)
+        if settings.app_env != "test":
+            backfilled = await backfill_portfolio_equity_points(db)
+            captured = await capture_portfolio_equity_point(db)
+            logger.info(
+                "portfolio equity series ready backfilled=%s captured=%s",
+                backfilled,
+                bool(captured),
+            )
     if settings.app_env != "test":
         scheduler.add_job(
             scheduled_sync,

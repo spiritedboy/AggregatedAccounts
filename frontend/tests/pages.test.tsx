@@ -278,6 +278,7 @@ afterEach(() => {
 
 describe("portfolio pages", () => {
   it("renders dashboard metrics, charts, and demo banner", async () => {
+    const user = userEvent.setup();
     installFetch({
       "/api/dashboard/summary": {
         estimated_total_equity: 100000,
@@ -306,13 +307,53 @@ describe("portfolio pages", () => {
         demo_mode: true,
       },
       "/api/analytics/risk": riskData,
+      "/api/analytics/equity-curve": {
+        range: "1d",
+        sample_interval: "5m",
+        resolution: "5m",
+        from: "2026-07-25T00:00:00Z",
+        to: "2026-07-26T00:00:00Z",
+        points: [
+          {
+            timestamp: "2026-07-25T00:00:00Z",
+            equity: 99000,
+            available_balance: 61000,
+            margin_balance: 18000,
+            unrealized_pnl: 400,
+            account_count: 1,
+            stale_account_count: 0,
+            source_latest_at: "2026-07-25T00:00:00Z",
+          },
+          {
+            timestamp: "2026-07-26T00:00:00Z",
+            equity: 100000,
+            available_balance: 62000,
+            margin_balance: 18000,
+            unrealized_pnl: 520,
+            account_count: 1,
+            stale_account_count: 0,
+            source_latest_at: "2026-07-26T00:00:00Z",
+          },
+        ],
+        change: { amount: 1000, percent: 1.010101 },
+      },
     });
     render(<DashboardPage />);
     expect(await screen.findByText("估算总权益")).toBeInTheDocument();
     expect(screen.getByText(/当前为演示数据/)).toBeInTheDocument();
     expect(screen.getByText("净值曲线")).toBeInTheDocument();
     expect(screen.getByText("资产分布")).toBeInTheDocument();
+    expect(screen.getByText(/净值变化：/)).toBeInTheDocument();
+    expect(screen.getByText("1年")).toBeInTheDocument();
     expect(screen.getByText("做多")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "1年" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/analytics/equity-curve?range=1y"),
+        expect.anything(),
+      ),
+    );
   });
 
   it("renders localized position sides and sorts current positions by value and PnL", async () => {
@@ -404,13 +445,13 @@ describe("portfolio pages", () => {
       },
     });
     render(<HistoryPage />);
-    expect(await screen.findByText("交易所成交重建")).toBeInTheDocument();
+    expect(await screen.findAllByText("交易所成交重建")).not.toHaveLength(0);
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
-    expect(screen.getByText("做多")).toBeInTheDocument();
-    expect(screen.getByText("做空")).toBeInTheDocument();
+    expect(screen.getAllByText("做多")).not.toHaveLength(0);
+    expect(screen.getAllByText("做空")).not.toHaveLength(0);
     expect(screen.queryByText("LONG")).not.toBeInTheDocument();
     expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
 
@@ -565,7 +606,7 @@ describe("portfolio pages", () => {
     render(<AccountsPage />);
     expect(await screen.findAllByText("主账户只读")).not.toHaveLength(0);
     expect(screen.getByRole("navigation", { name: "移动端导航" })).toBeInTheDocument();
-    expect(screen.getByText(/账户由服务器配置文件统一管理/)).toBeInTheDocument();
+    expect(screen.getAllByText(/账户由服务器配置文件统一管理/)).not.toHaveLength(0);
     expect(screen.getByText("逐资产余额")).toBeInTheDocument();
     expect(screen.getByText("USDT")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "添加账户" })).not.toBeInTheDocument();

@@ -87,10 +87,10 @@ export function AutoRefreshStatus({
 
   return (
     <div
-      className={`inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-xl border px-3 py-2 text-[11px] font-medium ${
+      className={`inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-[10px] border px-3 py-2 text-[11px] font-medium ${
         stale
-          ? "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300"
-          : "border-black/10 bg-black/[0.03] text-slate-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-400"
+          ? "border-amber-500/25 bg-[var(--warning-soft)] text-[var(--warning)]"
+          : "border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]"
       }`}
       aria-live="polite"
     >

@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  ChevronDown,
   CircleAlert,
   Eye,
   Settings2,
@@ -17,6 +18,7 @@ import {
   Badge,
   EmptyState,
   ErrorState,
+  ExchangeMark,
   LoadingState,
   PageHeader,
 } from "@/components/ui";
@@ -73,7 +75,7 @@ function AccountsContent() {
   return (
     <>
       <PageHeader
-        eyebrow="连接中心"
+        eyebrow="伙伴连接"
         title="交易所账户"
         description="账户由服务器配置文件统一管理；此页面仅展示连接与同步状态。"
         action={
@@ -87,22 +89,27 @@ function AccountsContent() {
         }
       />
 
-      <div className="mb-4 flex items-start gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-600 dark:text-violet-200">
-        <Settings2 className="mt-0.5 h-4 w-4 shrink-0" />
-        <p>
-          新增、修改或停用账户请调整服务器配置及对应环境变量；公网页面不提供连接测试、
-          手动同步、添加或删除操作，后台定时同步不受影响。
+      <details className="group mb-4 rounded-xl border bg-[var(--surface)]" style={{ borderColor: "var(--line)" }}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm">
+          <span className="flex items-center gap-2 font-medium">
+            <Settings2 className="h-4 w-4 text-[var(--accent)]" />
+            关于账户管理
+          </span>
+          <ChevronDown className="h-4 w-4 transition group-open:rotate-180" />
+        </summary>
+        <p className="muted border-t px-4 py-3 text-xs leading-5" style={{ borderColor: "var(--line)" }}>
+          账户由服务器配置文件统一管理。公网页面不提供连接测试、手动同步、添加或删除操作，后台定时同步不受影响。
         </p>
-      </div>
+      </details>
 
       {syncStatus && (
-        <section className="panel mb-4 overflow-hidden">
+        <section className="data-panel mb-4">
           <div className="border-b px-5 py-4" style={{ borderColor: "var(--line)" }}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="font-semibold">同步状态中心</p>
+                <p className="section-label">平台同步概况</p>
                 <p className="muted mt-1 text-xs">
-                  每个账户的最近结果、耗时、写入量和连续失败次数。
+                  汇总每个账户的数据新鲜度和最近一次同步结果。
                 </p>
               </div>
               <Badge tone={syncStatus.summary.failing_accounts ? "warning" : "positive"}>
@@ -171,10 +178,10 @@ function AccountsContent() {
                   }
                 />
                 <div className="text-xs">
-                  <p className="muted text-[10px] uppercase">最近错误</p>
+                  <p className="metric-label">同步说明</p>
                   <p className="mt-1 leading-5">
-                    {item.consecutive_failures && item.last_error
-                      ? item.last_error.message
+                    {item.consecutive_failures
+                      ? "同步暂时异常，系统将在下一周期继续重试"
                       : "无未恢复错误"}
                   </p>
                 </div>
@@ -198,12 +205,10 @@ function AccountsContent() {
       ) : (
         <section className="grid gap-4 xl:grid-cols-2">
           {accounts.map((account) => (
-            <article key={account.id} className="panel p-5">
+            <article key={account.id} className="panel p-5 md:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-mint-400/10 font-mono text-xs font-bold text-mint-400">
-                    {account.exchange.slice(0, 2)}
-                  </div>
+                  <ExchangeMark exchange={account.exchange} size="lg" />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="truncate font-semibold">{account.connection_name}</h2>
@@ -240,13 +245,17 @@ function AccountsContent() {
                   <ShieldCheck className="mr-1 h-3 w-3" />
                   只读
                 </Badge>
-                {["spot_trade", "futures_trade", "transfer", "withdraw"].map(
-                  (permission) => (
+                {[
+                  ["spot_trade", "现货交易"],
+                  ["futures_trade", "合约交易"],
+                  ["transfer", "资金划转"],
+                  ["withdraw", "资产提取"],
+                ].map(([permission, label]) => (
                     <Badge
                       key={permission}
                       tone={account.permission_status[permission] ? "negative" : "neutral"}
                     >
-                      {permission.replace("_", " ")}:{" "}
+                      {label}:{" "}
                       {account.permission_status[permission] ? "开启" : "关闭"}
                     </Badge>
                   ),
@@ -254,10 +263,10 @@ function AccountsContent() {
               </div>
 
               <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--line)" }}>
-                <p className="muted text-[10px] uppercase">逐资产余额</p>
+                <p className="metric-label">逐资产余额</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {(balances.find((item) => item.account_id === account.id)?.assets ?? []).map((asset) => (
-                    <div key={`${asset.account_type}:${asset.asset}`} className="rounded-xl bg-black/[0.025] px-3 py-2.5 dark:bg-white/[0.035]">
+                    <div key={`${asset.account_type}:${asset.asset}`} className="soft-block px-3 py-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-mono text-xs font-semibold">{asset.asset}</p>
                         <Badge tone={asset.value_usd === null ? "warning" : "neutral"}>{asset.account_type}</Badge>
@@ -296,10 +305,10 @@ function SyncMetric({
 }) {
   const Icon = tone === "positive" ? Timer : CircleAlert;
   return (
-    <div className="rounded-2xl bg-black/[0.025] p-4 dark:bg-white/[0.035]">
+    <div className="soft-block p-4">
       <div className="flex items-center justify-between">
         <p className="muted text-xs">{label}</p>
-        <Icon className={`h-4 w-4 ${tone === "positive" ? "text-emerald-500" : "text-amber-500"}`} />
+        <Icon className={`h-4 w-4 ${tone === "positive" ? "text-positive" : "text-warning"}`} />
       </div>
       <p className="mono-number mt-2 text-2xl font-semibold">{value}</p>
       <p className="muted mt-1 text-[11px]">{detail}</p>
@@ -310,7 +319,7 @@ function SyncMetric({
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="muted text-[10px] uppercase">{label}</p>
+      <p className="metric-label">{label}</p>
       <p className="mt-1 leading-5">{value}</p>
     </div>
   );

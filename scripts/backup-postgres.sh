@@ -31,7 +31,7 @@ database_url="${database_url/postgresql+asyncpg:/postgresql:}"
 database_url="${database_url/host.docker.internal/127.0.0.1}"
 
 backup_dir="${BACKUP_DIR:-$project_dir/../backups}"
-retention_days="${BACKUP_RETENTION_DAYS:-14}"
+retention_days="${BACKUP_RETENTION_DAYS:-90}"
 verify_restore="${BACKUP_VERIFY_RESTORE:-1}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_file="$backup_dir/atlas-ledger-$timestamp.dump"

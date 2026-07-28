@@ -329,6 +329,43 @@ class DailyPnlSnapshot(Base, BusinessMixin):
     investment_return: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
 
 
+class PortfolioEquityPoint(Base):
+    """Five-minute, portfolio-level equity sample.
+
+    PostgreSQL deployments convert this table to a TimescaleDB hypertable in
+    the Alembic migration. Keeping the model itself database-agnostic lets the
+    test suite continue to use normal SQLAlchemy table creation.
+    """
+
+    __tablename__ = "portfolio_equity_points"
+
+    bucket_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    total_equity_usd: Mapped[Decimal] = mapped_column(
+        Numeric(30, 10), default=0, nullable=False
+    )
+    available_balance_usd: Mapped[Decimal] = mapped_column(
+        Numeric(30, 10), default=0, nullable=False
+    )
+    margin_balance_usd: Mapped[Decimal] = mapped_column(
+        Numeric(30, 10), default=0, nullable=False
+    )
+    unrealized_pnl_usd: Mapped[Decimal] = mapped_column(
+        Numeric(30, 10), default=0, nullable=False
+    )
+    unvalued_asset_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    account_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    stale_account_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_latest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 class SyncJob(Base, TimestampMixin):
     __tablename__ = "sync_jobs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)

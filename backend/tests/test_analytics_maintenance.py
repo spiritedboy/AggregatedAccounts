@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import func, select
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models import (
     AccountBalanceSnapshot,
@@ -218,6 +219,61 @@ async def test_data_retention_prunes_only_safely_summarized_operational_rows():
             await db.scalars(select(AccountBalanceSnapshot.source_record_id))
         )
         assert remaining_sources == {"old-unsummarized"}
+
+
+@pytest.mark.asyncio
+async def test_zero_retention_values_keep_database_rows_forever(monkeypatch):
+    now = datetime(2026, 7, 28, 12, tzinfo=UTC)
+    old_time = now - timedelta(days=365)
+    monkeypatch.setattr(settings, "sync_job_retention_days", 0)
+    monkeypatch.setattr(settings, "balance_snapshot_retention_days", 0)
+
+    async with SessionLocal() as db:
+        account = ExchangeAccount(
+            exchange="BINANCE",
+            connection_name="permanent-retention-test",
+            masked_identifier="abc••••xyz",
+            tracking_started_at=old_time,
+            last_synced_at=now,
+        )
+        db.add(account)
+        await db.flush()
+        period = TrackingPeriod(
+            exchange=account.exchange,
+            exchange_account_id=account.id,
+            started_at=old_time,
+            is_active=True,
+        )
+        db.add(period)
+        await db.flush()
+        db.add(
+            AccountBalanceSnapshot(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id="permanent-balance",
+                recorded_at=old_time,
+            )
+        )
+        db.add(
+            SyncJob(
+                exchange_account_id=account.id,
+                job_type="ACCOUNT_REFRESH",
+                status="SUCCESS",
+                started_at=old_time,
+            )
+        )
+        await db.commit()
+
+        result = await apply_data_retention(db, now=now)
+
+        assert result["sync_job_retention_enabled"] is False
+        assert result["balance_snapshot_retention_enabled"] is False
+        assert await db.scalar(select(func.count()).select_from(SyncJob)) == 1
+        assert (
+            await db.scalar(select(func.count()).select_from(AccountBalanceSnapshot))
+            == 1
+        )
         assert await db.scalar(select(func.count()).select_from(SyncJob)) == 1
         audit = await db.scalar(
             select(SecurityAuditLog).where(

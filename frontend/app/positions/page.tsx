@@ -122,7 +122,7 @@ function PositionsContent() {
         }
       />
 
-      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="filter-panel sm:grid-cols-2 lg:grid-cols-4">
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input
@@ -165,6 +165,28 @@ function PositionsContent() {
         </div>
       </section>
 
+      {result && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+          <p className="muted text-xs">
+            当前显示 <span className="mono-number font-semibold text-[var(--text)]">{positions.length}</span> 个仓位
+          </p>
+          {(exchange || accountId || side || symbol) && (
+            <button
+              type="button"
+              className="text-xs font-semibold text-[var(--accent)]"
+              onClick={() => {
+                setExchange("");
+                setAccountId("");
+                setSide("");
+                setSymbol("");
+              }}
+            >
+              清除筛选
+            </button>
+          )}
+        </div>
+      )}
+
       {error ? (
         <ErrorState message={error} retry={load} />
       ) : !result ? (
@@ -175,12 +197,15 @@ function PositionsContent() {
         </div>
       ) : (
         <>
-          <div className="panel hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[1000px] text-left text-sm">
-              <thead className="muted border-b text-[10px] uppercase tracking-wider" style={{ borderColor: "var(--line)" }}>
+          <div className="table-shell hidden lg:block">
+            <table className="data-table min-w-[1000px]">
+              <thead>
                 <tr>
                   {["交易对 / 账户", "方向", "数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "当前未实现盈亏", "更新时间"].map((title) => (
-                    <th key={title} className="px-5 py-3.5 font-semibold">
+                    <th
+                      key={title}
+                      data-numeric={["数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "当前未实现盈亏"].includes(title)}
+                    >
                       {title === "仓位价值" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
@@ -204,39 +229,39 @@ function PositionsContent() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: "var(--line)" }}>
+              <tbody>
                 {positions.map((position) => (
-                  <tr key={position.id} className="transition hover:bg-black/[0.025] dark:hover:bg-white/[0.025]">
-                    <td className="px-5 py-4">
+                  <tr key={position.id}>
+                    <td>
                       <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>
                         {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
                       </p>
                       <p className="muted mt-1 text-xs">{position.exchange} · {position.market_type}</p>
                     </td>
-                    <td className="px-5 py-4">
+                    <td>
                       <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
                         {positionSideLabel(position.side, position.exchange)}
                       </Badge>
                     </td>
-                    <td className="mono-number px-5 py-4">{number(position.position_size)}</td>
-                    <td className="mono-number px-5 py-4">{usd(position.position_value_usd, hidden)}</td>
-                    <td className="px-5 py-4">
+                    <td className="mono-number" data-numeric="true">{number(position.position_size)}</td>
+                    <td className="mono-number" data-numeric="true">{usd(position.position_value_usd, hidden)}</td>
+                    <td data-numeric="true">
                       <p className="mono-number">{usd(position.entry_price, hidden)}</p>
                       <p className="muted mono-number mt-1 text-xs">{usd(position.mark_price, hidden)}</p>
                     </td>
-                    <td className="px-5 py-4">
+                    <td data-numeric="true">
                       <p className="mono-number">{number(position.leverage, 1)}×</p>
                       <p className="muted mt-1 text-xs">{position.margin_mode}</p>
                     </td>
-                    <td className="px-5 py-4">
-                      <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                    <td data-numeric="true">
+                      <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                         {usd(position.unrealized_pnl, hidden)}
                       </p>
                       <p className="muted mono-number mt-1 text-xs">
                         {number(position.unrealized_pnl_percent, 2)}% · 统计期变化 {usd(position.tracking_unrealized_pnl_change, hidden)}
                       </p>
                     </td>
-                    <td className="muted px-5 py-4 text-xs">{dateTime(position.update_time)}</td>
+                    <td className="muted whitespace-nowrap text-xs">{dateTime(position.update_time)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -302,8 +327,8 @@ function FilterSelect({
 function Metric({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
   return (
     <div>
-      <p className="muted text-[10px] uppercase tracking-wide">{label}</p>
-      <p className={`mono-number mt-1 text-sm ${tone === "positive" ? "text-emerald-500" : tone === "negative" ? "text-rose-500" : ""}`}>{value}</p>
+      <p className="metric-label">{label}</p>
+      <p className={`mono-number mt-1 text-sm ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );
 }

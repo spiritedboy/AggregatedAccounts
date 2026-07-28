@@ -21,6 +21,10 @@ services:
       retries: 12
       start_period: 15s
     restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "atlas-ledger-backend"
 
   frontend:
     build:
@@ -40,6 +44,10 @@ services:
       retries: 12
       start_period: 15s
     restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "atlas-ledger-frontend"
 
   gateway:
     build:
@@ -62,6 +70,10 @@ services:
       retries: 12
       start_period: 5s
     restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "atlas-ledger-gateway"
 
 networks:
   internal:

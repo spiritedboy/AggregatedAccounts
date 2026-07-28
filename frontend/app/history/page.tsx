@@ -102,7 +102,7 @@ function HistoryContent() {
         }
       />
 
-      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="filter-panel sm:grid-cols-2 xl:grid-cols-4">
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input className="input pl-10" value={symbol} onChange={(event) => { setPage(1); setSymbol(event.target.value); }} placeholder="交易对" aria-label="搜索交易对" />
@@ -149,6 +149,33 @@ function HistoryContent() {
         </label>
       </section>
 
+      {result && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+          <p className="muted text-xs">
+            共 <span className="mono-number font-semibold text-[var(--text)]">{result.total}</span> 条历史记录
+          </p>
+          {(exchange || accountId || side || pnlResult || completeness || symbol || start || end) && (
+            <button
+              type="button"
+              className="text-xs font-semibold text-[var(--accent)]"
+              onClick={() => {
+                setPage(1);
+                setExchange("");
+                setAccountId("");
+                setSide("");
+                setPnlResult("");
+                setCompleteness("");
+                setSymbol("");
+                setStart("");
+                setEnd("");
+              }}
+            >
+              清除筛选
+            </button>
+          )}
+        </div>
+      )}
+
       {error ? (
         <ErrorState message={error} retry={load} />
       ) : !result ? (
@@ -157,12 +184,15 @@ function HistoryContent() {
         <div className="panel"><EmptyState title="没有历史仓位" description="当前筛选范围内没有已关闭仓位。" /></div>
       ) : (
         <>
-          <div className="panel overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-left text-sm">
-              <thead className="muted border-b text-[10px] uppercase tracking-wider" style={{ borderColor: "var(--line)" }}>
+          <div className="table-shell hidden lg:block">
+            <table className="data-table min-w-[1040px]">
+              <thead>
                 <tr>
                   {["交易对", "方向", "开仓 / 平仓时间", "均价", "最大数量", "已实现收益", "费用", "净收益", "数据来源"].map((title) => (
-                    <th key={title} className="px-5 py-3.5 font-semibold">
+                    <th
+                      key={title}
+                      data-numeric={["均价", "最大数量", "已实现收益", "费用", "净收益"].includes(title)}
+                    >
                       {title === "净收益" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
@@ -177,32 +207,32 @@ function HistoryContent() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: "var(--line)" }}>
+              <tbody>
                 {sortedItems.map((position) => (
                   <tr key={position.id}>
-                    <td className="px-5 py-4">
+                    <td>
                       <p className={position.exchange === "POLYMARKET" ? "max-w-md font-semibold" : "font-mono font-semibold"}>
                         {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
                       </p>
                       <p className="muted mt-1 text-xs">{position.exchange}</p>
                     </td>
-                    <td className="px-5 py-4"><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></td>
-                    <td className="px-5 py-4">
+                    <td><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></td>
+                    <td>
                       <p className="text-xs">{dateTime(position.open_time)}</p>
                       <p className="muted mt-1 text-xs">{dateTime(position.close_time)}</p>
                     </td>
-                    <td className="mono-number px-5 py-4">
+                    <td className="mono-number" data-numeric="true">
                       <p>{usd(position.average_entry_price, hidden)}</p>
                       <p className="muted mt-1 text-xs">{usd(position.average_exit_price, hidden)}</p>
                     </td>
-                    <td className="mono-number px-5 py-4">{number(position.max_position_size)}</td>
-                    <td className={`mono-number px-5 py-4 ${position.realized_pnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{usd(position.realized_pnl, hidden)}</td>
-                    <td className="mono-number muted px-5 py-4 text-xs">{usd(position.funding_fee - position.trading_fee, hidden)}</td>
-                    <td className={`mono-number px-5 py-4 font-semibold ${position.net_pnl >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                    <td className="mono-number" data-numeric="true">{number(position.max_position_size)}</td>
+                    <td className={`mono-number ${position.realized_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">{usd(position.realized_pnl, hidden)}</td>
+                    <td className="mono-number muted text-xs" data-numeric="true">{usd(position.funding_fee - position.trading_fee, hidden)}</td>
+                    <td className={`mono-number font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">
                       {usd(position.net_pnl, hidden)}
                       <p className="mt-1 text-xs">{number(position.return_percent, 2)}%</p>
                     </td>
-                    <td className="px-5 py-4">
+                    <td>
                       <div className="flex flex-wrap gap-1.5">
                         <Badge
                           tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}
@@ -223,8 +253,51 @@ function HistoryContent() {
               </tbody>
             </table>
           </div>
+          <div className="grid gap-3 lg:hidden">
+            {sortedItems.map((position) => (
+              <article key={position.id} className="panel p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className={position.exchange === "POLYMARKET" ? "font-semibold" : "mono-number font-semibold"}>
+                      {position.exchange === "POLYMARKET" ? position.symbol : position.normalized_symbol}
+                    </p>
+                    <p className="muted mt-1 text-xs">{position.exchange} · 平仓于 {dateTime(position.close_time)}</p>
+                  </div>
+                  <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
+                    {positionSideLabel(position.side, position.exchange)}
+                  </Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="soft-block p-3">
+                    <p className="metric-label">净收益</p>
+                    <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
+                      {usd(position.net_pnl, hidden)}
+                    </p>
+                    <p className="muted mono-number mt-1 text-[10px]">{number(position.return_percent, 2)}%</p>
+                  </div>
+                  <div className="soft-block p-3">
+                    <p className="metric-label">开仓 / 平仓均价</p>
+                    <p className="mono-number mt-1 text-xs">{usd(position.average_entry_price, hidden)}</p>
+                    <p className="muted mono-number mt-1 text-[10px]">{usd(position.average_exit_price, hidden)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
+                    {position.data_source === "EXCHANGE_API"
+                      ? "交易所 API"
+                      : position.data_source === "EXCHANGE_FILLS"
+                        ? "交易所成交重建"
+                        : "本地重建"}
+                  </Badge>
+                  <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>
+                    {position.data_completeness === "COMPLETE" ? "完整" : "部分完整"}
+                  </Badge>
+                </div>
+              </article>
+            ))}
+          </div>
           <div className="mt-4 flex items-center justify-between">
-            <p className="muted text-xs">共 {result.total} 条记录</p>
+            <p className="muted text-xs">第 {page} 页 · 每页 20 条</p>
             <div className="flex gap-2">
               <button type="button" className="button-secondary" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
               <button type="button" className="button-secondary" disabled={page * 20 >= result.total} onClick={() => setPage((value) => value + 1)}>下一页</button>

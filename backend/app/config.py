@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     sync_health_seconds: int = 60
     sync_job_retention_days: int = 30
     balance_snapshot_retention_days: int = 90
+    equity_curve_cache_seconds: int = 30
     maintenance_hour_utc: int = 4
     maintenance_minute_utc: int = 20
     request_timeout_seconds: float = 12

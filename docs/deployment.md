@@ -6,6 +6,7 @@
 
 - Docker Engine 与 Docker Compose
 - WSL 宿主机 PostgreSQL 16
+- 与 PostgreSQL 版本匹配的 TimescaleDB
 - 正式数据库 `exchange_aggregator`
 - 测试数据库 `exchange_aggregator_test`
 - PostgreSQL 允许项目 Docker 子网 `172.30.42.0/24` 以
@@ -29,10 +30,20 @@ ports:
 
 1. 将项目放入远程 Linux 文件系统。
 2. 创建 PostgreSQL 正式库与测试库，并仅放行项目 Docker 子网。
-3. 复制 `.env.example` 为 `.env`，填写数据库密码、主加密密钥和已启用账户引用的环境变量。
-4. 运行 `make init` 自动生成缺失的主加密密钥和会话密钥。
-5. 将 `COOKIE_SECURE=true` 与 `APP_ENV=production` 写入 `.env`。
-6. 启动生产覆盖：
+3. 安装与 PostgreSQL 主版本匹配的 TimescaleDB；先备份
+   `/etc/postgresql/<version>/main/postgresql.conf`，再配置
+   `shared_preload_libraries = 'timescaledb'` 并重启 PostgreSQL。
+4. 复制 `.env.example` 为 `.env`，填写数据库密码、主加密密钥和已启用账户引用的环境变量。
+5. 运行 `make init` 自动生成缺失的主加密密钥和会话密钥。
+6. 将 `COOKIE_SECURE=true`、`APP_ENV=production`、`DEMO_MODE=false` 写入 `.env`。
+7. 永久保留生产数据库数据：
+
+```dotenv
+SYNC_JOB_RETENTION_DAYS=0
+BALANCE_SNAPSHOT_RETENTION_DAYS=0
+```
+
+8. 启动生产覆盖：
 
 ```bash
 docker compose \
@@ -130,6 +141,10 @@ make security-check
 - `.env` 权限是 `600` 且未被 Git 跟踪
 - `/api/auth/login` 不存在，读取接口无需登录，写接口返回 403
 - 宿主机防火墙没有对公网开放 8000 或 5432
+- `timescaledb` 和 `timescaledb_toolkit` 扩展版本可查询
+- `portfolio_equity_points` 位于 `timescaledb_information.hypertables`
+- 四个 `portfolio_equity_*` 连续聚合存在
+- `SYNC_JOB_RETENTION_DAYS=0`、`BALANCE_SNAPSHOT_RETENTION_DAYS=0`
 
 ## 备份与密钥
 
@@ -141,9 +156,9 @@ make security-check
 
 脚本执行 `pg_dump` custom format、SHA-256 校验和 `pg_restore --list`，随后将备份
 恢复到随机命名的 `atlas_restore_check_*` 临时数据库，验证业务表与 Alembic 版本
-后删除临时库。默认备份目录是仓库同级的 `backups`，默认保留 14 天。
+后删除临时库。默认备份目录是仓库同级的 `backups`，默认保留 90 天。
 
-确认成功后，以 root 安装每日 03:17 的 cron 与日志轮换：
+确认成功后，以 root 安装每日 03:17 的 cron、90 天备份保留与 7 天备份日志轮换：
 
 ```bash
 sudo ./scripts/install-backup-cron.sh
@@ -153,21 +168,44 @@ cat /etc/cron.d/aggregated-accounts-backup
 主加密密钥必须与数据库备份分开保管；丢失主密钥后，已保存的交易所凭证无法恢复。
 轮换主密钥需要先实现专用的离线重加密流程，不能直接替换 `.env` 中的值。
 
-## 运行数据保留
+## 运行数据与日志保留
 
-backend 默认每天 `04:20 UTC` 清理 30 天前的已结束同步任务，以及 90 天前、已有
-对应日汇总的高频权益快照。未汇总快照以及审计、交易、资金流水、统计周期和日汇总
-不会删除。相关环境变量：
+生产数据库永久保留，相关环境变量必须为：
 
 ```dotenv
-SYNC_JOB_RETENTION_DAYS=30
-BALANCE_SNAPSHOT_RETENTION_DAYS=90
+SYNC_JOB_RETENTION_DAYS=0
+BALANCE_SNAPSHOT_RETENTION_DAYS=0
 MAINTENANCE_HOUR_UTC=4
 MAINTENANCE_MINUTE_UTC=20
 ```
 
-清理结果会以 `DATA_RETENTION_APPLIED` 写入 `security_audit_logs`，部署过程不需要
-新增数据库迁移。
+`0` 会跳过对应删除语句。备份文件独立保留 90 天，不等同于数据库只保留 90 天。
+
+项目容器使用 Docker `journald` 日志驱动。生产服务器应设置
+`MaxRetentionSec=7day`，并把 Nginx、PostgreSQL 和项目备份日志的 logrotate 配置为
+`daily`、`rotate 7`。修改后执行：
+
+```bash
+systemctl restart systemd-journald
+journalctl --vacuum-time=7d
+logrotate -d /etc/logrotate.conf
+```
+
+日志清理不得匹配 PostgreSQL 数据目录、备份目录或项目上传文件目录。
+
+## 无数据丢失升级顺序
+
+1. 记录升级前 Git 提交、容器状态、Alembic 版本和核心表行数。
+2. 执行 `backup-postgres.sh`，检查 SHA-256，并完成临时库恢复验证。
+3. 备份 PostgreSQL 配置；安装 TimescaleDB 后仅重启 PostgreSQL，不重建数据库。
+4. 验证原有核心表行数未减少。
+5. 执行 Alembic 增量迁移。迁移只新增净值表、hypertable 和连续聚合。
+6. 运行 `backfill_portfolio_equity.py`；脚本只读取既有余额快照并向新表 UPSERT。
+7. 先更新 backend，验证健康检查和新旧 API，再更新 frontend/gateway。
+8. 验证五个交易所账户、当前仓位、历史仓位、账务流水、净值曲线和自动同步。
+
+应用回滚时切回升级前 Git 提交并重建容器；不要执行 Alembic downgrade。新增净值表
+可以留在数据库中，旧版本会忽略它们，避免回滚过程删除任何已写入数据。
 
 ## Polymarket 重复记录维护
 

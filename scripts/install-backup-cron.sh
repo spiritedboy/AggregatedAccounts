@@ -17,14 +17,14 @@ trap 'rm -f "$temporary_cron" "$temporary_logrotate"' EXIT
 printf '%s\n' \
   'SHELL=/bin/bash' \
   'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
-  "17 3 * * * root cd $project_dir && BACKUP_RETENTION_DAYS=14 BACKUP_VERIFY_RESTORE=1 ./scripts/backup-postgres.sh >> /var/log/aggregated-accounts-backup.log 2>&1" \
+  "17 3 * * * root cd $project_dir && BACKUP_RETENTION_DAYS=90 BACKUP_VERIFY_RESTORE=1 ./scripts/backup-postgres.sh >> /var/log/aggregated-accounts-backup.log 2>&1" \
   > "$temporary_cron"
 install -m 0644 "$temporary_cron" "$cron_file"
 
 printf '%s\n' \
   '/var/log/aggregated-accounts-backup.log {' \
-  '  weekly' \
-  '  rotate 8' \
+  '  daily' \
+  '  rotate 7' \
   '  compress' \
   '  missingok' \
   '  notifempty' \

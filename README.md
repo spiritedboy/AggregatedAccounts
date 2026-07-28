@@ -13,7 +13,8 @@ Web 界面。
 - Hyperliquid 与 Polymarket 只接收公开钱包/Profile 地址，不接收私钥、助记词或密码
 - 凭证响应严格脱敏；密文、Nonce、认证标签和主密钥不会返回前端
 - 每个连接独立的 `tracking_started_at`、初始权益快照和初始仓位收益基线
-- 15 张以上 PostgreSQL 业务、安全和同步表，包含索引、唯一约束和幂等来源 ID
+- PostgreSQL 业务、安全和同步表，包含索引、唯一约束和幂等来源 ID；净值时序使用
+  TimescaleDB hypertable 与连续聚合
 - Binance、OKX、Bitget、Hyperliquid 和 Polymarket 独立只读 Adapter
 - Adapter 契约测试强制五个平台实现已平仓能力；不支持的数据流必须显式声明，禁止静默空实现
 - Binance 总权益覆盖现货与 USDⓈ-M，Bitget 覆盖现货、USDT 合约与 USDC 合约
@@ -34,11 +35,12 @@ Web 界面。
   资金流分别展示状态；发现过的不完整流水不会被后续空窗口覆盖
 - 账户级同步状态中心：最近成功时间、耗时、写入量、连续失败与安全错误摘要
 - Server-Sent Events 同步心跳
-- 四交易所 Demo 账户、真实 Polymarket 账户接入、当前仓位、历史仓位和 30 天净值数据
+- 四交易所 Demo 账户、真实 Polymarket 账户接入、当前仓位、历史仓位和净值数据
 - Polymarket 已平仓记录使用稳定 outcome token 幂等，并提供可预览的重复数据清理
 - 权益变化/资金流/交易收益对账，以及最大回撤、集中度、保证金和强平距离指标
-- PostgreSQL 每日最小权限备份、SHA-256 校验、临时库恢复验证和 14 天保留
-- 同步任务保留 30 天，高频权益、逐资产余额和持仓快照保留 90 天；仅在日汇总存在后清理明细
+- PostgreSQL 每日最小权限备份、SHA-256 校验、临时库恢复验证和 90 天保留
+- 生产数据库业务数据永久保留；`0` 保留值显式禁用同步任务及高频快照自动删除
+- 项目容器日志进入 journald，宿主机项目、Nginx 与 PostgreSQL 文件日志保留 7 天
 - 深浅主题、金额隐藏、桌面侧栏和移动端底部导航
 - 数据页面每 60 秒自动刷新；超过 120 秒未获得新数据时显示过期提示并持续重试
 - 375px、768px 和 1440px 重点响应式布局
@@ -53,7 +55,7 @@ gateway (nginx:alpine, 唯一暴露端口)
     ├── /api/* → backend:8001 (FastAPI)
     └── /*     → frontend:3000 (Next.js)
                          ↓
-              WSL 宿主机 PostgreSQL:5432
+              WSL 宿主机 PostgreSQL 16 + TimescaleDB
               via host.docker.internal
 ```
 
@@ -176,6 +178,19 @@ Webhook 通知。
 周/月投资收益 = 对应周期内单日投资收益之和
 ```
 
+资产总览净值曲线使用独立的组合级时序数据。账户同步完成后，同一 5 分钟时间桶只保留
+一个最新组合净值点；重复同步使用幂等更新，不会重复累计。时间范围均为滚动窗口：
+
+- `1日`：最近 24 小时，读取 5 分钟原始点；
+- `1周`：最近 7 天，读取 30 分钟连续聚合；
+- `1月`：从当前时刻向前 1 个自然月，读取 2 小时连续聚合；
+- `半年`：从当前时刻向前 6 个自然月，读取 6 小时连续聚合；
+- `1年`：从当前时刻向前 12 个自然月，读取 12 小时连续聚合。
+
+底层原始采样始终为 5 分钟。页面“净值变化”取当前范围内最后一个返回点减第一个返回点，
+百分比以第一个点为基准；正数显示绿色，负数显示红色。曲线接口使用 30 秒进程内缓存，
+不依赖 Redis。
+
 交易所覆盖不足时显示“统计不完整”，本地重建历史仓位标记为
 `RECONSTRUCTED`，不会伪装成交易所原始数据。
 
@@ -269,7 +284,7 @@ docker compose \
 
 ## 页面刷新与数据时效
 
-资产总览（含 30 天净值曲线）、当前仓位、收益分析、历史仓位、账务流水和交易所账户
+资产总览（含五档净值曲线）、当前仓位、收益分析、历史仓位、账务流水和交易所账户
 页面会每 60 秒重新请求当前筛选条件下的数据，并显示下一次刷新倒计时。总览、持仓和
 账户页面优先使用服务端同步时间判断数据新鲜度；其余页面使用最近一次成功请求时间。超过
 120 秒没有新数据时，页面显示“数据已过期”并继续自动重试。切回长时间处于后台的
@@ -277,17 +292,18 @@ docker compose \
 
 ## 运行数据保留
 
-backend 每天 `04:20 UTC` 执行一次安全保留任务：
+backend 每天 `04:20 UTC` 检查一次数据库保留策略。生产环境要求业务数据永久保留，
+因此部署时设置：
 
-- 删除 30 天前且已结束的 `sync_jobs`；
-- 删除 90 天前、并且已经存在对应 `daily_pnl_snapshots` 日汇总的高频
-  `account_balance_snapshots`、`asset_balance_snapshots` 和
-  `position_snapshots`；
-- 不自动删除审计日志、交易历史、资金流水、初始快照、统计周期或日汇总。
+```dotenv
+SYNC_JOB_RETENTION_DAYS=0
+BALANCE_SNAPSHOT_RETENTION_DAYS=0
+```
 
-可通过 `SYNC_JOB_RETENTION_DAYS`、`BALANCE_SNAPSHOT_RETENTION_DAYS`、
-`MAINTENANCE_HOUR_UTC` 和 `MAINTENANCE_MINUTE_UTC` 调整。每次执行都会写入
-`DATA_RETENTION_APPLIED` 安全审计记录；若某天缺少日汇总，该天的高频快照会保留。
+`0` 表示禁用该类别的删除，账户余额、逐资产余额、持仓快照、净值时序、审计日志、
+交易历史、资金流水、初始快照、统计周期和日汇总均不会被自动清理。开发环境仍可使用
+正整数启用安全清理；高频快照只有在对应日汇总存在时才允许删除。每次检查都会写入
+`DATA_RETENTION_APPLIED` 安全审计记录。
 
 ## PostgreSQL 自动备份
 
@@ -302,13 +318,14 @@ PostgreSQL custom format，并生成 SHA-256 文件。备份完成后会恢复�
 # 单独验证指定备份
 ./scripts/verify-postgres-backup.sh /absolute/path/to/atlas-ledger-*.dump
 
-# 以 root 安装每日 03:17 定时任务、14 天保留和日志轮换
+# 以 root 安装每日 03:17 定时任务、90 天备份保留和 7 天日志轮换
 sudo ./scripts/install-backup-cron.sh
 ```
 
 可通过 `.env` 或执行环境设置 `BACKUP_DATABASE_URL`、`BACKUP_DIR`、
-`BACKUP_RETENTION_DAYS` 和 `BACKUP_VERIFY_RESTORE`。备份目录必须与仓库和主加密
-密钥分开保护；恢复验证只操作 `atlas_restore_check_*` 临时数据库，不覆盖正式库。
+`BACKUP_RETENTION_DAYS` 和 `BACKUP_VERIFY_RESTORE`。默认只删除超过 90 天的备份文件；
+不会删除正式数据库记录。备份目录必须与仓库和主加密密钥分开保护；恢复验证只操作
+`atlas_restore_check_*` 临时数据库，不覆盖正式库。
 
 ## 测试与质量
 

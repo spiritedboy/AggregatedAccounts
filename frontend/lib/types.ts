@@ -118,6 +118,30 @@ export type DashboardData = {
   demo_mode: boolean;
 };
 
+export type EquityCurveRange = "1d" | "1w" | "1m" | "6m" | "1y";
+
+export type EquityCurveData = {
+  range: EquityCurveRange;
+  sample_interval: "5m";
+  resolution: string;
+  from: string;
+  to: string;
+  points: Array<{
+    timestamp: string;
+    equity: number;
+    available_balance: number;
+    margin_balance: number;
+    unrealized_pnl: number;
+    account_count: number;
+    stale_account_count: number;
+    source_latest_at: string | null;
+  }>;
+  change: {
+    amount: number | null;
+    percent: number | null;
+  };
+};
+
 export type PnlPoint = {
   period: string;
   investment_return: number;

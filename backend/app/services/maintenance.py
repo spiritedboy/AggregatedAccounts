@@ -122,83 +122,99 @@ async def apply_data_retention(
 
     Balance rows are removed only when the corresponding daily aggregate
     already exists, so an interrupted aggregation never causes data loss.
+    A retention value of 0 disables deletion for that category.
     """
     current_time = now or datetime.now(UTC)
-    job_cutoff = current_time - timedelta(
-        days=max(settings.sync_job_retention_days, 1)
+    job_cutoff = (
+        current_time - timedelta(days=settings.sync_job_retention_days)
+        if settings.sync_job_retention_days > 0
+        else None
     )
-    balance_cutoff = current_time - timedelta(
-        days=max(settings.balance_snapshot_retention_days, 1)
+    balance_cutoff = (
+        current_time - timedelta(days=settings.balance_snapshot_retention_days)
+        if settings.balance_snapshot_retention_days > 0
+        else None
     )
-    deleted_jobs = (
-        await db.execute(
-            delete(SyncJob).where(
-                SyncJob.started_at < job_cutoff,
-                SyncJob.status != "RUNNING",
+    deleted_jobs = 0
+    if job_cutoff is not None:
+        deleted_jobs = (
+            await db.execute(
+                delete(SyncJob).where(
+                    SyncJob.started_at < job_cutoff,
+                    SyncJob.status != "RUNNING",
+                )
+            )
+        ).rowcount or 0
+
+    deleted_balances = 0
+    deleted_asset_balances = 0
+    deleted_positions = 0
+    if balance_cutoff is not None:
+        summarized_day_exists = exists(
+            select(DailyPnlSnapshot.id).where(
+                DailyPnlSnapshot.exchange_account_id
+                == AccountBalanceSnapshot.exchange_account_id,
+                DailyPnlSnapshot.tracking_period_id
+                == AccountBalanceSnapshot.tracking_period_id,
+                func.date(DailyPnlSnapshot.snapshot_date)
+                == func.date(AccountBalanceSnapshot.recorded_at),
             )
         )
-    ).rowcount or 0
-    summarized_day_exists = exists(
-        select(DailyPnlSnapshot.id).where(
-            DailyPnlSnapshot.exchange_account_id
-            == AccountBalanceSnapshot.exchange_account_id,
-            DailyPnlSnapshot.tracking_period_id
-            == AccountBalanceSnapshot.tracking_period_id,
-            func.date(DailyPnlSnapshot.snapshot_date)
-            == func.date(AccountBalanceSnapshot.recorded_at),
-        )
-    )
-    deleted_balances = (
-        await db.execute(
-            delete(AccountBalanceSnapshot).where(
-                AccountBalanceSnapshot.recorded_at < balance_cutoff,
-                summarized_day_exists,
+        deleted_balances = (
+            await db.execute(
+                delete(AccountBalanceSnapshot).where(
+                    AccountBalanceSnapshot.recorded_at < balance_cutoff,
+                    summarized_day_exists,
+                )
+            )
+        ).rowcount or 0
+        asset_day_exists = exists(
+            select(DailyPnlSnapshot.id).where(
+                DailyPnlSnapshot.exchange_account_id
+                == AssetBalanceSnapshot.exchange_account_id,
+                DailyPnlSnapshot.tracking_period_id
+                == AssetBalanceSnapshot.tracking_period_id,
+                func.date(DailyPnlSnapshot.snapshot_date)
+                == func.date(AssetBalanceSnapshot.recorded_at),
             )
         )
-    ).rowcount or 0
-    asset_day_exists = exists(
-        select(DailyPnlSnapshot.id).where(
-            DailyPnlSnapshot.exchange_account_id
-            == AssetBalanceSnapshot.exchange_account_id,
-            DailyPnlSnapshot.tracking_period_id
-            == AssetBalanceSnapshot.tracking_period_id,
-            func.date(DailyPnlSnapshot.snapshot_date)
-            == func.date(AssetBalanceSnapshot.recorded_at),
-        )
-    )
-    deleted_asset_balances = (
-        await db.execute(
-            delete(AssetBalanceSnapshot).where(
-                AssetBalanceSnapshot.recorded_at < balance_cutoff,
-                asset_day_exists,
+        deleted_asset_balances = (
+            await db.execute(
+                delete(AssetBalanceSnapshot).where(
+                    AssetBalanceSnapshot.recorded_at < balance_cutoff,
+                    asset_day_exists,
+                )
+            )
+        ).rowcount or 0
+        position_day_exists = exists(
+            select(DailyPnlSnapshot.id).where(
+                DailyPnlSnapshot.exchange_account_id
+                == PositionSnapshot.exchange_account_id,
+                DailyPnlSnapshot.tracking_period_id
+                == PositionSnapshot.tracking_period_id,
+                func.date(DailyPnlSnapshot.snapshot_date)
+                == func.date(PositionSnapshot.recorded_at),
             )
         )
-    ).rowcount or 0
-    position_day_exists = exists(
-        select(DailyPnlSnapshot.id).where(
-            DailyPnlSnapshot.exchange_account_id
-            == PositionSnapshot.exchange_account_id,
-            DailyPnlSnapshot.tracking_period_id
-            == PositionSnapshot.tracking_period_id,
-            func.date(DailyPnlSnapshot.snapshot_date)
-            == func.date(PositionSnapshot.recorded_at),
-        )
-    )
-    deleted_positions = (
-        await db.execute(
-            delete(PositionSnapshot).where(
-                PositionSnapshot.recorded_at < balance_cutoff,
-                position_day_exists,
+        deleted_positions = (
+            await db.execute(
+                delete(PositionSnapshot).where(
+                    PositionSnapshot.recorded_at < balance_cutoff,
+                    position_day_exists,
+                )
             )
-        )
-    ).rowcount or 0
+        ).rowcount or 0
     result = {
         "sync_jobs_deleted": deleted_jobs,
         "balance_snapshots_deleted": deleted_balances,
         "asset_balance_snapshots_deleted": deleted_asset_balances,
         "position_snapshots_deleted": deleted_positions,
-        "sync_job_cutoff": job_cutoff.isoformat(),
-        "balance_snapshot_cutoff": balance_cutoff.isoformat(),
+        "sync_job_cutoff": job_cutoff.isoformat() if job_cutoff else None,
+        "balance_snapshot_cutoff": (
+            balance_cutoff.isoformat() if balance_cutoff else None
+        ),
+        "sync_job_retention_enabled": job_cutoff is not None,
+        "balance_snapshot_retention_enabled": balance_cutoff is not None,
     }
     db.add(
         SecurityAuditLog(

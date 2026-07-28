@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -41,6 +41,7 @@ from app.services.analytics import (
     build_risk_metrics,
     build_sync_status,
 )
+from app.services.equity_curve import get_equity_curve
 
 router = APIRouter(prefix="/api")
 
@@ -344,6 +345,17 @@ async def dashboard_summary(
             "demo_mode": any(account.is_demo for _, account in latest),
         }
     )
+
+
+@router.get("/analytics/equity-curve")
+async def equity_curve(
+    range_key: Literal["1d", "1w", "1m", "6m", "1y"] = Query(
+        "1d", alias="range"
+    ),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return envelope(await get_equity_curve(db, range_key))
 
 
 @router.get("/exchanges/status")

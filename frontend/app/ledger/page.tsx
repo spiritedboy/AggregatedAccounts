@@ -122,7 +122,7 @@ function LedgerContent() {
   return (
     <>
       <PageHeader
-        eyebrow="账务核验"
+        eyebrow="每笔来往"
         title="账务流水"
         description="集中查看统计期内的已实现收益、资金费、交易手续费与资金流；所有记录均使用交易所原始 ID 幂等写入。"
         action={
@@ -165,7 +165,7 @@ function LedgerContent() {
         </section>
       )}
 
-      <section className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="filter-panel sm:grid-cols-2 xl:grid-cols-4">
         <Select
           label="交易所"
           value={exchange}
@@ -222,6 +222,29 @@ function LedgerContent() {
         </label>
       </section>
 
+      {records && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+          <p className="muted text-xs">
+            共 <span className="mono-number font-semibold text-[var(--text)]">{records.total}</span> 条账务记录
+          </p>
+          {(exchange || recordType || start || end) && (
+            <button
+              type="button"
+              className="text-xs font-semibold text-[var(--accent)]"
+              onClick={() => {
+                setPage(1);
+                setExchange("");
+                setRecordType("");
+                setStart("");
+                setEnd("");
+              }}
+            >
+              清除筛选
+            </button>
+          )}
+        </div>
+      )}
+
       {error ? (
         <ErrorState message={error} retry={load} />
       ) : !records ? (
@@ -235,12 +258,9 @@ function LedgerContent() {
         </div>
       ) : (
         <>
-          <div className="panel overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
-              <thead
-                className="muted border-b text-[10px] uppercase tracking-wider"
-                style={{ borderColor: "var(--line)" }}
-              >
+          <div className="table-shell hidden lg:block">
+            <table className="data-table min-w-[980px]">
+              <thead>
                 <tr>
                   {[
                     "发生时间",
@@ -250,7 +270,7 @@ function LedgerContent() {
                     "账务影响",
                     "来源记录",
                   ].map((title) => (
-                    <th key={title} className="px-5 py-3.5 font-semibold">
+                    <th key={title} data-numeric={title === "账务影响"}>
                       {title === "账务影响" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
@@ -265,17 +285,17 @@ function LedgerContent() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: "var(--line)" }}>
+              <tbody>
                 {sortedItems.map((record) => (
                   <tr key={`${record.record_type}-${record.id}`}>
-                    <td className="whitespace-nowrap px-5 py-4 text-xs">
+                    <td className="whitespace-nowrap text-xs">
                       {dateTime(record.record_time)}
                     </td>
-                    <td className="px-5 py-4">
+                    <td>
                       <p className="font-semibold">{record.connection_name}</p>
                       <p className="muted mt-1 text-xs">{record.exchange}</p>
                     </td>
-                    <td className="px-5 py-4">
+                    <td>
                       <RecordTypeBadge recordType={record.record_type} />
                       {record.subtype !== record.record_type && (
                         <p className="muted mt-1 max-w-44 truncate text-[10px]">
@@ -283,22 +303,23 @@ function LedgerContent() {
                         </p>
                       )}
                     </td>
-                    <td className="px-5 py-4">
+                    <td>
                       <p className="font-mono font-semibold">{record.asset}</p>
                       <p className="muted mt-1 text-xs">{record.symbol || "账户级"}</p>
                     </td>
                     <td
-                      className={`mono-number px-5 py-4 font-semibold ${
+                      className={`mono-number font-semibold ${
                         record.signed_amount_usd > 0
-                          ? "text-emerald-500"
+                          ? "text-positive"
                           : record.signed_amount_usd < 0
-                            ? "text-rose-500"
+                            ? "text-negative"
                             : ""
                       }`}
+                      data-numeric="true"
                     >
                       {usd(record.signed_amount_usd, hidden)}
                     </td>
-                    <td className="px-5 py-4">
+                    <td>
                       <p
                         className="muted max-w-52 truncate font-mono text-[10px]"
                         title={record.source_record_id}
@@ -311,8 +332,37 @@ function LedgerContent() {
               </tbody>
             </table>
           </div>
+          <div className="grid gap-3 lg:hidden">
+            {sortedItems.map((record) => (
+              <article key={`${record.record_type}-${record.id}`} className="panel p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <RecordTypeBadge recordType={record.record_type} />
+                    <p className="muted mt-2 text-xs">{record.connection_name} · {record.exchange}</p>
+                  </div>
+                  <p className={`mono-number text-sm font-semibold ${record.signed_amount_usd > 0 ? "text-positive" : record.signed_amount_usd < 0 ? "text-negative" : ""}`}>
+                    {usd(record.signed_amount_usd, hidden)}
+                  </p>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="metric-label">资产 / 交易对</p>
+                    <p className="mono-number mt-1 text-sm font-semibold">{record.asset}</p>
+                    <p className="muted mt-1 text-[10px]">{record.symbol || "账户级"}</p>
+                  </div>
+                  <div>
+                    <p className="metric-label">发生时间</p>
+                    <p className="mt-1 text-xs">{dateTime(record.record_time)}</p>
+                  </div>
+                </div>
+                <p className="muted mt-4 truncate border-t pt-3 font-mono text-[10px]" style={{ borderColor: "var(--line)" }} title={record.source_record_id}>
+                  来源 {record.source_record_id}
+                </p>
+              </article>
+            ))}
+          </div>
           <div className="mt-4 flex items-center justify-between">
-            <p className="muted text-xs">共 {records.total} 条记录</p>
+            <p className="muted text-xs">第 {page} 页 · 每页 30 条</p>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -342,7 +392,7 @@ function LedgerContent() {
 
 function CompletenessPanel({ data }: { data: DataCompletenessData }) {
   return (
-    <section className="panel mt-6 overflow-hidden">
+    <section className="data-panel mt-6">
       <div
         className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"
         style={{ borderColor: "var(--line)" }}
@@ -441,9 +491,9 @@ function Metric({
   tone: "positive" | "negative" | "warning";
 }) {
   const colors = {
-    positive: "text-emerald-500 bg-emerald-500/10",
-    negative: "text-rose-500 bg-rose-500/10",
-    warning: "text-amber-500 bg-amber-500/10",
+    positive: "text-positive bg-[var(--positive-soft)]",
+    negative: "text-negative bg-[var(--negative-soft)]",
+    warning: "text-warning bg-[var(--warning-soft)]",
   };
   return (
     <article className="panel p-4">
