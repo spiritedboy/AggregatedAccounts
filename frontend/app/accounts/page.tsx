@@ -24,7 +24,12 @@ import {
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, usd } from "@/lib/format";
-import type { AccountBalance, ExchangeAccount, SyncStatusData } from "@/lib/types";
+import type {
+  AccountBalance,
+  AccountsBootstrapData,
+  ExchangeAccount,
+  SyncStatusData,
+} from "@/lib/types";
 
 export default function AccountsPage() {
   return (
@@ -44,15 +49,11 @@ function AccountsContent() {
 
   const load = useCallback(() => {
     setError("");
-    return Promise.all([
-      apiFetch<ExchangeAccount[]>("/api/exchange-accounts"),
-      apiFetch<SyncStatusData>("/api/sync/status"),
-      apiFetch<AccountBalance[]>("/api/balances"),
-    ])
-      .then(([nextAccounts, nextStatus, nextBalances]) => {
-        setAccounts(nextAccounts);
-        setSyncStatus(nextStatus);
-        setBalances(nextBalances);
+    return apiFetch<AccountsBootstrapData>("/api/accounts/bootstrap")
+      .then((nextData) => {
+        setAccounts(nextData.accounts);
+        setSyncStatus(nextData.sync_status);
+        setBalances(nextData.balances);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));

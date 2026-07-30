@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, desc, exists, func, or_, select, text
+from sqlalchemy import and_, desc, exists, func, or_, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -138,14 +138,30 @@ async def auth_status(_: AppSession = Depends(require_session)) -> dict[str, Any
 async def list_accounts(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    accounts = (
-        await db.scalars(
-            select(ExchangeAccount)
-            .where(ExchangeAccount.is_active.is_(True))
-            .order_by(ExchangeAccount.is_demo.desc(), ExchangeAccount.created_at)
-        )
-    ).all()
-    return envelope([AccountResponse.model_validate(item).model_dump() for item in accounts])
+    return envelope(await _account_list_data(db))
+
+
+async def _account_rows(db: AsyncSession) -> list[ExchangeAccount]:
+    return list(
+        (
+            await db.scalars(
+                select(ExchangeAccount)
+                .where(ExchangeAccount.is_active.is_(True))
+                .order_by(
+                    ExchangeAccount.is_demo.desc(),
+                    ExchangeAccount.created_at,
+                )
+            )
+        ).all()
+    )
+
+
+async def _account_list_data(
+    db: AsyncSession,
+    accounts: list[ExchangeAccount] | None = None,
+) -> list[dict[str, Any]]:
+    accounts = accounts if accounts is not None else await _account_rows(db)
+    return [AccountResponse.model_validate(item).model_dump() for item in accounts]
 
 
 @router.post("/exchange-accounts", status_code=status.HTTP_201_CREATED)
@@ -242,22 +258,27 @@ async def _latest_balances(
     return list((await db.execute(query)).all())
 
 
-async def _daily_pnl_points(
-    db: AsyncSession,
+async def _daily_pnl_rows(db: AsyncSession) -> list[DailyPnlSnapshot]:
+    return list(
+        (
+            await db.scalars(
+                select(DailyPnlSnapshot)
+                .join(ExchangeAccount)
+                .where(ExchangeAccount.is_active.is_(True))
+                .order_by(
+                    DailyPnlSnapshot.exchange_account_id,
+                    DailyPnlSnapshot.snapshot_date,
+                )
+            )
+        ).all()
+    )
+
+
+def _daily_pnl_points_from_rows(
+    rows: list[DailyPnlSnapshot],
     exchange: str | None = None,
 ) -> list[dict[str, Any]]:
-    query = (
-        select(DailyPnlSnapshot)
-        .join(ExchangeAccount)
-        .where(ExchangeAccount.is_active.is_(True))
-        .order_by(
-            DailyPnlSnapshot.exchange_account_id,
-            DailyPnlSnapshot.snapshot_date,
-        )
-    )
-    if exchange:
-        query = query.where(DailyPnlSnapshot.exchange == exchange.upper())
-    rows = (await db.scalars(query)).all()
+    normalized_exchange = exchange.upper() if exchange else None
     previous_return: dict[uuid.UUID, float] = {}
     previous_unrealized: dict[uuid.UUID, float] = {}
     by_date: dict[date, dict[str, float]] = defaultdict(
@@ -271,6 +292,8 @@ async def _daily_pnl_points(
         }
     )
     for row in rows:
+        if normalized_exchange and row.exchange != normalized_exchange:
+            continue
         account_id = row.exchange_account_id
         cumulative_return = _num(row.investment_return)
         cumulative_unrealized = _num(row.unrealized_pnl_change)
@@ -304,6 +327,13 @@ async def _daily_pnl_points(
             }
         )
     return result
+
+
+async def _daily_pnl_points(
+    db: AsyncSession,
+    exchange: str | None = None,
+) -> list[dict[str, Any]]:
+    return _daily_pnl_points_from_rows(await _daily_pnl_rows(db), exchange)
 
 
 def _bucket_pnl_points(
@@ -476,66 +506,104 @@ async def exchange_status(
     )
 
 
+async def _balances_data(
+    db: AsyncSession,
+    exchange: str | None = None,
+) -> list[dict[str, Any]]:
+    latest = await _latest_balances(db, exchange)
+    account_ids = [account.id for _, account in latest]
+    if account_ids:
+        latest_asset_time = (
+            select(AssetBalanceSnapshot.recorded_at.label("recorded_at"))
+            .where(
+                AssetBalanceSnapshot.exchange_account_id == ExchangeAccount.id
+            )
+            .order_by(AssetBalanceSnapshot.recorded_at.desc())
+            .limit(1)
+            .correlate(ExchangeAccount)
+            .lateral("latest_asset_time")
+        )
+        asset_rows = (
+            await db.scalars(
+                select(AssetBalanceSnapshot)
+                .select_from(ExchangeAccount)
+                .join(latest_asset_time, true())
+                .join(
+                    AssetBalanceSnapshot,
+                    and_(
+                        AssetBalanceSnapshot.exchange_account_id
+                        == ExchangeAccount.id,
+                        AssetBalanceSnapshot.recorded_at
+                        == latest_asset_time.c.recorded_at,
+                    ),
+                )
+                .where(ExchangeAccount.id.in_(account_ids))
+                .order_by(
+                    AssetBalanceSnapshot.exchange_account_id,
+                    AssetBalanceSnapshot.account_type,
+                    AssetBalanceSnapshot.asset,
+                )
+            )
+        ).all()
+    else:
+        asset_rows = []
+    assets_by_account: dict[uuid.UUID, list[AssetBalanceSnapshot]] = defaultdict(list)
+    for asset_row in asset_rows:
+        assets_by_account[asset_row.exchange_account_id].append(asset_row)
+    return [
+        {
+            "exchange": account.exchange,
+            "account_id": account.id,
+            "connection_name": account.connection_name,
+            "total_equity_usd": _num(row.total_equity_usd),
+            "available_balance_usd": _num(row.available_balance_usd),
+            "margin_balance_usd": _num(row.margin_balance_usd),
+            "unrealized_pnl_usd": _num(row.unrealized_pnl_usd),
+            "unvalued_asset_count": row.unvalued_asset_count,
+            "price_source": row.price_source,
+            "recorded_at": row.recorded_at,
+            "assets": [
+                {
+                    "asset": asset.asset,
+                    "account_type": asset.account_type,
+                    "available": _num(asset.available),
+                    "locked": _num(asset.locked),
+                    "value_usd": (
+                        _num(asset.value_usd)
+                        if asset.value_usd is not None
+                        else None
+                    ),
+                    "price_source": asset.price_source,
+                    "recorded_at": asset.recorded_at,
+                }
+                for asset in assets_by_account.get(account.id, [])
+            ],
+        }
+        for row, account in latest
+    ]
+
+
 @router.get("/balances")
 async def balances(
     exchange: str | None = None,
     _: AppSession = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    latest = await _latest_balances(db, exchange)
-    account_ids = [account.id for _, account in latest]
-    asset_rows = (
-        await db.scalars(
-            select(AssetBalanceSnapshot)
-            .where(AssetBalanceSnapshot.exchange_account_id.in_(account_ids))
-            .order_by(
-                AssetBalanceSnapshot.exchange_account_id,
-                AssetBalanceSnapshot.recorded_at.desc(),
-                AssetBalanceSnapshot.account_type,
-                AssetBalanceSnapshot.asset,
-            )
-        )
-    ).all()
-    latest_asset_time: dict[uuid.UUID, datetime] = {}
-    assets_by_account: dict[uuid.UUID, list[AssetBalanceSnapshot]] = defaultdict(list)
-    for asset_row in asset_rows:
-        latest_time = latest_asset_time.setdefault(
-            asset_row.exchange_account_id, asset_row.recorded_at
-        )
-        if asset_row.recorded_at == latest_time:
-            assets_by_account[asset_row.exchange_account_id].append(asset_row)
+    return envelope(await _balances_data(db, exchange))
+
+
+@router.get("/accounts/bootstrap")
+async def accounts_bootstrap(
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    accounts = await _account_rows(db)
     return envelope(
-        [
-            {
-                "exchange": account.exchange,
-                "account_id": account.id,
-                "connection_name": account.connection_name,
-                "total_equity_usd": _num(row.total_equity_usd),
-                "available_balance_usd": _num(row.available_balance_usd),
-                "margin_balance_usd": _num(row.margin_balance_usd),
-                "unrealized_pnl_usd": _num(row.unrealized_pnl_usd),
-                "unvalued_asset_count": row.unvalued_asset_count,
-                "price_source": row.price_source,
-                "recorded_at": row.recorded_at,
-                "assets": [
-                    {
-                        "asset": asset.asset,
-                        "account_type": asset.account_type,
-                        "available": _num(asset.available),
-                        "locked": _num(asset.locked),
-                        "value_usd": (
-                            _num(asset.value_usd)
-                            if asset.value_usd is not None
-                            else None
-                        ),
-                        "price_source": asset.price_source,
-                        "recorded_at": asset.recorded_at,
-                    }
-                    for asset in assets_by_account.get(account.id, [])
-                ],
-            }
-            for row, account in latest
-        ]
+        {
+            "accounts": await _account_list_data(db, accounts),
+            "sync_status": await build_sync_status(db, accounts),
+            "balances": await _balances_data(db),
+        }
     )
 
 
@@ -945,6 +1013,38 @@ async def accounting_records(
     )
 
 
+@router.get("/accounting/bootstrap")
+async def accounting_bootstrap(
+    exchange: str | None = None,
+    account_id: uuid.UUID | None = None,
+    record_type: str | None = Query(
+        default=None,
+        pattern="^(REALIZED_PNL|FUNDING_FEE|TRADING_FEE|DEPOSIT|WITHDRAWAL|CASH_FLOW)$",
+    ),
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return envelope(
+        {
+            "records": await list_accounting_records(
+                db,
+                exchange=exchange,
+                account_id=account_id,
+                record_type=record_type,
+                start_time=start_time,
+                end_time=end_time,
+                offset=(page - 1) * page_size,
+                limit=page_size,
+            ),
+            "completeness": await build_data_completeness(db),
+        }
+    )
+
+
 @router.get("/accounting/records/export")
 async def export_accounting_records(
     exchange: str | None = None,
@@ -1008,11 +1108,10 @@ async def _pnl_series(db: AsyncSession, bucket: str) -> list[dict[str, Any]]:
     return _bucket_pnl_points(await _daily_pnl_points(db), bucket)
 
 
-@router.get("/pnl/summary")
-async def pnl_summary(
-    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+async def _pnl_summary_data(
+    db: AsyncSession,
+    daily: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    daily = await _pnl_series(db, "daily")
     latest_initial = (
         await db.scalars(
             select(InitialAccountSnapshot)
@@ -1031,23 +1130,77 @@ async def pnl_summary(
         )
     ).all()
     values = [row["investment_return"] for row in daily]
-    return envelope(
-        {
-            "period_initial_equity": sum(_num(row.initial_equity) for row in latest_initial),
-            "period_investment_return": sum(values[-1:]),
-            "period_realized_pnl": sum(row["realized_pnl"] for row in daily),
-            "period_unrealized_pnl_change": (
-                daily[-1]["cumulative_unrealized_pnl_change"] if daily else 0
-            ),
-            "period_funding_fee": sum(row["funding_fee"] for row in daily),
-            "period_trading_fee": sum(row["trading_fee"] for row in daily),
-            "best_day": max(values, default=0),
-            "worst_day": min(values, default=0),
-            "profitable_days": sum(value > 0 for value in values),
-            "losing_days": sum(value < 0 for value in values),
-            "notice": "仅统计添加 API Key 后产生的数据",
-        }
+    return {
+        "period_initial_equity": sum(_num(row.initial_equity) for row in latest_initial),
+        "period_investment_return": sum(values[-1:]),
+        "period_realized_pnl": sum(row["realized_pnl"] for row in daily),
+        "period_unrealized_pnl_change": (
+            daily[-1]["cumulative_unrealized_pnl_change"] if daily else 0
+        ),
+        "period_funding_fee": sum(row["funding_fee"] for row in daily),
+        "period_trading_fee": sum(row["trading_fee"] for row in daily),
+        "best_day": max(values, default=0),
+        "worst_day": min(values, default=0),
+        "profitable_days": sum(value > 0 for value in values),
+        "losing_days": sum(value < 0 for value in values),
+        "notice": "仅统计添加 API Key 后产生的数据",
+    }
+
+
+async def _pnl_by_exchange_data(
+    db: AsyncSession,
+    rows: list[DailyPnlSnapshot],
+) -> list[dict[str, Any]]:
+    exchanges = list(
+        await db.scalars(
+            select(ExchangeAccount.exchange)
+            .where(ExchangeAccount.is_active.is_(True))
+            .distinct()
+            .order_by(ExchangeAccount.exchange)
+        )
     )
+    result = []
+    for exchange in exchanges:
+        daily = _daily_pnl_points_from_rows(rows, exchange)
+        result.append(
+            {
+                "exchange": exchange,
+                "realized_pnl": sum(row["realized_pnl"] for row in daily),
+                "funding_fee": sum(row["funding_fee"] for row in daily),
+                "trading_fee": sum(row["trading_fee"] for row in daily),
+                "investment_return": (
+                    daily[-1]["cumulative_return"] if daily else 0
+                ),
+            }
+        )
+    return result
+
+
+async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
+    rows = await _daily_pnl_rows(db)
+    daily = _daily_pnl_points_from_rows(rows)
+    return {
+        "summary": await _pnl_summary_data(db, daily),
+        "daily": daily,
+        "weekly": _bucket_pnl_points(daily, "week"),
+        "monthly": _bucket_pnl_points(daily, "month"),
+        "by_exchange": await _pnl_by_exchange_data(db, rows),
+    }
+
+
+@router.get("/pnl/bootstrap")
+async def pnl_bootstrap(
+    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return envelope(await _pnl_bootstrap_data(db))
+
+
+@router.get("/pnl/summary")
+async def pnl_summary(
+    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    daily = await _pnl_series(db, "daily")
+    return envelope(await _pnl_summary_data(db, daily))
 
 
 @router.get("/pnl/daily")
@@ -1075,29 +1228,8 @@ async def pnl_monthly(
 async def pnl_by_exchange(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    exchanges = list(
-        await db.scalars(
-            select(ExchangeAccount.exchange)
-            .where(ExchangeAccount.is_active.is_(True))
-            .distinct()
-            .order_by(ExchangeAccount.exchange)
-        )
-    )
-    result = []
-    for exchange in exchanges:
-        daily = await _daily_pnl_points(db, exchange)
-        result.append(
-            {
-                "exchange": exchange,
-                "realized_pnl": sum(row["realized_pnl"] for row in daily),
-                "funding_fee": sum(row["funding_fee"] for row in daily),
-                "trading_fee": sum(row["trading_fee"] for row in daily),
-                "investment_return": (
-                    daily[-1]["cumulative_return"] if daily else 0
-                ),
-            }
-        )
-    return envelope(result)
+    rows = await _daily_pnl_rows(db)
+    return envelope(await _pnl_by_exchange_data(db, rows))
 
 
 @router.get("/sync/status")
@@ -1126,6 +1258,19 @@ async def risk_metrics(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     return envelope(await build_risk_metrics(db))
+
+
+@router.get("/analytics/bootstrap")
+async def analytics_bootstrap(
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return envelope(
+        {
+            "reconciliation": await build_reconciliation(db),
+            "risk": await build_risk_metrics(db),
+        }
+    )
 
 
 @router.post("/sync/refresh")

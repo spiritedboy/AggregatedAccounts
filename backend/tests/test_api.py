@@ -25,6 +25,47 @@ def test_dashboard_bootstrap_returns_homepage_payloads(client):
     assert data["equity_curve"]["range"] == "1w"
 
 
+def test_other_page_bootstraps_return_complete_payloads(client):
+    accounts = client.get("/api/accounts/bootstrap")
+    assert accounts.status_code == 200
+    account_data = accounts.json()["data"]
+    assert {"accounts", "sync_status", "balances"} == set(account_data)
+    assert account_data["accounts"]
+    assert account_data["balances"]
+
+    pnl = client.get("/api/pnl/bootstrap")
+    assert pnl.status_code == 200
+    pnl_data = pnl.json()["data"]
+    assert {"summary", "daily", "weekly", "monthly", "by_exchange"} == set(
+        pnl_data
+    )
+    assert pnl_data["daily"]
+    assert pnl_data["summary"] == client.get("/api/pnl/summary").json()["data"]
+    assert pnl_data["daily"] == client.get("/api/pnl/daily").json()["data"]
+    assert pnl_data["weekly"] == client.get("/api/pnl/weekly").json()["data"]
+    assert pnl_data["monthly"] == client.get("/api/pnl/monthly").json()["data"]
+    assert pnl_data["by_exchange"] == client.get(
+        "/api/pnl/by-exchange"
+    ).json()["data"]
+
+    accounting = client.get("/api/accounting/bootstrap?page_size=20")
+    assert accounting.status_code == 200
+    accounting_data = accounting.json()["data"]
+    assert {"records", "completeness"} == set(accounting_data)
+    assert {"items", "total", "summary"} <= accounting_data["records"].keys()
+
+    analytics = client.get("/api/analytics/bootstrap")
+    assert analytics.status_code == 200
+    analytics_data = analytics.json()["data"]
+    assert {"reconciliation", "risk"} == set(analytics_data)
+    assert analytics_data["reconciliation"]["accounts"]
+    assert analytics_data["risk"]["summary"]["risk_level"] in {
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+    }
+
+
 def test_public_mode_disables_login_and_write_operations(client):
     status = client.get("/api/auth/status")
     assert status.status_code == 200

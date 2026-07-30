@@ -336,12 +336,15 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
                 SyncJob.job_type == "FULL_ACCOUNT",
                 SyncJob.status == "SUCCESS",
             )
-            .order_by(SyncJob.finished_at.desc())
+            .order_by(
+                SyncJob.exchange_account_id,
+                func.coalesce(SyncJob.finished_at, SyncJob.started_at).desc(),
+                SyncJob.id.desc(),
+            )
+            .distinct(SyncJob.exchange_account_id)
         )
     ).all()
-    latest_full_job: dict[uuid.UUID, SyncJob] = {}
-    for job in full_jobs:
-        latest_full_job.setdefault(job.exchange_account_id, job)
+    latest_full_job = {job.exchange_account_id: job for job in full_jobs}
 
     items: list[dict[str, Any]] = []
     status_counts: dict[str, int] = defaultdict(int)

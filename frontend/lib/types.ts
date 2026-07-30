@@ -197,6 +197,12 @@ export type SyncStatusData = {
   }>;
 };
 
+export type AccountsBootstrapData = {
+  accounts: ExchangeAccount[];
+  sync_status: SyncStatusData;
+  balances: AccountBalance[];
+};
+
 export type AccountingRecord = {
   id: string;
   exchange_account_id: string;
@@ -264,6 +270,11 @@ export type DataCompletenessData = {
       cash_flow: CompletenessComponent;
     };
   }>;
+};
+
+export type AccountingBootstrapData = {
+  records: AccountingRecordsData;
+  completeness: DataCompletenessData;
 };
 
 export type ReconciliationData = {
@@ -337,6 +348,11 @@ export type RiskData = {
     side: "LONG" | "SHORT";
     distance_percent: number;
   }>;
+};
+
+export type AnalyticsBootstrapData = {
+  reconciliation: ReconciliationData;
+  risk: RiskData;
 };
 
 export type DashboardBootstrapData = {

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -88,50 +88,139 @@ async def _latest_balances(
 ) -> dict[uuid.UUID, AccountBalanceSnapshot]:
     if not account_ids:
         return {}
+    latest_snapshot_id = (
+        select(AccountBalanceSnapshot.id)
+        .where(
+            AccountBalanceSnapshot.exchange_account_id == ExchangeAccount.id
+        )
+        .order_by(
+            AccountBalanceSnapshot.recorded_at.desc(),
+            AccountBalanceSnapshot.id.desc(),
+        )
+        .limit(1)
+        .correlate(ExchangeAccount)
+        .scalar_subquery()
+    )
     rows = (
         await db.scalars(
             select(AccountBalanceSnapshot)
-            .where(AccountBalanceSnapshot.exchange_account_id.in_(account_ids))
-            .order_by(
-                AccountBalanceSnapshot.exchange_account_id,
-                AccountBalanceSnapshot.recorded_at.desc(),
+            .join(
+                ExchangeAccount,
+                ExchangeAccount.id
+                == AccountBalanceSnapshot.exchange_account_id,
             )
-            .distinct(AccountBalanceSnapshot.exchange_account_id)
+            .where(
+                ExchangeAccount.id.in_(account_ids),
+                AccountBalanceSnapshot.id == latest_snapshot_id,
+            )
         )
     ).all()
     return {row.exchange_account_id: row for row in rows}
 
 
-async def build_sync_status(db: AsyncSession) -> dict[str, Any]:
-    accounts = await _active_accounts(db)
+async def build_sync_status(
+    db: AsyncSession,
+    accounts: list[ExchangeAccount] | None = None,
+) -> dict[str, Any]:
+    accounts = accounts if accounts is not None else await _active_accounts(db)
+    account_ids = [account.id for account in accounts]
+    if account_ids:
+        latest_jobs = (
+            await db.scalars(
+                select(SyncJob)
+                .where(SyncJob.exchange_account_id.in_(account_ids))
+                .order_by(
+                    SyncJob.exchange_account_id,
+                    SyncJob.started_at.desc(),
+                    SyncJob.id.desc(),
+                )
+                .distinct(SyncJob.exchange_account_id)
+            )
+        ).all()
+        last_successes = (
+            await db.scalars(
+                select(SyncJob)
+                .where(
+                    SyncJob.exchange_account_id.in_(account_ids),
+                    SyncJob.status == "SUCCESS",
+                )
+                .order_by(
+                    SyncJob.exchange_account_id,
+                    SyncJob.started_at.desc(),
+                    SyncJob.id.desc(),
+                )
+                .distinct(SyncJob.exchange_account_id)
+            )
+        ).all()
+        latest_errors = (
+            await db.scalars(
+                select(SyncError)
+                .where(SyncError.exchange_account_id.in_(account_ids))
+                .order_by(
+                    SyncError.exchange_account_id,
+                    SyncError.occurred_at.desc(),
+                    SyncError.id.desc(),
+                )
+                .distinct(SyncError.exchange_account_id)
+            )
+        ).all()
+        last_success_times = (
+            select(
+                SyncJob.exchange_account_id.label("account_id"),
+                func.max(SyncJob.started_at).label("started_at"),
+            )
+            .where(
+                SyncJob.exchange_account_id.in_(account_ids),
+                SyncJob.status == "SUCCESS",
+            )
+            .group_by(SyncJob.exchange_account_id)
+            .subquery("last_success_times")
+        )
+        failure_rows = (
+            await db.execute(
+                select(
+                    SyncJob.exchange_account_id,
+                    func.count(SyncJob.id),
+                )
+                .outerjoin(
+                    last_success_times,
+                    last_success_times.c.account_id
+                    == SyncJob.exchange_account_id,
+                )
+                .where(
+                    SyncJob.exchange_account_id.in_(account_ids),
+                    SyncJob.status == "FAILED",
+                    or_(
+                        last_success_times.c.started_at.is_(None),
+                        SyncJob.started_at > last_success_times.c.started_at,
+                    ),
+                )
+                .group_by(SyncJob.exchange_account_id)
+            )
+        ).all()
+    else:
+        latest_jobs = []
+        last_successes = []
+        latest_errors = []
+        failure_rows = []
+    latest_job_by_account = {
+        row.exchange_account_id: row for row in latest_jobs
+    }
+    last_success_by_account = {
+        row.exchange_account_id: row for row in last_successes
+    }
+    latest_error_by_account = {
+        row.exchange_account_id: row for row in latest_errors
+    }
+    failures_by_account = {row[0]: int(row[1]) for row in failure_rows}
     stale_after_seconds = max(settings.sync_balance_seconds * 2, 120)
     now = datetime.now(UTC)
     items: list[dict[str, Any]] = []
     for account in accounts:
-        jobs = list(
-            (
-                await db.scalars(
-                    select(SyncJob)
-                    .where(SyncJob.exchange_account_id == account.id)
-                    .order_by(SyncJob.started_at.desc())
-                    .limit(1_000)
-                )
-            ).all()
-        )
-        latest_job = jobs[0] if jobs else None
-        last_success = next((job for job in jobs if job.status == "SUCCESS"), None)
-        consecutive_failures = 0
-        for job in jobs:
-            if job.status == "FAILED":
-                consecutive_failures += 1
-            elif job.status == "SUCCESS":
-                break
-        latest_error = await db.scalar(
-            select(SyncError)
-            .where(SyncError.exchange_account_id == account.id)
-            .order_by(SyncError.occurred_at.desc())
-            .limit(1)
-        )
+        latest_job = latest_job_by_account.get(account.id)
+        last_success = last_success_by_account.get(account.id)
+        latest_error = latest_error_by_account.get(account.id)
+        consecutive_failures = failures_by_account.get(account.id, 0)
         is_stale = (
             account.last_synced_at is None
             or (now - account.last_synced_at).total_seconds() > stale_after_seconds
@@ -216,47 +305,86 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         )
     ).all()
     initial_by_period = {row.tracking_period_id: row for row in initials}
-    closed_positions = (
-        await db.scalars(
-            select(ClosedPosition).where(ClosedPosition.tracking_period_id.in_(period_ids))
+    closed_rows = (
+        await db.execute(
+            select(
+                ClosedPosition.tracking_period_id,
+                func.coalesce(func.sum(ClosedPosition.realized_pnl), 0).label(
+                    "realized_pnl"
+                ),
+                func.coalesce(func.sum(ClosedPosition.funding_fee), 0).label(
+                    "funding_fee"
+                ),
+                func.coalesce(
+                    func.sum(func.abs(ClosedPosition.trading_fee)),
+                    0,
+                ).label("trading_fee"),
+            )
+            .where(ClosedPosition.tracking_period_id.in_(period_ids))
+            .group_by(ClosedPosition.tracking_period_id)
         )
-    ).all()
-    cash_flows = (
-        await db.scalars(
-            select(CashFlowRecord).where(CashFlowRecord.tracking_period_id.in_(period_ids))
+    ).mappings()
+    cash_rows = (
+        await db.execute(
+            select(
+                CashFlowRecord.tracking_period_id,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                func.upper(CashFlowRecord.flow_type).notin_(
+                                    {"WITHDRAW", "WITHDRAWAL"}
+                                ),
+                                CashFlowRecord.amount_usd,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("deposits"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                func.upper(CashFlowRecord.flow_type).in_(
+                                    {"WITHDRAW", "WITHDRAWAL"}
+                                ),
+                                CashFlowRecord.amount_usd,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("withdrawals"),
+            )
+            .where(CashFlowRecord.tracking_period_id.in_(period_ids))
+            .group_by(CashFlowRecord.tracking_period_id)
         )
-    ).all()
-    funding_records = (
-        await db.scalars(
-            select(FundingRecord).where(FundingRecord.tracking_period_id.in_(period_ids))
-        )
-    ).all()
-    fee_records = (
-        await db.scalars(
-            select(TradingFeeRecord).where(TradingFeeRecord.tracking_period_id.in_(period_ids))
-        )
-    ).all()
-    income_records = (
-        await db.scalars(
-            select(IncomeRecord).where(IncomeRecord.tracking_period_id.in_(period_ids))
-        )
-    ).all()
+    ).mappings()
 
-    closed_by_period: dict[uuid.UUID, list[ClosedPosition]] = defaultdict(list)
-    cash_by_period: dict[uuid.UUID, list[CashFlowRecord]] = defaultdict(list)
-    funding_by_period: dict[uuid.UUID, list[FundingRecord]] = defaultdict(list)
-    fees_by_period: dict[uuid.UUID, list[TradingFeeRecord]] = defaultdict(list)
-    income_by_period: dict[uuid.UUID, list[IncomeRecord]] = defaultdict(list)
-    for row in closed_positions:
-        closed_by_period[row.tracking_period_id].append(row)
-    for row in cash_flows:
-        cash_by_period[row.tracking_period_id].append(row)
-    for row in funding_records:
-        funding_by_period[row.tracking_period_id].append(row)
-    for row in fee_records:
-        fees_by_period[row.tracking_period_id].append(row)
-    for row in income_records:
-        income_by_period[row.tracking_period_id].append(row)
+    async def amount_stats(model: Any) -> dict[uuid.UUID, dict[str, Any]]:
+        rows = (
+            await db.execute(
+                select(
+                    model.tracking_period_id,
+                    func.count(model.id).label("record_count"),
+                    func.coalesce(func.sum(model.amount_usd), 0).label("amount"),
+                )
+                .where(model.tracking_period_id.in_(period_ids))
+                .group_by(model.tracking_period_id)
+            )
+        ).mappings()
+        return {row["tracking_period_id"]: dict(row) for row in rows}
+
+    closed_by_period = {
+        row["tracking_period_id"]: dict(row) for row in closed_rows
+    }
+    cash_by_period = {
+        row["tracking_period_id"]: dict(row) for row in cash_rows
+    }
+    funding_by_period = await amount_stats(FundingRecord)
+    fees_by_period = await amount_stats(TradingFeeRecord)
+    income_by_period = await amount_stats(IncomeRecord)
 
     items: list[dict[str, Any]] = []
     for account in accounts:
@@ -266,41 +394,28 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         period_id = period.id if period else None
         initial_equity = _number(initial.initial_equity if initial else None)
         current_equity = _number(balance.total_equity_usd if balance else None)
-        deposits = sum(
-            _number(row.amount_usd)
-            for row in cash_by_period.get(period_id, [])
-            if row.flow_type.upper() not in {"WITHDRAW", "WITHDRAWAL"}
-        )
-        withdrawals = sum(
-            _number(row.amount_usd)
-            for row in cash_by_period.get(period_id, [])
-            if row.flow_type.upper() in {"WITHDRAW", "WITHDRAWAL"}
-        )
+        cash_stats = cash_by_period.get(period_id, {})
+        closed_stats = closed_by_period.get(period_id, {})
+        deposits = _number(cash_stats.get("deposits"))
+        withdrawals = _number(cash_stats.get("withdrawals"))
         net_cash_flow = deposits - withdrawals
-        income_items = income_by_period.get(period_id, [])
-        funding_items = funding_by_period.get(period_id, [])
-        fee_items = fees_by_period.get(period_id, [])
+        income_stats = income_by_period.get(period_id, {})
+        funding_stats = funding_by_period.get(period_id, {})
+        fee_stats = fees_by_period.get(period_id, {})
         realized_pnl = (
-            sum(_number(row.amount_usd) for row in income_items)
-            if income_items
-            else sum(
-                _number(row.realized_pnl) for row in closed_by_period.get(period_id, [])
-            )
+            _number(income_stats.get("amount"))
+            if income_stats.get("record_count", 0)
+            else _number(closed_stats.get("realized_pnl"))
         )
         funding_fee = (
-            sum(_number(row.amount_usd) for row in funding_items)
-            if funding_items
-            else sum(
-                _number(row.funding_fee) for row in closed_by_period.get(period_id, [])
-            )
+            _number(funding_stats.get("amount"))
+            if funding_stats.get("record_count", 0)
+            else _number(closed_stats.get("funding_fee"))
         )
         trading_fee = (
-            sum(_number(row.amount_usd) for row in fee_items)
-            if fee_items
-            else sum(
-                abs(_number(row.trading_fee))
-                for row in closed_by_period.get(period_id, [])
-            )
+            _number(fee_stats.get("amount"))
+            if fee_stats.get("record_count", 0)
+            else _number(closed_stats.get("trading_fee"))
         )
         unrealized_change = _number(
             balance.unrealized_pnl_usd if balance else None

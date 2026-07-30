@@ -187,6 +187,17 @@ curl -sS -o /dev/null \
 
 Cloudflare 等边缘缓存属于站点外部配置，不由项目部署脚本修改。
 
+其余页面的聚合读取接口为：
+
+- `/api/accounts/bootstrap`
+- `/api/pnl/bootstrap`
+- `/api/accounting/bootstrap`
+- `/api/analytics/bootstrap`
+
+这些接口只合并只读查询，不创建缓存数据库、不修改同步周期。逐资产余额通过
+`ix_asset_balance_latest` 读取每个账户最新批次；同步任务与对账记录在数据库端筛选或
+聚合，历史业务数据仍永久保留。
+
 ## 备份与密钥
 
 先手工执行并验证一次：

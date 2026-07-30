@@ -42,6 +42,14 @@ type ExchangePnl = {
   investment_return: number;
 };
 
+type PnlBootstrapData = {
+  summary: PnlSummary;
+  daily: PnlPoint[];
+  weekly: PnlPoint[];
+  monthly: PnlPoint[];
+  by_exchange: ExchangePnl[];
+};
+
 export default function PnlPage() {
   return (
     <ProtectedPage>
@@ -63,19 +71,13 @@ function PnlContent() {
 
   const load = useCallback(() => {
     setError("");
-    return Promise.all([
-      apiFetch<PnlSummary>("/api/pnl/summary"),
-      apiFetch<PnlPoint[]>("/api/pnl/daily"),
-      apiFetch<PnlPoint[]>("/api/pnl/weekly"),
-      apiFetch<PnlPoint[]>("/api/pnl/monthly"),
-      apiFetch<ExchangePnl[]>("/api/pnl/by-exchange"),
-    ])
-      .then(([summaryData, dayData, weekData, monthData, exchangeData]) => {
-        setSummary(summaryData);
-        setDaily(dayData);
-        setWeekly(weekData);
-        setMonthly(monthData);
-        setByExchange(exchangeData);
+    return apiFetch<PnlBootstrapData>("/api/pnl/bootstrap")
+      .then((nextData) => {
+        setSummary(nextData.summary);
+        setDaily(nextData.daily);
+        setWeekly(nextData.weekly);
+        setMonthly(nextData.monthly);
+        setByExchange(nextData.by_exchange);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));

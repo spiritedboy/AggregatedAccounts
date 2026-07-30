@@ -26,6 +26,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { dateTime, usd } from "@/lib/format";
 import type {
+  AccountingBootstrapData,
   AccountingRecordsData,
   CompletenessComponent,
   DataCompletenessData,
@@ -85,13 +86,12 @@ function LedgerContent() {
 
   const load = useCallback(() => {
     setError("");
-    return Promise.all([
-      apiFetch<AccountingRecordsData>(`/api/accounting/records?${params()}`),
-      apiFetch<DataCompletenessData>("/api/data-completeness"),
-    ])
-      .then(([nextRecords, nextCompleteness]) => {
-        setRecords(nextRecords);
-        setCompleteness(nextCompleteness);
+    return apiFetch<AccountingBootstrapData>(
+      `/api/accounting/bootstrap?${params()}`,
+    )
+      .then((nextData) => {
+        setRecords(nextData.records);
+        setCompleteness(nextData.completeness);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) =>

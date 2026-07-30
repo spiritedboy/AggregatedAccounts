@@ -16,7 +16,11 @@ import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, usd } from "@/lib/format";
-import type { ReconciliationData, RiskData } from "@/lib/types";
+import type {
+  AnalyticsBootstrapData,
+  ReconciliationData,
+  RiskData,
+} from "@/lib/types";
 
 export default function ReconciliationPage() {
   return (
@@ -35,13 +39,10 @@ function ReconciliationContent() {
 
   const load = useCallback(() => {
     setError("");
-    return Promise.all([
-      apiFetch<ReconciliationData>("/api/analytics/reconciliation"),
-      apiFetch<RiskData>("/api/analytics/risk"),
-    ])
-      .then(([nextReconciliation, nextRisk]) => {
-        setReconciliation(nextReconciliation);
-        setRisk(nextRisk);
+    return apiFetch<AnalyticsBootstrapData>("/api/analytics/bootstrap")
+      .then((nextData) => {
+        setReconciliation(nextData.reconciliation);
+        setRisk(nextData.risk);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));

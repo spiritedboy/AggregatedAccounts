@@ -489,31 +489,33 @@ describe("portfolio pages", () => {
       equity: 10120,
     };
     installFetch({
-      "/api/pnl/summary": {
-        period_initial_equity: 10000,
-        period_investment_return: 120,
-        period_realized_pnl: 100,
-        period_unrealized_pnl_change: 25,
-        period_funding_fee: -2,
-        period_trading_fee: 3,
-        best_day: 120,
-        worst_day: -30,
-        profitable_days: 12,
-        losing_days: 4,
-        notice: "仅统计添加 API Key 后产生的数据",
-      },
-      "/api/pnl/daily": [point],
-      "/api/pnl/weekly": [point],
-      "/api/pnl/monthly": [point],
-      "/api/pnl/by-exchange": [
-        {
-          exchange: "BINANCE",
-          realized_pnl: 100,
-          funding_fee: -2,
-          trading_fee: 3,
-          investment_return: 120,
+      "/api/pnl/bootstrap": {
+        summary: {
+          period_initial_equity: 10000,
+          period_investment_return: 120,
+          period_realized_pnl: 100,
+          period_unrealized_pnl_change: 25,
+          period_funding_fee: -2,
+          period_trading_fee: 3,
+          best_day: 120,
+          worst_day: -30,
+          profitable_days: 12,
+          losing_days: 4,
+          notice: "仅统计添加 API Key 后产生的数据",
         },
-      ],
+        daily: [point],
+        weekly: [point],
+        monthly: [point],
+        by_exchange: [
+          {
+            exchange: "BINANCE",
+            realized_pnl: 100,
+            funding_fee: -2,
+            trading_fee: 3,
+            investment_return: 120,
+          },
+        ],
+      },
     });
     render(<PnlPage />);
     expect(await screen.findByText("累计收益")).toBeInTheDocument();
@@ -525,49 +527,51 @@ describe("portfolio pages", () => {
   it("renders accounting records and sorts filtered page results by financial impact", async () => {
     const user = userEvent.setup();
     installFetch({
-      "/api/accounting/records": {
-        total: 2,
-        summary: {
-          realized_pnl: 120,
-          funding_fee: -2,
-          trading_fee: 3,
-          deposits: 10,
-          withdrawals: 0,
-          net_cash_flow: 10,
-          net_effect: 125,
+      "/api/accounting/bootstrap": {
+        records: {
+          total: 2,
+          summary: {
+            realized_pnl: 120,
+            funding_fee: -2,
+            trading_fee: 3,
+            deposits: 10,
+            withdrawals: 0,
+            net_cash_flow: 10,
+            net_effect: 125,
+          },
+          items: [
+            {
+              id: "ledger-2",
+              exchange_account_id: account.id,
+              exchange: "BINANCE",
+              connection_name: account.connection_name,
+              record_type: "DEPOSIT",
+              subtype: "DEPOSIT",
+              asset: "USDT",
+              amount_usd: 10,
+              signed_amount_usd: 10,
+              symbol: null,
+              record_time: account.last_synced_at,
+              source_record_id: "deposit-source-2",
+            },
+            {
+              id: "ledger-1",
+              exchange_account_id: account.id,
+              exchange: "BINANCE",
+              connection_name: account.connection_name,
+              record_type: "FUNDING_FEE",
+              subtype: "FUNDING_FEE",
+              asset: "USDT",
+              amount_usd: -2,
+              signed_amount_usd: -2,
+              symbol: "BTCUSDT",
+              record_time: account.last_synced_at,
+              source_record_id: "funding-source-1",
+            },
+          ],
         },
-        items: [
-          {
-            id: "ledger-2",
-            exchange_account_id: account.id,
-            exchange: "BINANCE",
-            connection_name: account.connection_name,
-            record_type: "DEPOSIT",
-            subtype: "DEPOSIT",
-            asset: "USDT",
-            amount_usd: 10,
-            signed_amount_usd: 10,
-            symbol: null,
-            record_time: account.last_synced_at,
-            source_record_id: "deposit-source-2",
-          },
-          {
-            id: "ledger-1",
-            exchange_account_id: account.id,
-            exchange: "BINANCE",
-            connection_name: account.connection_name,
-            record_type: "FUNDING_FEE",
-            subtype: "FUNDING_FEE",
-            asset: "USDT",
-            amount_usd: -2,
-            signed_amount_usd: -2,
-            symbol: "BTCUSDT",
-            record_time: account.last_synced_at,
-            source_record_id: "funding-source-1",
-          },
-        ],
+        completeness: completenessData,
       },
-      "/api/data-completeness": completenessData,
     });
     render(<LedgerPage />);
     expect(await screen.findByText("数据完整性明细")).toBeInTheDocument();
@@ -587,33 +591,35 @@ describe("portfolio pages", () => {
 
   it("renders the account page as configuration-managed read-only status", async () => {
     installFetch({
-      "/api/exchange-accounts": [account],
-      "/api/sync/status": syncStatus,
-      "/api/balances": [
-        {
-          exchange: "BINANCE",
-          account_id: account.id,
-          connection_name: account.connection_name,
-          total_equity_usd: 10000,
-          available_balance_usd: 8000,
-          margin_balance_usd: 2000,
-          unrealized_pnl_usd: 100,
-          unvalued_asset_count: 0,
-          price_source: "BINANCE_FAPI_AND_SPOT_TICKER",
-          recorded_at: account.last_synced_at,
-          assets: [
-            {
-              asset: "USDT",
-              account_type: "SPOT",
-              available: 25,
-              locked: 0,
-              value_usd: 25,
-              price_source: "STABLECOIN_PARITY",
-              recorded_at: account.last_synced_at,
-            },
-          ],
-        },
-      ],
+      "/api/accounts/bootstrap": {
+        accounts: [account],
+        sync_status: syncStatus,
+        balances: [
+          {
+            exchange: "BINANCE",
+            account_id: account.id,
+            connection_name: account.connection_name,
+            total_equity_usd: 10000,
+            available_balance_usd: 8000,
+            margin_balance_usd: 2000,
+            unrealized_pnl_usd: 100,
+            unvalued_asset_count: 0,
+            price_source: "BINANCE_FAPI_AND_SPOT_TICKER",
+            recorded_at: account.last_synced_at,
+            assets: [
+              {
+                asset: "USDT",
+                account_type: "SPOT",
+                available: 25,
+                locked: 0,
+                value_usd: 25,
+                price_source: "STABLECOIN_PARITY",
+                recorded_at: account.last_synced_at,
+              },
+            ],
+          },
+        ],
+      },
     });
     render(<AccountsPage />);
     expect(await screen.findAllByText("主账户只读")).not.toHaveLength(0);
@@ -629,8 +635,10 @@ describe("portfolio pages", () => {
 
   it("renders reconciliation and risk analytics", async () => {
     installFetch({
-      "/api/analytics/reconciliation": reconciliationData,
-      "/api/analytics/risk": riskData,
+      "/api/analytics/bootstrap": {
+        reconciliation: reconciliationData,
+        risk: riskData,
+      },
     });
     render(<ReconciliationPage />);
     expect(await screen.findAllByText(/US\$4,000\.00/)).not.toHaveLength(0);
