@@ -89,3 +89,71 @@ def test_binance_hedge_cycle_uses_position_side():
     assert cycles[0]["side"] == "SHORT"
     assert cycles[0]["realized_pnl"] == 20
     assert cycles[0]["closing_trade_id"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_binance_closed_positions_merge_same_order_fill_fragments(
+    monkeypatch,
+):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+    start_time = datetime(2026, 7, 27, tzinfo=UTC)
+    end_time = datetime(2026, 7, 29, tzinfo=UTC)
+    quantities = (0.78, 0.94, 1.97, 0.78, 1.15)
+    realized = (
+        -17.54888434,
+        -21.14737241,
+        -44.31949323,
+        -17.54888434,
+        -25.88886565,
+    )
+    commissions = (
+        0.10395360,
+        0.12527400,
+        0.26258800,
+        0.10395360,
+        0.15324108,
+    )
+    rows = []
+    for index, (quantity, pnl, commission) in enumerate(
+        zip(quantities, realized, commissions, strict=True),
+        start=8437882,
+    ):
+        rows.append(
+            {
+                **_trade(
+                    index,
+                    "SELL",
+                    quantity,
+                    333.1896263,
+                    pnl,
+                    commission,
+                    1785237420000,
+                ),
+                "orderId": 232222246,
+                "symbol": "GOOGLUSDT",
+                "positionSide": "LONG",
+            }
+        )
+
+    async def fake_income_rows(*_):
+        return [{"symbol": "GOOGLUSDT", "incomeType": "REALIZED_PNL"}]
+
+    async def fake_trade_rows(symbol, *_):
+        assert symbol == "GOOGLUSDT"
+        return rows
+
+    monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
+    monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    try:
+        positions = await adapter.get_closed_positions(start_time, end_time)
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    position = positions[0]
+    assert position["source_record_id"] == "binance:GOOGLUSDT:LONG:8437886"
+    assert position["max_position_size"] == pytest.approx(5.62)
+    assert position["average_exit_price"] == pytest.approx(333.1896263)
+    assert position["realized_pnl"] == pytest.approx(-126.45349997)
+    assert position["trading_fee"] == pytest.approx(0.74901028)
+    assert position["net_pnl"] == pytest.approx(-127.20251025)

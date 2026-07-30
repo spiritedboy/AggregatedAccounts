@@ -335,11 +335,15 @@ class BitgetAdapter(ExchangeAdapter):
                     float(item.get("openTotalPos") or item.get("closeTotalPos") or 0)
                 )
                 initial_notional = entry_price * max_size
-                source_record_id = (
-                    f"bitget:{product_type}:"
-                    f"{item.get('positionId') or item.get('symbol')}:{close_timestamp}"
-                )
-                positions[source_record_id] = {
+                position_id = str(item.get("positionId") or "").strip()
+                if position_id:
+                    source_record_id = f"bitget:{product_type}:{position_id}"
+                else:
+                    source_record_id = (
+                        f"bitget:{product_type}:symbol:"
+                        f"{item.get('symbol') or 'position'}:{close_timestamp}"
+                    )
+                normalized = {
                     "source_record_id": source_record_id,
                     "symbol": item["symbol"],
                     "normalized_symbol": SymbolNormalizer.normalize(item["symbol"]),
@@ -363,6 +367,12 @@ class BitgetAdapter(ExchangeAdapter):
                     "data_source": "EXCHANGE_API",
                     "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",
                 }
+                existing = positions.get(source_record_id)
+                if (
+                    existing is None
+                    or normalized["close_time"] > existing["close_time"]
+                ):
+                    positions[source_record_id] = normalized
         return list(positions.values())
 
     async def get_income_history(

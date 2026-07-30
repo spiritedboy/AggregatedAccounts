@@ -40,9 +40,7 @@ async def test_bitget_closed_positions_normalize_native_history(monkeypatch):
 
     assert len(positions) == 1
     position = positions[0]
-    assert position["source_record_id"] == (
-        "bitget:USDT-FUTURES:position-1:1785080589858"
-    )
+    assert position["source_record_id"] == "bitget:USDT-FUTURES:position-1"
     assert position["normalized_symbol"] == "BTC-USDT-PERP"
     assert position["side"] == "LONG"
     assert position["average_entry_price"] == 32000
@@ -55,6 +53,49 @@ async def test_bitget_closed_positions_normalize_native_history(monkeypatch):
     assert position["return_percent"] == pytest.approx(1.5625)
     assert position["data_source"] == "EXCHANGE_API"
     assert position["data_completeness"] == "COMPLETE"
+
+
+@pytest.mark.asyncio
+async def test_bitget_closed_positions_keep_latest_row_for_position_id(
+    monkeypatch,
+):
+    adapter = BitgetAdapter(api_key="key", api_secret="secret", passphrase="pass")
+    base = {
+        "positionId": "123456",
+        "marginCoin": "USDT",
+        "symbol": "BTCUSDT",
+        "holdSide": "long",
+        "openAvgPrice": "32000",
+        "closeAvgPrice": "32500",
+        "openTotalPos": "0.01",
+        "closeTotalPos": "0.01",
+        "pnl": "5",
+        "netProfit": "4.7",
+        "totalFunding": "-0.1",
+        "openFee": "-0.08",
+        "closeFee": "-0.12",
+        "ctime": "1785059143881",
+    }
+    rows = [
+        {**base, "utime": "1785080000000", "netProfit": "1.2"},
+        {**base, "utime": "1785080589858"},
+    ]
+
+    async def fake_rows(product_type, *_):
+        return rows if product_type == "USDT-FUTURES" else []
+
+    monkeypatch.setattr(adapter, "_position_history_rows", fake_rows)
+    try:
+        positions = await adapter.get_closed_positions(
+            datetime(2026, 7, 26, 11, tzinfo=UTC),
+            datetime(2026, 7, 27, tzinfo=UTC),
+        )
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    assert positions[0]["source_record_id"] == "bitget:USDT-FUTURES:123456"
+    assert positions[0]["net_pnl"] == 4.7
 
 
 @pytest.mark.asyncio

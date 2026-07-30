@@ -17,9 +17,14 @@
 - `GET /sapi/v1/account/apiRestrictions`：API Key 权限
 - `GET /fapi/v3/account`：USD-M 账户权益
 - `GET /fapi/v3/positionRisk`：当前仓位
+- `GET /fapi/v1/userTrades`：统计起点后的成交，用于重建已平仓周期
 - `GET /fapi/v1/income`：统计起点后的已实现收益、资金费、手续费和合约账户资金流
 
 签名为查询字符串的 HMAC-SHA256，使用 `X-MBX-APIKEY` 请求头。
+
+`userTrades` 的一张订单可能返回多个成交分片。平台先按合约、持仓方向、买卖方向和
+`orderId` 合并分片，成交价按数量加权，已实现收益与手续费求和，再重建仓位周期。
+历史仓位来源 ID 使用合并后最后一个成交 ID，因此同步保持幂等。
 
 ## OKX
 
@@ -59,11 +64,15 @@ Base64 编码，并发送 OKX 的四个认证请求头。
 - `GET /api/v2/spot/account/assets`：现货资产
 - `GET /api/v2/mix/account/accounts`：合约账户权益
 - `GET /api/v2/mix/position/all-position`：当前合约仓位
+- `GET /api/v2/mix/position/history-position`：USDT 与 USDC 合约历史仓位
 - `GET /api/v2/mix/account/bill`：统计起点后的合约已实现收益、资金费、手续费和
   合约账户划转；单次时间区间不超过 30 天，接口最多覆盖近 90 天
 
 签名原文为 `timestamp + method + requestPath + body`，使用 HMAC-SHA256 后
 Base64 编码。
+
+历史仓位以 `productType + positionId` 作为稳定来源 ID；若接口重复返回同一个
+`positionId` 的阶段状态，只保留 `utime` 最新的累计记录。
 
 ## Hyperliquid
 

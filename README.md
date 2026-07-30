@@ -218,8 +218,8 @@ OKX 已平仓仓位来自官方 `account/positions-history`，同时拉取永续
 
 OKX 对分批减仓会持续更新同一个 `posId` 的累计历史仓位。平台以 `posId` 作为稳定
 幂等键，不把每次变化的 `uTime` 当作新仓位；部分平仓到最终平仓始终只保留 OKX App
-对应的一条累计记录，不会重复计算金额。Bitget 使用交易所仓位 ID、产品类型和关闭
-时间组成幂等来源 ID。
+对应的一条累计记录，不会重复计算金额。Bitget 使用产品类型与交易所稳定
+`positionId` 组成幂等来源 ID，关闭时间只更新记录内容，不会产生新的历史仓位。
 
 Hyperliquid 自动读取 `perpDexs` 并逐个查询默认永续和 HIP-3 DEX 的持仓；`xyz:CXMT`
 会保留 DEX 来源，同时展示为 `CXMT-USDT-PERP`。已平仓数据根据官方
@@ -229,7 +229,9 @@ USDC 手续费纳入净收益；页面明确标为“交易所成交重建”，
 Binance 根据 USDⓈ-M `userTrades` 的成交
 方向、`positionSide` 和逐笔 `realizedPnl` 重建单向或双向持仓周期。由于 Binance
 成交记录没有原生仓位周期 ID，且资金费不能可靠分配给同时存在的多空两侧，重建结果
-统一标记 `RECONSTRUCTED / PARTIAL`；资金费仍在账务流水和收益汇总中独立准确统计。
+统一标记 `RECONSTRUCTED / PARTIAL`。同一 `orderId` 的多个成交分片会先按成交数量
+加权合并，再进入仓位周期重建，避免一张平仓单在历史仓位显示成多条；已实现收益和
+手续费仍取所有成交分片之和。资金费在账务流水和收益汇总中独立准确统计。
 
 Polymarket 使用官方 closed positions 数据，并按 outcome token 生成稳定幂等 ID。
 

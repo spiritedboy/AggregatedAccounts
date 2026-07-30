@@ -21,6 +21,8 @@ from app.models import (
 from app.services.analytics import calculate_max_drawdown, calculate_risk_level
 from app.services.maintenance import (
     apply_data_retention,
+    cleanup_binance_fill_fragments,
+    cleanup_bitget_closed_positions,
     cleanup_okx_closed_positions,
     cleanup_polymarket_closed_positions,
 )
@@ -230,6 +232,178 @@ async def test_okx_partial_close_cleanup_keeps_final_cumulative_row():
             Decimal("16.983725"),
             Decimal("46.612175"),
         ]
+
+
+@pytest.mark.asyncio
+async def test_bitget_cleanup_normalizes_legacy_position_ids():
+    started = datetime(2026, 7, 26, tzinfo=UTC)
+    closed_at = datetime(2026, 7, 27, tzinfo=UTC)
+    async with SessionLocal() as db:
+        account = ExchangeAccount(
+            exchange="BITGET",
+            connection_name="bitget-source-id-test",
+            masked_identifier="abc••••xyz",
+            tracking_started_at=started,
+            last_synced_at=closed_at,
+        )
+        db.add(account)
+        await db.flush()
+        period = TrackingPeriod(
+            exchange="BITGET",
+            exchange_account_id=account.id,
+            started_at=started,
+            is_active=True,
+        )
+        db.add(period)
+        await db.flush()
+        for index, timestamp in enumerate((1785080000000, 1785080589858)):
+            row_time = closed_at + timedelta(minutes=index)
+            db.add(
+                ClosedPosition(
+                    exchange="BITGET",
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=(
+                        f"bitget:USDT-FUTURES:123456:{timestamp}"
+                    ),
+                    symbol="BTCUSDT",
+                    normalized_symbol="BTC-USDT-PERP",
+                    side="LONG",
+                    open_time=started,
+                    close_time=row_time,
+                    realized_pnl=Decimal(index + 1),
+                    net_pnl=Decimal(index + 1),
+                    tracking_started_at=started,
+                    created_at=row_time,
+                    updated_at=row_time,
+                )
+            )
+        await db.commit()
+
+        preview = await cleanup_bitget_closed_positions(db, apply=False)
+        assert preview["duplicate_groups"] == 1
+        assert preview["duplicates_to_delete"] == 1
+        assert preview["source_ids_to_normalize"] == 1
+
+        applied = await cleanup_bitget_closed_positions(db, apply=True)
+        assert applied["duplicates_to_delete"] == 1
+        rows = list((await db.scalars(select(ClosedPosition))).all())
+        assert len(rows) == 1
+        assert rows[0].source_record_id == "bitget:USDT-FUTURES:123456"
+        assert rows[0].net_pnl == Decimal("2")
+
+
+@pytest.mark.asyncio
+async def test_binance_cleanup_merges_same_order_fill_fragments():
+    started = datetime(2026, 7, 27, tzinfo=UTC)
+    closed_at = datetime(2026, 7, 28, tzinfo=UTC)
+    sources = [
+        f"binance:GOOGLUSDT:LONG:{trade_id}"
+        for trade_id in range(8437882, 8437887)
+    ]
+    quantities = ("0.78", "0.94", "1.97", "0.78", "1.15")
+    realized = (
+        "-17.54888434",
+        "-21.14737241",
+        "-44.31949323",
+        "-17.54888434",
+        "-25.88886565",
+    )
+    async with SessionLocal() as db:
+        account = ExchangeAccount(
+            exchange="BINANCE",
+            connection_name="binance-fill-fragment-test",
+            masked_identifier="abc••••xyz",
+            tracking_started_at=started,
+            last_synced_at=closed_at,
+        )
+        db.add(account)
+        await db.flush()
+        period = TrackingPeriod(
+            exchange="BINANCE",
+            exchange_account_id=account.id,
+            started_at=started,
+            is_active=True,
+        )
+        db.add(period)
+        await db.flush()
+        for source, quantity, pnl in zip(
+            sources,
+            quantities,
+            realized,
+            strict=True,
+        ):
+            db.add(
+                ClosedPosition(
+                    exchange="BINANCE",
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=source,
+                    symbol="GOOGLUSDT",
+                    normalized_symbol="GOOGL-USDT-PERP",
+                    side="LONG",
+                    open_time=started,
+                    close_time=closed_at,
+                    average_exit_price=Decimal("333.1896263"),
+                    max_position_size=Decimal(quantity),
+                    realized_pnl=Decimal(pnl),
+                    net_pnl=Decimal(pnl),
+                    tracking_started_at=started,
+                )
+            )
+        await db.commit()
+
+        normalized = [
+            {
+                "source_record_id": sources[-1],
+                "symbol": "GOOGLUSDT",
+                "normalized_symbol": "GOOGL-USDT-PERP",
+                "side": "LONG",
+                "open_time": started,
+                "close_time": closed_at,
+                "average_entry_price": 355.69,
+                "average_exit_price": 333.1896263,
+                "max_position_size": 5.62,
+                "realized_pnl": -126.45349997,
+                "funding_fee": 0,
+                "trading_fee": 0.74901028,
+                "net_pnl": -127.20251025,
+                "return_percent": -6.36,
+                "data_source": "RECONSTRUCTED",
+                "data_completeness": "PARTIAL",
+            }
+        ]
+        trade_order_ids = {
+            str(trade_id): "232222246"
+            for trade_id in range(8437882, 8437887)
+        }
+
+        preview = await cleanup_binance_fill_fragments(
+            db,
+            account=account,
+            period=period,
+            normalized_positions=normalized,
+            trade_order_ids=trade_order_ids,
+            apply=False,
+        )
+        assert preview["fragment_groups"] == 1
+        assert preview["fragments_to_delete"] == 4
+        assert preview["unresolved_groups"] == []
+
+        applied = await cleanup_binance_fill_fragments(
+            db,
+            account=account,
+            period=period,
+            normalized_positions=normalized,
+            trade_order_ids=trade_order_ids,
+            apply=True,
+        )
+        assert applied["fragments_to_delete"] == 4
+        rows = list((await db.scalars(select(ClosedPosition))).all())
+        assert len(rows) == 1
+        assert rows[0].source_record_id == sources[-1]
+        assert rows[0].max_position_size == Decimal("5.6200000000")
+        assert rows[0].net_pnl == Decimal("-127.2025102500")
 
 
 @pytest.mark.asyncio

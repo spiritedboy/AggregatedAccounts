@@ -278,3 +278,51 @@ docker compose \
 脚本按 `instType + posId` 分组，保留关闭时间最新的 OKX 累计记录、删除旧阶段快照，
 规范化来源 ID，并使用账务流水重新计算受影响日期的已实现收益。它不会把阶段金额相加，
 也不会处理其他交易所的数据。
+
+## Binance 平仓成交分片维护
+
+旧版本可能把同一 Binance 平仓订单的多个 `userTrades` 成交分片重建为多条历史仓位。
+先只读预览，脚本会实时读取交易所数据并列出可安全合并的 `orderId`：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/cleanup_binance_fill_fragments.py
+```
+
+确认预览中的合并数量、仓位数量和净收益后，完成数据库备份并执行：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/cleanup_binance_fill_fragments.py --apply
+```
+
+脚本只删除同一账户、统计周期、合约、方向和 `orderId` 下的旧成交分片，随后用所有成交
+分片的合计结果更新保留记录，并重算受影响日期的已实现收益。无法唯一匹配的新旧记录会
+列入 `unresolved_groups`，应用模式将拒绝修改。
+
+## Bitget 历史仓位来源 ID 维护
+
+旧版本把关闭时间写入 Bitget 历史仓位来源 ID。先只读预览：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/cleanup_bitget_closed_positions.py
+```
+
+完成数据库备份后执行：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/cleanup_bitget_closed_positions.py --apply
+```
+
+脚本按 `productType + positionId` 规范化来源 ID；若同一个仓位存在多个旧阶段记录，只
+保留关闭时间最新的一条。没有重复时只更新来源 ID，不改变仓位金额。

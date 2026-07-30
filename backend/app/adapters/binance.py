@@ -230,6 +230,68 @@ class BinanceAdapter(ExchangeAdapter):
         )
 
     @staticmethod
+    def _aggregate_order_fills(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+        for row in rows:
+            order_id = str(row.get("orderId") or "")
+            if not order_id:
+                order_id = f"trade:{row.get('id')}"
+            key = (
+                str(row.get("symbol") or ""),
+                str(row.get("positionSide") or "BOTH").upper(),
+                str(row.get("side") or "").upper(),
+                order_id,
+                str(row.get("commissionAsset") or "USDT").upper(),
+            )
+            quantity = abs(float(row.get("qty") or 0))
+            if not quantity:
+                continue
+            price = float(row.get("price") or 0)
+            existing = grouped.get(key)
+            if existing is None:
+                existing = {**row}
+                existing["qty"] = "0"
+                existing["price"] = "0"
+                existing["realizedPnl"] = "0"
+                existing["commission"] = "0"
+                existing["_notional"] = 0.0
+                grouped[key] = existing
+            total_quantity = float(existing["qty"]) + quantity
+            total_notional = float(existing["_notional"]) + price * quantity
+            existing["qty"] = str(total_quantity)
+            existing["_notional"] = total_notional
+            existing["price"] = str(
+                total_notional / total_quantity if total_quantity else 0
+            )
+            existing["realizedPnl"] = str(
+                float(existing["realizedPnl"])
+                + float(row.get("realizedPnl") or 0)
+            )
+            existing["commission"] = str(
+                float(existing["commission"])
+                + float(row.get("commission") or 0)
+            )
+            if (
+                int(row.get("time") or 0),
+                int(row.get("id") or 0),
+            ) >= (
+                int(existing.get("time") or 0),
+                int(existing.get("id") or 0),
+            ):
+                existing["time"] = row.get("time")
+                existing["id"] = row.get("id")
+                existing["orderId"] = row.get("orderId")
+
+        aggregated = []
+        for row in grouped.values():
+            row.pop("_notional", None)
+            aggregated.append(row)
+        return sorted(
+            aggregated,
+            key=lambda row: (int(row.get("time") or 0), int(row.get("id") or 0)),
+        )
+
+    @staticmethod
     def _new_trade_cycle(
         symbol: str,
         side: str,
@@ -511,7 +573,9 @@ class BinanceAdapter(ExchangeAdapter):
         trade_pages = await asyncio.gather(
             *(self._trade_rows(symbol, start_time, end_time) for symbol in symbols)
         )
-        rows = [row for page in trade_pages for row in page]
+        rows = self._aggregate_order_fills(
+            [row for page in trade_pages for row in page]
+        )
         cycles = self._closed_cycles_from_hedge_trades(rows, start_time)
         cycles.extend(self._closed_cycles_from_one_way_trades(rows, start_time))
         return self._normalize_binance_cycles(cycles, start_time, end_time)
