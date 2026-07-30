@@ -216,9 +216,10 @@ OKX 已平仓仓位来自官方 `account/positions-history`，同时拉取永续
 来自 `mix/position/history-position`，覆盖 USDT 与 USDC 合约。两者均只保存当前统计
 周期开始后关闭的仓位。
 
-OKX 对分批减仓会持续更新同一个 `posId` 的累计历史仓位。平台以 `posId` 作为稳定
-幂等键，不把每次变化的 `uTime` 当作新仓位；部分平仓到最终平仓始终只保留 OKX App
-对应的一条累计记录，不会重复计算金额。Bitget 使用产品类型与交易所稳定
+OKX 对分批减仓会持续更新同一个 `posId` 和 `cTime` 的累计历史仓位，但仓位归零后
+重新开仓可能复用 `posId`。平台以 `instType + posId + cTime` 标识一次独立开平仓
+周期，不把每次变化的 `uTime` 当作新仓位；同一周期的部分平仓只保留累计记录，重新
+开仓后的新周期则单独保留。Bitget 使用产品类型与交易所稳定
 `positionId` 组成幂等来源 ID，关闭时间只更新记录内容，不会产生新的历史仓位。
 
 Hyperliquid 自动读取 `perpDexs` 并逐个查询默认永续和 HIP-3 DEX 的持仓；`xyz:CXMT`

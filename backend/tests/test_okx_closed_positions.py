@@ -42,7 +42,9 @@ async def test_okx_closed_positions_normalize_exchange_history(monkeypatch):
 
     assert len(positions) == 1
     position = positions[0]
-    assert position["source_record_id"] == "okx:SWAP:3776777608724766720"
+    assert position["source_record_id"] == (
+        "okx:SWAP:3776777608724766720:cycle:1785059143881"
+    )
     assert position["symbol"] == "TRUMP-USDT-SWAP"
     assert position["normalized_symbol"] == "TRUMP-USDT-PERP"
     assert position["side"] == "LONG"
@@ -139,8 +141,66 @@ async def test_okx_partial_closes_share_one_position_identity(monkeypatch):
         await adapter.close()
 
     assert len(positions) == 1
-    assert positions[0]["source_record_id"] == "okx:SWAP:3785165892823834624"
+    assert positions[0]["source_record_id"] == (
+        "okx:SWAP:3785165892823834624:cycle:1785309134228"
+    )
     assert positions[0]["close_time"] == datetime(
         2026, 7, 30, 1, 14, 2, 629000, tzinfo=UTC
     )
     assert positions[0]["net_pnl"] == pytest.approx(60.1845838474)
+
+
+@pytest.mark.asyncio
+async def test_okx_reused_position_id_keeps_independent_cycles(monkeypatch):
+    adapter = OkxAdapter(api_key="key", api_secret="secret", passphrase="pass")
+    first = {
+        "cTime": "1785418641884",
+        "uTime": "1785418948697",
+        "instId": "SNDK-USDT-SWAP",
+        "instType": "SWAP",
+        "posId": "3587208009164546048",
+        "direction": "short",
+        "openAvgPx": "1166.9771612149532714",
+        "closeAvgPx": "1187.9060280373831776",
+        "openMaxPos": "1.712",
+        "closeTotalPos": "1.712",
+        "pnl": "-35.83022",
+        "fee": "-2.01578001",
+        "fundingFee": "0",
+        "realizedPnl": "-37.84600001",
+        "pnlRatio": "-0.3788644568509112",
+    }
+    second = {
+        **first,
+        "cTime": "1785419469430",
+        "uTime": "1785420487186",
+        "openAvgPx": "1211.3405878787878788",
+        "closeAvgPx": "1201.0856",
+        "openMaxPos": "1.65",
+        "closeTotalPos": "1.65",
+        "pnl": "16.92073",
+        "fee": "-1.990251605",
+        "realizedPnl": "14.930478395",
+        "pnlRatio": "0.1494010004352953",
+    }
+
+    async def fake_rows(inst_type, *_):
+        return [second, first] if inst_type == "SWAP" else []
+
+    monkeypatch.setattr(adapter, "_position_history_rows", fake_rows)
+    try:
+        positions = await adapter.get_closed_positions(
+            datetime(2026, 7, 30, tzinfo=UTC),
+            datetime(2026, 7, 31, tzinfo=UTC),
+        )
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 2
+    assert {position["source_record_id"] for position in positions} == {
+        "okx:SWAP:3587208009164546048:cycle:1785418641884",
+        "okx:SWAP:3587208009164546048:cycle:1785419469430",
+    }
+    assert sorted(position["net_pnl"] for position in positions) == pytest.approx(
+        [-37.84600001, 14.930478395]
+    )

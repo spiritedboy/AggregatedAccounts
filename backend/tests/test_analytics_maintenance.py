@@ -25,6 +25,7 @@ from app.services.maintenance import (
     cleanup_bitget_closed_positions,
     cleanup_okx_closed_positions,
     cleanup_polymarket_closed_positions,
+    rebuild_okx_closed_position_cycles,
 )
 
 
@@ -232,6 +233,127 @@ async def test_okx_partial_close_cleanup_keeps_final_cumulative_row():
             Decimal("16.983725"),
             Decimal("46.612175"),
         ]
+
+
+@pytest.mark.asyncio
+async def test_okx_cycle_rebuild_migrates_legacy_and_inserts_reused_pos_id():
+    started = datetime(2026, 7, 29, tzinfo=UTC)
+    first_open = datetime(2026, 7, 30, 13, 37, 21, 884000, tzinfo=UTC)
+    first_close = datetime(2026, 7, 30, 13, 42, 28, 697000, tzinfo=UTC)
+    second_open = datetime(2026, 7, 30, 13, 51, 9, 430000, tzinfo=UTC)
+    second_close = datetime(2026, 7, 30, 14, 8, 7, 186000, tzinfo=UTC)
+    pos_id = "3587208009164546048"
+    async with SessionLocal() as db:
+        account = ExchangeAccount(
+            exchange="OKX",
+            connection_name="okx-reused-position-id-test",
+            masked_identifier="abc••••xyz",
+            tracking_started_at=started,
+            last_synced_at=second_close,
+        )
+        db.add(account)
+        await db.flush()
+        period = TrackingPeriod(
+            exchange="OKX",
+            exchange_account_id=account.id,
+            started_at=started,
+            is_active=True,
+        )
+        db.add(period)
+        await db.flush()
+        legacy = ClosedPosition(
+            exchange="OKX",
+            exchange_account_id=account.id,
+            tracking_period_id=period.id,
+            source_record_id=f"okx:SWAP:{pos_id}",
+            symbol="SNDK-USDT-SWAP",
+            normalized_symbol="SNDK-USDT-PERP",
+            side="SHORT",
+            open_time=second_open,
+            close_time=second_close,
+            realized_pnl=Decimal("16.92073"),
+            net_pnl=Decimal("14.930478395"),
+            tracking_started_at=started,
+        )
+        db.add(legacy)
+        await db.commit()
+
+        normalized = [
+            {
+                "source_record_id": (
+                    f"okx:SWAP:{pos_id}:cycle:1785418641884"
+                ),
+                "symbol": "SNDK-USDT-SWAP",
+                "normalized_symbol": "SNDK-USDT-PERP",
+                "side": "SHORT",
+                "open_time": first_open,
+                "close_time": first_close,
+                "average_entry_price": 1166.9771612149,
+                "average_exit_price": 1187.9060280374,
+                "max_position_size": 1.712,
+                "realized_pnl": -35.83022,
+                "funding_fee": 0,
+                "trading_fee": 2.01578001,
+                "net_pnl": -37.84600001,
+                "return_percent": -37.8864456851,
+                "data_source": "EXCHANGE_API",
+                "data_completeness": "COMPLETE",
+            },
+            {
+                "source_record_id": (
+                    f"okx:SWAP:{pos_id}:cycle:1785419469430"
+                ),
+                "symbol": "SNDK-USDT-SWAP",
+                "normalized_symbol": "SNDK-USDT-PERP",
+                "side": "SHORT",
+                "open_time": second_open,
+                "close_time": second_close,
+                "average_entry_price": 1211.3405878788,
+                "average_exit_price": 1201.0856,
+                "max_position_size": 1.65,
+                "realized_pnl": 16.92073,
+                "funding_fee": 0,
+                "trading_fee": 1.990251605,
+                "net_pnl": 14.930478395,
+                "return_percent": 14.9401000435,
+                "data_source": "EXCHANGE_API",
+                "data_completeness": "COMPLETE",
+            },
+        ]
+
+        preview = await rebuild_okx_closed_position_cycles(
+            db,
+            account=account,
+            period=period,
+            normalized_positions=normalized,
+            apply=False,
+        )
+        assert preview["stored_rows"] == 1
+        assert preview["exchange_cycles"] == 2
+        assert preview["legacy_rows_to_migrate"] == 1
+        assert preview["cycles_to_insert"] == 1
+        assert preview["unresolved_legacy_rows"] == []
+
+        applied = await rebuild_okx_closed_position_cycles(
+            db,
+            account=account,
+            period=period,
+            normalized_positions=normalized,
+            apply=True,
+        )
+        assert applied["stored_rows_after"] == 2
+        rows = list(
+            (
+                await db.scalars(
+                    select(ClosedPosition).order_by(ClosedPosition.open_time)
+                )
+            ).all()
+        )
+        assert [row.net_pnl for row in rows] == [
+            Decimal("-37.8460000100"),
+            Decimal("14.9304783950"),
+        ]
+        assert all(":cycle:" in row.source_record_id for row in rows)
 
 
 @pytest.mark.asyncio

@@ -44,9 +44,11 @@
 签名原文为 `timestamp + method + requestPath + body`，使用 HMAC-SHA256 后
 Base64 编码，并发送 OKX 的四个认证请求头。
 
-`positions-history` 在同一仓位分批减仓时会保留相同 `posId`，并更新 `uTime`、累计
-平仓数量、均价和盈亏。平台只使用 `instType + posId` 作为稳定来源 ID；`uTime` 仅作为
-最终关闭时间，不参与幂等键，避免把中间减仓状态与最终累计状态同时计入历史仓位。
+`positions-history` 在同一仓位分批减仓时会保留相同 `posId` 和 `cTime`，并更新
+`uTime`、累计平仓数量、均价和盈亏；仓位归零后再次开仓时，OKX 可能复用 `posId`，
+但会产生新的 `cTime`。平台使用 `instType + posId + cTime` 作为稳定周期 ID；
+`uTime` 仅作为最终关闭时间，不参与幂等键。这样既不会重复计算同一周期的中间减仓，
+也不会让后一次独立开平仓覆盖前一次。
 
 ## Bitget
 

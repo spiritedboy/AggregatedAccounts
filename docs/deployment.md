@@ -277,7 +277,33 @@ docker compose \
 
 脚本按 `instType + posId` 分组，保留关闭时间最新的 OKX 累计记录、删除旧阶段快照，
 规范化来源 ID，并使用账务流水重新计算受影响日期的已实现收益。它不会把阶段金额相加，
-也不会处理其他交易所的数据。
+也不会处理其他交易所的数据。该脚本只用于清理由旧版 `uTime` 来源 ID 产生的重复
+阶段快照；不要用它代替下面的独立仓位周期重建。
+
+## OKX 独立仓位周期重建
+
+旧版本只用 `instType + posId` 标识历史仓位；OKX 在仓位归零后重新开仓时可能复用
+`posId`，导致后一次周期覆盖前一次。先实时读取 OKX 原始历史并只读预览：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/rebuild_okx_closed_position_cycles.py
+```
+
+确认 `unresolved_legacy_rows` 为空并完成数据库备份后执行：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/rebuild_okx_closed_position_cycles.py --apply
+```
+
+脚本使用 `instType + posId + cTime` 重建全部独立周期。与某个周期开仓时间一致的旧记录
+会原地迁移，缺失周期会新增；无法匹配的旧记录会阻止应用。受影响日期的已实现收益优先
+按幂等账务流水重算。
 
 ## Binance 平仓成交分片维护
 

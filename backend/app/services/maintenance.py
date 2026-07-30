@@ -398,6 +398,153 @@ async def cleanup_okx_closed_positions(
     return result
 
 
+def _okx_cycle_base(source_record_id: str) -> str | None:
+    parts = source_record_id.split(":")
+    if (
+        len(parts) == 5
+        and parts[0] == "okx"
+        and parts[3] == "cycle"
+    ):
+        return ":".join(parts[:3])
+    return None
+
+
+def _okx_legacy_base(source_record_id: str) -> str | None:
+    parts = source_record_id.split(":")
+    if (
+        len(parts) in {3, 4}
+        and parts[0] == "okx"
+        and parts[2] != "symbol"
+    ):
+        return ":".join(parts[:3])
+    return None
+
+
+async def rebuild_okx_closed_position_cycles(
+    db: AsyncSession,
+    *,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    normalized_positions: list[dict[str, Any]],
+    apply: bool,
+) -> dict[str, Any]:
+    rows = (
+        await db.scalars(
+            select(ClosedPosition).where(
+                ClosedPosition.exchange_account_id == account.id,
+                ClosedPosition.tracking_period_id == period.id,
+                ClosedPosition.exchange == "OKX",
+            )
+        )
+    ).all()
+    existing_by_source = {row.source_record_id: row for row in rows}
+    legacy_by_base: dict[str, list[ClosedPosition]] = {}
+    for row in rows:
+        legacy_base = _okx_legacy_base(row.source_record_id)
+        if legacy_base:
+            legacy_by_base.setdefault(legacy_base, []).append(row)
+
+    matched_legacy_ids: set[Any] = set()
+    legacy_delete_rows: list[ClosedPosition] = []
+    migrations = 0
+    insertions = 0
+    for item in normalized_positions:
+        source_id = str(item["source_record_id"])
+        base = _okx_cycle_base(source_id)
+        candidates = [
+            row
+            for row in legacy_by_base.get(base or "", [])
+            if row.normalized_symbol == item["normalized_symbol"]
+            and row.side == item["side"]
+            and row.open_time == item["open_time"]
+        ]
+        matched_legacy_ids.update(row.id for row in candidates)
+        exact = existing_by_source.get(source_id)
+        if exact is not None:
+            legacy_delete_rows.extend(candidates)
+            continue
+        if candidates:
+            migrations += 1
+            keeper = max(
+                candidates,
+                key=lambda row: (
+                    row.close_time,
+                    row.updated_at,
+                    row.created_at,
+                ),
+            )
+            legacy_delete_rows.extend(
+                row for row in candidates if row.id != keeper.id
+            )
+        else:
+            insertions += 1
+
+    unresolved = [
+        {
+            "source_record_id": row.source_record_id,
+            "symbol": row.normalized_symbol,
+            "side": row.side,
+            "open_time": row.open_time.isoformat(),
+            "close_time": row.close_time.isoformat(),
+        }
+        for legacy_rows in legacy_by_base.values()
+        for row in legacy_rows
+        if row.id not in matched_legacy_ids
+    ]
+    result = {
+        "stored_rows": len(rows),
+        "exchange_cycles": len(normalized_positions),
+        "legacy_rows_to_migrate": migrations,
+        "legacy_duplicates_to_delete": len(legacy_delete_rows),
+        "cycles_to_insert": insertions,
+        "unresolved_legacy_rows": unresolved,
+        "applied": apply,
+    }
+    if not apply:
+        return result
+    if unresolved:
+        raise ValueError("OKX cycle rebuild has unresolved legacy rows")
+
+    for row in legacy_delete_rows:
+        await db.delete(row)
+    await db.flush()
+    from app.services.accounts import _upsert_closed_positions
+
+    await _upsert_closed_positions(
+        db,
+        account,
+        period,
+        normalized_positions,
+    )
+    await db.flush()
+    await _recalculate_realized_pnl_dates(
+        db,
+        {
+            (account.id, period.id, item["close_time"].date())
+            for item in normalized_positions
+        },
+    )
+    db.add(
+        SecurityAuditLog(
+            action="OKX_CLOSED_POSITION_CYCLES_REBUILT",
+            outcome="SUCCESS",
+            client_ip="maintenance",
+            details=result,
+        )
+    )
+    await db.commit()
+    result["stored_rows_after"] = await db.scalar(
+        select(func.count())
+        .select_from(ClosedPosition)
+        .where(
+            ClosedPosition.exchange_account_id == account.id,
+            ClosedPosition.tracking_period_id == period.id,
+            ClosedPosition.exchange == "OKX",
+        )
+    )
+    return result
+
+
 async def cleanup_polymarket_closed_positions(
     db: AsyncSession,
     *,

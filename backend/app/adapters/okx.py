@@ -176,16 +176,19 @@ class OkxAdapter(ExchangeAdapter):
             )
             position_id = str(item.get("posId") or "").strip()
             if position_id:
-                # OKX keeps the same posId while a position is reduced in stages and
-                # updates the history row cumulatively. uTime changes on every reduction,
-                # so it must not be part of the identity when posId is available.
+                # OKX keeps posId and cTime stable while one position is reduced in
+                # stages, but can reuse posId after the position is flat and reopened.
+                # uTime changes on every reduction; cTime identifies the independent
+                # open-to-close cycle.
                 source_record_id = (
-                    f"okx:{item.get('instType') or 'UNKNOWN'}:{position_id}"
+                    f"okx:{item.get('instType') or 'UNKNOWN'}:{position_id}:"
+                    f"cycle:{open_timestamp or 'unknown'}"
                 )
             else:
                 source_record_id = (
                     f"okx:{item.get('instType') or 'UNKNOWN'}:"
-                    f"{item.get('instId') or 'position'}:{close_timestamp}"
+                    f"symbol:{item.get('instId') or 'position'}:"
+                    f"cycle:{open_timestamp or close_timestamp}"
                 )
             normalized = {
                 "source_record_id": source_record_id,

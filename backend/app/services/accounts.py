@@ -34,10 +34,7 @@ from app.models import (
 )
 from app.schemas import ExchangeAccountCreate
 from app.security import CredentialCipher, EncryptedField, mask_identifier
-from app.services.maintenance import (
-    canonical_bitget_closed_source_id,
-    canonical_okx_closed_source_id,
-)
+from app.services.maintenance import canonical_bitget_closed_source_id
 from app.services.polymarket_translation import (
     capture_polymarket_translation_sources,
 )
@@ -451,12 +448,24 @@ async def _upsert_closed_positions(
         for existing_row in existing_rows:
             key = (existing_row.normalized_symbol, existing_row.side)
             polymarket_rows.setdefault(key, []).append(existing_row)
-    canonical_rows: dict[str, list[ClosedPosition]] = {}
-    canonicalizer = None
+    okx_legacy_rows: dict[str, list[ClosedPosition]] = {}
     if account.exchange == "OKX":
-        canonicalizer = canonical_okx_closed_source_id
-    elif account.exchange == "BITGET":
-        canonicalizer = canonical_bitget_closed_source_id
+        for existing_row in existing_rows:
+            parts = existing_row.source_record_id.split(":")
+            if (
+                len(parts) in {3, 4}
+                and parts[0] == "okx"
+                and parts[2] != "symbol"
+            ):
+                okx_legacy_rows.setdefault(":".join(parts[:3]), []).append(
+                    existing_row
+                )
+    canonical_rows: dict[str, list[ClosedPosition]] = {}
+    canonicalizer = (
+        canonical_bitget_closed_source_id
+        if account.exchange == "BITGET"
+        else None
+    )
     if canonicalizer is not None:
         for existing_row in existing_rows:
             canonical = canonicalizer(existing_row.source_record_id)
@@ -483,6 +492,37 @@ async def _upsert_closed_positions(
                     ),
                 )
                 for duplicate in candidates:
+                    if duplicate.id != row.id:
+                        await db.delete(duplicate)
+                await db.flush()
+                row.source_record_id = source_id
+                existing[source_id] = row
+        if row is None and account.exchange == "OKX":
+            source_parts = source_id.split(":")
+            legacy_key = (
+                ":".join(source_parts[:3])
+                if len(source_parts) == 5
+                and source_parts[0] == "okx"
+                and source_parts[3] == "cycle"
+                else ""
+            )
+            legacy = [
+                candidate
+                for candidate in okx_legacy_rows.get(legacy_key, [])
+                if candidate.normalized_symbol == item["normalized_symbol"]
+                and candidate.side == item["side"]
+                and candidate.open_time == item["open_time"]
+            ]
+            if legacy:
+                row = max(
+                    legacy,
+                    key=lambda candidate: (
+                        candidate.close_time,
+                        candidate.updated_at,
+                        candidate.created_at,
+                    ),
+                )
+                for duplicate in legacy:
                     if duplicate.id != row.id:
                         await db.delete(duplicate)
                 await db.flush()
