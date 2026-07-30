@@ -338,3 +338,9 @@ export type RiskData = {
     distance_percent: number;
   }>;
 };
+
+export type DashboardBootstrapData = {
+  dashboard: DashboardData;
+  risk: RiskData;
+  equity_curve: EquityCurveData;
+};

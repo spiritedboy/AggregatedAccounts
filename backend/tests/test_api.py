@@ -15,6 +15,16 @@ def test_public_dashboard_does_not_require_login(client):
     assert response.json()["success"] is True
 
 
+def test_dashboard_bootstrap_returns_homepage_payloads(client):
+    response = client.get("/api/dashboard/bootstrap?range=1w")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert {"dashboard", "risk", "equity_curve"} == set(data)
+    assert data["dashboard"]["by_exchange"]
+    assert data["risk"]["summary"]["risk_level"] in {"LOW", "MEDIUM", "HIGH"}
+    assert data["equity_curve"]["range"] == "1w"
+
+
 def test_public_mode_disables_login_and_write_operations(client):
     status = client.get("/api/auth/status")
     assert status.status_code == 200

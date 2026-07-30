@@ -284,62 +284,64 @@ describe("portfolio pages", () => {
   it("renders dashboard metrics, charts, and demo banner", async () => {
     const user = userEvent.setup();
     installFetch({
-      "/api/dashboard/summary": {
-        estimated_total_equity: 100000,
-        available_balance: 62000,
-        margin_used: 18000,
-        unrealized_pnl_change: 520,
-        today_pnl: 230,
-        cumulative_pnl: 4200,
-        unvalued_asset_count: 1,
-        tracking_started_at: "2026-07-01T00:00:00Z",
-        last_updated_at: "2026-07-26T00:00:00Z",
-        by_exchange: [
-          {
-            exchange: "BINANCE",
-            connection_name: "Binance 演示账户",
-            equity: 100000,
-            available: 62000,
-            unrealized_pnl: 520,
-            status: "CONNECTED",
-            completeness: "COMPLETE",
-          },
-        ],
-        equity_curve: [{ date: "2026-07-26", pnl: 4200, equity: 100000 }],
-        positions: [position],
-        notice: "仅统计添加 API Key 后产生的数据",
-        demo_mode: true,
-      },
-      "/api/analytics/risk": riskData,
-      "/api/analytics/equity-curve": {
-        range: "1d",
-        sample_interval: "5m",
-        resolution: "5m",
-        from: "2026-07-25T00:00:00Z",
-        to: "2026-07-26T00:00:00Z",
-        points: [
-          {
-            timestamp: "2026-07-25T00:00:00Z",
-            equity: 99000,
-            available_balance: 61000,
-            margin_balance: 18000,
-            unrealized_pnl: 400,
-            account_count: 1,
-            stale_account_count: 0,
-            source_latest_at: "2026-07-25T00:00:00Z",
-          },
-          {
-            timestamp: "2026-07-26T00:00:00Z",
-            equity: 100000,
-            available_balance: 62000,
-            margin_balance: 18000,
-            unrealized_pnl: 520,
-            account_count: 1,
-            stale_account_count: 0,
-            source_latest_at: "2026-07-26T00:00:00Z",
-          },
-        ],
-        change: { amount: 1000, percent: 1.010101 },
+      "/api/dashboard/bootstrap": {
+        dashboard: {
+          estimated_total_equity: 100000,
+          available_balance: 62000,
+          margin_used: 18000,
+          unrealized_pnl_change: 520,
+          today_pnl: 230,
+          cumulative_pnl: 4200,
+          unvalued_asset_count: 1,
+          tracking_started_at: "2026-07-01T00:00:00Z",
+          last_updated_at: "2026-07-26T00:00:00Z",
+          by_exchange: [
+            {
+              exchange: "BINANCE",
+              connection_name: "Binance 演示账户",
+              equity: 100000,
+              available: 62000,
+              unrealized_pnl: 520,
+              status: "CONNECTED",
+              completeness: "COMPLETE",
+            },
+          ],
+          equity_curve: [{ date: "2026-07-26", pnl: 4200, equity: 100000 }],
+          positions: [position],
+          notice: "仅统计添加 API Key 后产生的数据",
+          demo_mode: true,
+        },
+        risk: riskData,
+        equity_curve: {
+          range: "1d",
+          sample_interval: "5m",
+          resolution: "5m",
+          from: "2026-07-25T00:00:00Z",
+          to: "2026-07-26T00:00:00Z",
+          points: [
+            {
+              timestamp: "2026-07-25T00:00:00Z",
+              equity: 99000,
+              available_balance: 61000,
+              margin_balance: 18000,
+              unrealized_pnl: 400,
+              account_count: 1,
+              stale_account_count: 0,
+              source_latest_at: "2026-07-25T00:00:00Z",
+            },
+            {
+              timestamp: "2026-07-26T00:00:00Z",
+              equity: 100000,
+              available_balance: 62000,
+              margin_balance: 18000,
+              unrealized_pnl: 520,
+              account_count: 1,
+              stale_account_count: 0,
+              source_latest_at: "2026-07-26T00:00:00Z",
+            },
+          ],
+          change: { amount: 1000, percent: 1.010101 },
+        },
       },
     });
     render(<DashboardPage />);
@@ -355,7 +357,7 @@ describe("portfolio pages", () => {
     await user.click(screen.getByRole("button", { name: "1年" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/api/analytics/equity-curve?range=1y"),
+        expect.stringContaining("/api/dashboard/bootstrap?range=1y"),
         expect.anything(),
       ),
     );

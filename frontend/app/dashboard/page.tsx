@@ -30,6 +30,7 @@ import { usePrivacy } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type {
+  DashboardBootstrapData,
   DashboardData,
   EquityCurveData,
   EquityCurveRange,
@@ -71,15 +72,13 @@ function DashboardContent() {
 
   const load = useCallback(() => {
     setError("");
-    return Promise.all([
-      apiFetch<DashboardData>("/api/dashboard/summary"),
-      apiFetch<RiskData>("/api/analytics/risk"),
-      apiFetch<EquityCurveData>(`/api/analytics/equity-curve?range=${curveRange}`),
-    ])
-      .then(([nextData, nextRisk, nextCurve]) => {
-        setData(nextData);
-        setRisk(nextRisk);
-        setCurve(nextCurve);
+    return apiFetch<DashboardBootstrapData>(
+      `/api/dashboard/bootstrap?range=${curveRange}`,
+    )
+      .then((nextData) => {
+        setData(nextData.dashboard);
+        setRisk(nextData.risk);
+        setCurve(nextData.equity_curve);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));

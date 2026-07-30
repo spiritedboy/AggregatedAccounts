@@ -215,19 +215,31 @@ async def remove_account(
 async def _latest_balances(
     db: AsyncSession, exchange: str | None = None
 ) -> list[tuple[AccountBalanceSnapshot, ExchangeAccount]]:
+    latest_snapshot_id = (
+        select(AccountBalanceSnapshot.id)
+        .where(
+            AccountBalanceSnapshot.exchange_account_id == ExchangeAccount.id
+        )
+        .order_by(
+            AccountBalanceSnapshot.recorded_at.desc(),
+            AccountBalanceSnapshot.id.desc(),
+        )
+        .limit(1)
+        .correlate(ExchangeAccount)
+        .scalar_subquery()
+    )
     query = (
         select(AccountBalanceSnapshot, ExchangeAccount)
         .join(ExchangeAccount, ExchangeAccount.id == AccountBalanceSnapshot.exchange_account_id)
-        .where(ExchangeAccount.is_active.is_(True))
-        .order_by(AccountBalanceSnapshot.recorded_at.desc())
+        .where(
+            ExchangeAccount.is_active.is_(True),
+            AccountBalanceSnapshot.id == latest_snapshot_id,
+        )
+        .order_by(ExchangeAccount.created_at, ExchangeAccount.id)
     )
     if exchange:
         query = query.where(ExchangeAccount.exchange == exchange.upper())
-    rows = (await db.execute(query)).all()
-    latest: dict[uuid.UUID, tuple[AccountBalanceSnapshot, ExchangeAccount]] = {}
-    for snapshot, account in rows:
-        latest.setdefault(account.id, (snapshot, account))
-    return list(latest.values())
+    return list((await db.execute(query)).all())
 
 
 async def _daily_pnl_points(
@@ -339,10 +351,7 @@ def _bucket_pnl_points(
     return [grouped[key] for key in sorted(grouped)]
 
 
-@router.get("/dashboard/summary")
-async def dashboard_summary(
-    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
-) -> dict[str, Any]:
+async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     latest = await _latest_balances(db)
     current_positions = (
         await db.scalars(
@@ -363,53 +372,58 @@ async def dashboard_summary(
     today_return = sum(
         row["investment_return"] for row in daily_rows if row["period"] == today_key
     )
-    return envelope(
-        {
-            "estimated_total_equity": total_equity,
-            "available_balance": available,
-            "margin_used": margin,
-            "unrealized_pnl_change": unrealized_change,
-            "today_pnl": today_return,
-            "cumulative_pnl": cumulative,
-            "unvalued_asset_count": sum(row.unvalued_asset_count for row, _ in latest),
-            "tracking_started_at": min(
-                (account.tracking_started_at for _, account in latest), default=None
-            ),
-            "last_updated_at": max(
-                (account.last_synced_at for _, account in latest if account.last_synced_at),
-                default=None,
-            ),
-            "by_exchange": [
-                {
-                    "exchange": account.exchange,
-                    "connection_name": account.connection_name,
-                    "equity": _num(snapshot.total_equity_usd),
-                    "available": _num(snapshot.available_balance_usd),
-                    "unrealized_pnl": _num(snapshot.unrealized_pnl_usd),
-                    "status": account.connection_status,
-                    "completeness": account.data_completeness,
-                }
-                for snapshot, account in latest
-            ],
-            "equity_curve": [
-                {
-                    "date": row["period"],
-                    "pnl": row["cumulative_return"],
-                    "equity": row["equity"],
-                }
-                for row in daily_rows
-            ],
-            "positions": [
-                _position_dict(
-                    item,
-                    translations.get(_polymarket_asset_id(item) or ""),
-                )
-                for item in dashboard_positions
-            ],
-            "notice": "仅统计添加 API Key 后产生的数据",
-            "demo_mode": any(account.is_demo for _, account in latest),
-        }
-    )
+    return {
+        "estimated_total_equity": total_equity,
+        "available_balance": available,
+        "margin_used": margin,
+        "unrealized_pnl_change": unrealized_change,
+        "today_pnl": today_return,
+        "cumulative_pnl": cumulative,
+        "unvalued_asset_count": sum(row.unvalued_asset_count for row, _ in latest),
+        "tracking_started_at": min(
+            (account.tracking_started_at for _, account in latest), default=None
+        ),
+        "last_updated_at": max(
+            (account.last_synced_at for _, account in latest if account.last_synced_at),
+            default=None,
+        ),
+        "by_exchange": [
+            {
+                "exchange": account.exchange,
+                "connection_name": account.connection_name,
+                "equity": _num(snapshot.total_equity_usd),
+                "available": _num(snapshot.available_balance_usd),
+                "unrealized_pnl": _num(snapshot.unrealized_pnl_usd),
+                "status": account.connection_status,
+                "completeness": account.data_completeness,
+            }
+            for snapshot, account in latest
+        ],
+        "equity_curve": [
+            {
+                "date": row["period"],
+                "pnl": row["cumulative_return"],
+                "equity": row["equity"],
+            }
+            for row in daily_rows
+        ],
+        "positions": [
+            _position_dict(
+                item,
+                translations.get(_polymarket_asset_id(item) or ""),
+            )
+            for item in dashboard_positions
+        ],
+        "notice": "仅统计添加 API Key 后产生的数据",
+        "demo_mode": any(account.is_demo for _, account in latest),
+    }
+
+
+@router.get("/dashboard/summary")
+async def dashboard_summary(
+    _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return envelope(await _dashboard_summary_data(db))
 
 
 @router.get("/analytics/equity-curve")
@@ -421,6 +435,23 @@ async def equity_curve(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     return envelope(await get_equity_curve(db, range_key))
+
+
+@router.get("/dashboard/bootstrap")
+async def dashboard_bootstrap(
+    range_key: Literal["1d", "1w", "1m", "6m", "1y"] = Query(
+        "1d", alias="range"
+    ),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return envelope(
+        {
+            "dashboard": await _dashboard_summary_data(db),
+            "risk": await build_risk_metrics(db),
+            "equity_curve": await get_equity_curve(db, range_key),
+        }
+    )
 
 
 @router.get("/exchanges/status")

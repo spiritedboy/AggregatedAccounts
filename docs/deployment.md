@@ -168,6 +168,25 @@ make security-check
 - 四个 `portfolio_equity_*` 连续聚合存在
 - `SYNC_JOB_RETENTION_DAYS=0`、`BALANCE_SNAPSHOT_RETENTION_DAYS=0`
 
+## 读取性能检查
+
+首页使用 `/api/dashboard/bootstrap?range=1d` 一次取得总览、风险指标和净值曲线。
+余额汇总查询按启用账户读取最新一条 `account_balance_snapshots`，依赖已有的
+`(exchange_account_id, recorded_at)` 索引；不需要 Redis，也不改变快照永久保留
+策略。部署后可在源站本机检查响应时间：
+
+```bash
+curl -sS -o /dev/null \
+  -w 'bootstrap=%{http_code} total=%{time_total}s\n' \
+  'http://127.0.0.1:8000/api/dashboard/bootstrap?range=1d'
+
+curl -sS -o /dev/null \
+  -w 'summary=%{http_code} total=%{time_total}s\n' \
+  'http://127.0.0.1:8000/api/dashboard/summary'
+```
+
+Cloudflare 等边缘缓存属于站点外部配置，不由项目部署脚本修改。
+
 ## 备份与密钥
 
 先手工执行并验证一次：
