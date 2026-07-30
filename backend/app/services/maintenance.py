@@ -11,6 +11,7 @@ from app.models import (
     AssetBalanceSnapshot,
     ClosedPosition,
     DailyPnlSnapshot,
+    IncomeRecord,
     PositionSnapshot,
     SecurityAuditLog,
     SyncJob,
@@ -23,6 +24,137 @@ def canonical_polymarket_closed_source_id(source_record_id: str) -> str:
     base, separator, suffix = source_record_id.rpartition(":")
     stable_id = base if separator and suffix.isdigit() else source_record_id
     return f"poly-closed:{stable_id}"
+
+
+def canonical_okx_closed_source_id(source_record_id: str) -> str:
+    parts = source_record_id.split(":")
+    if (
+        len(parts) == 4
+        and parts[0] == "okx"
+        and parts[2].isdigit()
+        and parts[3].isdigit()
+    ):
+        return ":".join(parts[:3])
+    return source_record_id
+
+
+async def cleanup_okx_closed_positions(
+    db: AsyncSession,
+    *,
+    apply: bool,
+) -> dict[str, Any]:
+    rows = (
+        await db.scalars(
+            select(ClosedPosition)
+            .where(ClosedPosition.exchange == "OKX")
+            .order_by(ClosedPosition.created_at)
+        )
+    ).all()
+    groups: dict[tuple[Any, Any, str], list[ClosedPosition]] = {}
+    for row in rows:
+        canonical = canonical_okx_closed_source_id(row.source_record_id)
+        groups.setdefault(
+            (row.exchange_account_id, row.tracking_period_id, canonical),
+            [],
+        ).append(row)
+
+    duplicate_groups = [items for items in groups.values() if len(items) > 1]
+    delete_rows: list[ClosedPosition] = []
+    keepers: list[tuple[ClosedPosition, str]] = []
+    affected_dates: set[tuple[Any, Any, Any]] = set()
+    group_preview: list[dict[str, Any]] = []
+    for (account_id, period_id, canonical), items in groups.items():
+        keeper = max(
+            items,
+            key=lambda row: (row.close_time, row.updated_at, row.created_at),
+        )
+        keepers.append((keeper, canonical))
+        duplicates = [row for row in items if row.id != keeper.id]
+        if duplicates:
+            delete_rows.extend(duplicates)
+            for row in items:
+                affected_dates.add(
+                    (account_id, period_id, row.close_time.date())
+                )
+            group_preview.append(
+                {
+                    "symbol": keeper.normalized_symbol,
+                    "pos_id": canonical.rsplit(":", 1)[-1],
+                    "rows": len(items),
+                    "keep_close_time": keeper.close_time.isoformat(),
+                    "keep_net_pnl": str(keeper.net_pnl),
+                }
+            )
+
+    result = {
+        "scanned": len(rows),
+        "duplicate_groups": len(duplicate_groups),
+        "duplicates_to_delete": len(delete_rows),
+        "source_ids_to_normalize": sum(
+            row.source_record_id != canonical for row, canonical in keepers
+        ),
+        "groups": group_preview,
+        "applied": apply,
+    }
+    if not apply:
+        return result
+
+    for row in delete_rows:
+        await db.delete(row)
+    await db.flush()
+    for row, canonical in keepers:
+        row.source_record_id = canonical
+    await db.flush()
+
+    for account_id, period_id, snapshot_date in affected_dates:
+        snapshot = await db.scalar(
+            select(DailyPnlSnapshot).where(
+                DailyPnlSnapshot.exchange_account_id == account_id,
+                DailyPnlSnapshot.tracking_period_id == period_id,
+                DailyPnlSnapshot.snapshot_date == snapshot_date,
+            )
+        )
+        if snapshot is None:
+            continue
+        start = datetime.combine(snapshot_date, time.min, tzinfo=UTC)
+        end = datetime.combine(snapshot_date, time.max, tzinfo=UTC)
+        income_count, income_total = (
+            await db.execute(
+                select(
+                    func.count(IncomeRecord.id),
+                    func.sum(IncomeRecord.amount_usd),
+                ).where(
+                    IncomeRecord.exchange_account_id == account_id,
+                    IncomeRecord.tracking_period_id == period_id,
+                    IncomeRecord.record_time >= start,
+                    IncomeRecord.record_time <= end,
+                    IncomeRecord.income_type == "REALIZED_PNL",
+                )
+            )
+        ).one()
+        if income_count:
+            snapshot.realized_pnl = income_total or Decimal("0")
+        else:
+            realized = await db.scalar(
+                select(func.sum(ClosedPosition.realized_pnl)).where(
+                    ClosedPosition.exchange_account_id == account_id,
+                    ClosedPosition.tracking_period_id == period_id,
+                    ClosedPosition.close_time >= start,
+                    ClosedPosition.close_time <= end,
+                )
+            )
+            snapshot.realized_pnl = realized or Decimal("0")
+
+    db.add(
+        SecurityAuditLog(
+            action="OKX_PARTIAL_CLOSE_DUPLICATES_CLEANED",
+            outcome="SUCCESS",
+            client_ip="maintenance",
+            details=result,
+        )
+    )
+    await db.commit()
+    return result
 
 
 async def cleanup_polymarket_closed_positions(

@@ -34,6 +34,7 @@ from app.models import (
 )
 from app.schemas import ExchangeAccountCreate
 from app.security import CredentialCipher, EncryptedField, mask_identifier
+from app.services.maintenance import canonical_okx_closed_source_id
 from app.services.polymarket_translation import (
     capture_polymarket_translation_sources,
 )
@@ -438,7 +439,7 @@ async def _upsert_closed_positions(
         ClosedPosition.exchange_account_id == account.id,
         ClosedPosition.tracking_period_id == period.id,
     )
-    if account.exchange != "POLYMARKET":
+    if account.exchange not in {"POLYMARKET", "OKX"}:
         existing_query = existing_query.where(ClosedPosition.source_record_id.in_(source_ids))
     existing_rows = (await db.scalars(existing_query)).all()
     existing = {row.source_record_id: row for row in existing_rows}
@@ -447,9 +448,40 @@ async def _upsert_closed_positions(
         for existing_row in existing_rows:
             key = (existing_row.normalized_symbol, existing_row.side)
             polymarket_rows.setdefault(key, []).append(existing_row)
+    okx_rows: dict[str, list[ClosedPosition]] = {}
+    if account.exchange == "OKX":
+        for existing_row in existing_rows:
+            canonical = canonical_okx_closed_source_id(
+                existing_row.source_record_id
+            )
+            okx_rows.setdefault(canonical, []).append(existing_row)
     for item in positions:
         source_id = str(item["source_record_id"])
         row = existing.get(source_id)
+        if account.exchange == "OKX":
+            candidates = okx_rows.get(source_id, [])
+            if candidates:
+                row = next(
+                    (
+                        candidate
+                        for candidate in candidates
+                        if candidate.source_record_id == source_id
+                    ),
+                    max(
+                        candidates,
+                        key=lambda candidate: (
+                            candidate.close_time,
+                            candidate.updated_at,
+                            candidate.created_at,
+                        ),
+                    ),
+                )
+                for duplicate in candidates:
+                    if duplicate.id != row.id:
+                        await db.delete(duplicate)
+                await db.flush()
+                row.source_record_id = source_id
+                existing[source_id] = row
         if row is None and account.exchange == "POLYMARKET":
             legacy = polymarket_rows.get((item["normalized_symbol"], item["side"]), [])
             if legacy:

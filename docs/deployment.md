@@ -253,3 +253,28 @@ docker compose \
 
 命令只处理 `POLYMARKET` 已平仓记录，按稳定 outcome token 合并旧的
 `asset:timestamp` 记录，保留最新一条并重算受影响日期的已实现收益。
+
+## OKX 分批平仓重复记录维护
+
+旧版本曾把 OKX `positions-history` 的 `uTime` 写进来源 ID，导致同一 `posId` 的部分
+平仓和最终平仓显示为多条。先只读预览：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/cleanup_okx_partial_closes.py
+```
+
+确认并完成数据库备份后执行：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  exec -T backend python scripts/cleanup_okx_partial_closes.py --apply
+```
+
+脚本按 `instType + posId` 分组，保留关闭时间最新的 OKX 累计记录、删除旧阶段快照，
+规范化来源 ID，并使用账务流水重新计算受影响日期的已实现收益。它不会把阶段金额相加，
+也不会处理其他交易所的数据。

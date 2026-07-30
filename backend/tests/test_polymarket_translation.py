@@ -4,8 +4,8 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.database import SessionLocal
 from app.api import _polymarket_asset_id, _translation_fields
+from app.database import SessionLocal
 from app.models import ClosedPosition, CurrentPosition, PolymarketTranslation
 from app.services.polymarket_translation import (
     BaiduLLMTranslator,

@@ -12,6 +12,7 @@ from app.models import (
     ClosedPosition,
     DailyPnlSnapshot,
     ExchangeAccount,
+    IncomeRecord,
     PositionSnapshot,
     SecurityAuditLog,
     SyncJob,
@@ -20,6 +21,7 @@ from app.models import (
 from app.services.analytics import calculate_max_drawdown, calculate_risk_level
 from app.services.maintenance import (
     apply_data_retention,
+    cleanup_okx_closed_positions,
     cleanup_polymarket_closed_positions,
 )
 
@@ -121,6 +123,113 @@ async def test_polymarket_duplicate_cleanup_is_previewable_and_recalculates_dail
         assert rows[0].source_record_id == "poly-closed:stable-asset"
         daily = await db.scalar(select(DailyPnlSnapshot))
         assert daily.realized_pnl == Decimal("6")
+
+
+@pytest.mark.asyncio
+async def test_okx_partial_close_cleanup_keeps_final_cumulative_row():
+    started = datetime(2026, 7, 29, tzinfo=UTC)
+    partial_close = datetime(2026, 7, 29, 19, 8, tzinfo=UTC)
+    final_close = datetime(2026, 7, 30, 1, 14, tzinfo=UTC)
+    async with SessionLocal() as db:
+        account = ExchangeAccount(
+            exchange="OKX",
+            connection_name="okx-partial-close-test",
+            masked_identifier="abc••••xyz",
+            tracking_started_at=started,
+            last_synced_at=final_close,
+        )
+        db.add(account)
+        await db.flush()
+        period = TrackingPeriod(
+            exchange="OKX",
+            exchange_account_id=account.id,
+            started_at=started,
+            is_active=True,
+        )
+        db.add(period)
+        await db.flush()
+
+        source_prefix = "okx:SWAP:3785165892823834624"
+        for close_time, suffix, realized, net in (
+            (partial_close, "1785352091898", "16.983725", "13.9714090974"),
+            (final_close, "1785374042629", "63.5959", "60.1845838474"),
+        ):
+            db.add(
+                ClosedPosition(
+                    exchange="OKX",
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=f"{source_prefix}:{suffix}",
+                    symbol="KIOXIA-USDT-SWAP",
+                    normalized_symbol="KIOXIA-USDT-PERP",
+                    side="LONG",
+                    open_time=started,
+                    close_time=close_time,
+                    max_position_size=Decimal("4.12"),
+                    realized_pnl=Decimal(realized),
+                    net_pnl=Decimal(net),
+                    tracking_started_at=started,
+                    created_at=close_time,
+                    updated_at=close_time,
+                )
+            )
+        for snapshot_date, realized in (
+            (date(2026, 7, 29), "16.983725"),
+            (date(2026, 7, 30), "63.5959"),
+        ):
+            db.add(
+                DailyPnlSnapshot(
+                    exchange="OKX",
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=f"daily-{snapshot_date}",
+                    snapshot_date=snapshot_date,
+                    realized_pnl=Decimal(realized),
+                )
+            )
+        for index, (record_time, amount) in enumerate(
+            (
+                (partial_close, "16.983725"),
+                (final_close, "46.612175"),
+            )
+        ):
+            db.add(
+                IncomeRecord(
+                    exchange="OKX",
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=f"okx-bill-{index}",
+                    income_type="REALIZED_PNL",
+                    amount_usd=Decimal(amount),
+                    record_time=record_time,
+                )
+            )
+        await db.commit()
+
+        preview = await cleanup_okx_closed_positions(db, apply=False)
+        assert preview["duplicate_groups"] == 1
+        assert preview["duplicates_to_delete"] == 1
+        assert preview["groups"][0]["symbol"] == "KIOXIA-USDT-PERP"
+        assert await db.scalar(select(func.count()).select_from(ClosedPosition)) == 2
+
+        applied = await cleanup_okx_closed_positions(db, apply=True)
+        assert applied["duplicates_to_delete"] == 1
+        rows = list((await db.scalars(select(ClosedPosition))).all())
+        assert len(rows) == 1
+        assert rows[0].source_record_id == source_prefix
+        assert rows[0].close_time == final_close
+        assert rows[0].net_pnl == Decimal("60.1845838474")
+        daily_rows = (
+            await db.scalars(
+                select(DailyPnlSnapshot).order_by(
+                    DailyPnlSnapshot.snapshot_date
+                )
+            )
+        ).all()
+        assert [row.realized_pnl for row in daily_rows] == [
+            Decimal("16.983725"),
+            Decimal("46.612175"),
+        ]
 
 
 @pytest.mark.asyncio

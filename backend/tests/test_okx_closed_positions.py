@@ -42,9 +42,7 @@ async def test_okx_closed_positions_normalize_exchange_history(monkeypatch):
 
     assert len(positions) == 1
     position = positions[0]
-    assert position["source_record_id"] == (
-        "okx:SWAP:3776777608724766720:1785080589858"
-    )
+    assert position["source_record_id"] == "okx:SWAP:3776777608724766720"
     assert position["symbol"] == "TRUMP-USDT-SWAP"
     assert position["normalized_symbol"] == "TRUMP-USDT-PERP"
     assert position["side"] == "LONG"
@@ -95,3 +93,54 @@ async def test_okx_position_history_paginates_by_oldest_update_time(monkeypatch)
         {"instType": "SWAP", "limit": 100},
     )
     assert calls[1][1]["after"] == first_page[-1]["uTime"]
+
+
+@pytest.mark.asyncio
+async def test_okx_partial_closes_share_one_position_identity(monkeypatch):
+    adapter = OkxAdapter(api_key="key", api_secret="secret", passphrase="pass")
+    partial = {
+        "cTime": "1785309134228",
+        "uTime": "1785352091898",
+        "instId": "KIOXIA-USDT-SWAP",
+        "instType": "SWAP",
+        "posId": "3785165892823834624",
+        "direction": "long",
+        "openAvgPx": "243.1677427184",
+        "closeAvgPx": "259.6567961165",
+        "openMaxPos": "4.12",
+        "closeTotalPos": "1.03",
+        "pnl": "16.983725",
+        "fee": "-0.6346488",
+        "fundingFee": "-2.3776671026",
+        "realizedPnl": "13.9714090974",
+        "pnlRatio": "0.13",
+    }
+    final = {
+        **partial,
+        "uTime": "1785374042629",
+        "closeAvgPx": "258.6036407767",
+        "closeTotalPos": "4.12",
+        "pnl": "63.5959",
+        "fee": "-1.03364905",
+        "realizedPnl": "60.1845838474",
+        "pnlRatio": "0.60073382",
+    }
+
+    async def fake_rows(inst_type, *_):
+        return [final, partial] if inst_type == "SWAP" else []
+
+    monkeypatch.setattr(adapter, "_position_history_rows", fake_rows)
+    try:
+        positions = await adapter.get_closed_positions(
+            datetime(2026, 7, 29, tzinfo=UTC),
+            datetime(2026, 7, 31, tzinfo=UTC),
+        )
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    assert positions[0]["source_record_id"] == "okx:SWAP:3785165892823834624"
+    assert positions[0]["close_time"] == datetime(
+        2026, 7, 30, 1, 14, 2, 629000, tzinfo=UTC
+    )
+    assert positions[0]["net_pnl"] == pytest.approx(60.1845838474)

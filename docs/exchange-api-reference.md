@@ -32,11 +32,16 @@
 - `GET /api/v5/account/config`：账户配置与权限
 - `GET /api/v5/account/balance`：交易账户权益和余额
 - `GET /api/v5/account/positions`：当前仓位
+- `GET /api/v5/account/positions-history`：永续和交割合约已平仓仓位
 - `GET /api/v5/account/bills-archive`：统计起点后的已实现收益、资金费、交易手续费和
   Funding/Trading 账户划转；接口最多覆盖近 3 个月
 
 签名原文为 `timestamp + method + requestPath + body`，使用 HMAC-SHA256 后
 Base64 编码，并发送 OKX 的四个认证请求头。
+
+`positions-history` 在同一仓位分批减仓时会保留相同 `posId`，并更新 `uTime`、累计
+平仓数量、均价和盈亏。平台只使用 `instType + posId` 作为稳定来源 ID；`uTime` 仅作为
+最终关闭时间，不参与幂等键，避免把中间减仓状态与最终累计状态同时计入历史仓位。
 
 ## Bitget
 

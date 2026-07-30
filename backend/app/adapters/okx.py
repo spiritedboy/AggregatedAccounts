@@ -174,12 +174,20 @@ class OkxAdapter(ExchangeAdapter):
                 item.get("realizedPnl")
                 or pnl + fee + funding_fee + liquidation_penalty + settled_pnl
             )
-            source_record_id = (
-                f"okx:{item.get('instType') or 'UNKNOWN'}:"
-                f"{item.get('posId') or item.get('instId') or 'position'}:"
-                f"{close_timestamp}"
-            )
-            positions_by_id[source_record_id] = {
+            position_id = str(item.get("posId") or "").strip()
+            if position_id:
+                # OKX keeps the same posId while a position is reduced in stages and
+                # updates the history row cumulatively. uTime changes on every reduction,
+                # so it must not be part of the identity when posId is available.
+                source_record_id = (
+                    f"okx:{item.get('instType') or 'UNKNOWN'}:{position_id}"
+                )
+            else:
+                source_record_id = (
+                    f"okx:{item.get('instType') or 'UNKNOWN'}:"
+                    f"{item.get('instId') or 'position'}:{close_timestamp}"
+                )
+            normalized = {
                 "source_record_id": source_record_id,
                 "symbol": item["instId"],
                 "normalized_symbol": SymbolNormalizer.normalize(item["instId"]),
@@ -201,6 +209,9 @@ class OkxAdapter(ExchangeAdapter):
                 "data_source": "EXCHANGE_API",
                 "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",
             }
+            existing = positions_by_id.get(source_record_id)
+            if existing is None or normalized["close_time"] > existing["close_time"]:
+                positions_by_id[source_record_id] = normalized
         return list(positions_by_id.values())
 
     async def get_income_history(
