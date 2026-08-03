@@ -551,7 +551,11 @@ class BinanceAdapter(ExchangeAdapter):
                     "return_percent": (
                         realized_pnl / initial_notional * 100 if initial_notional else 0
                     ),
-                    "data_source": "RECONSTRUCTED",
+                    # Binance does not expose a native closed-position history
+                    # resource. Every field above is derived from the exchange's
+                    # signed userTrades response, so distinguish this auditable
+                    # exchange-fill reconstruction from a local estimate.
+                    "data_source": "EXCHANGE_FILLS",
                     "data_completeness": "PARTIAL",
                 }
             )

@@ -66,7 +66,7 @@ async def test_binance_closed_positions_reconstruct_one_way_cycle(monkeypatch):
     assert position["realized_pnl"] == pytest.approx(-10)
     assert position["trading_fee"] == pytest.approx(0.3)
     assert position["net_pnl"] == pytest.approx(-10.3)
-    assert position["data_source"] == "RECONSTRUCTED"
+    assert position["data_source"] == "EXCHANGE_FILLS"
     assert position["data_completeness"] == "PARTIAL"
 
 

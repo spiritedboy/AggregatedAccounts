@@ -241,7 +241,7 @@ function HistoryContent() {
                           {position.data_source === "EXCHANGE_API"
                             ? "交易所 API"
                             : position.data_source === "EXCHANGE_FILLS"
-                              ? "交易所成交重建"
+                              ? "交易所成交 API"
                               : "本地重建"}
                         </Badge>
                         <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>
@@ -285,7 +285,7 @@ function HistoryContent() {
                     {position.data_source === "EXCHANGE_API"
                       ? "交易所 API"
                       : position.data_source === "EXCHANGE_FILLS"
-                        ? "交易所成交重建"
+                        ? "交易所成交 API"
                         : "本地重建"}
                   </Badge>
                   <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>

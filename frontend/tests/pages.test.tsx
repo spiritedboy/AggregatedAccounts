@@ -457,7 +457,7 @@ describe("portfolio pages", () => {
       },
     });
     render(<HistoryPage />);
-    expect(await screen.findAllByText("交易所成交重建")).not.toHaveLength(0);
+    expect(await screen.findAllByText("交易所成交 API")).not.toHaveLength(0);
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();

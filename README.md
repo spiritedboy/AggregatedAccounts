@@ -225,12 +225,13 @@ OKX 对分批减仓会持续更新同一个 `posId` 和 `cTime` 的累计历史�
 Hyperliquid 自动读取 `perpDexs` 并逐个查询默认永续和 HIP-3 DEX 的持仓；`xyz:CXMT`
 会保留 DEX 来源，同时展示为 `CXMT-USDT-PERP`。已平仓数据根据官方
 `userFillsByTime` 的 `startPosition` 重建从开仓到仓位归零的周期，并将同周期资金费和
-USDC 手续费纳入净收益；页面明确标为“交易所成交重建”，不再误写成“本地重建”。
+USDC 手续费纳入净收益；页面明确标为“交易所成交 API”，不再误写成“本地重建”。
 统计开始时已经存在的仓位会使用平仓成交的 `closedPnl` 反推入场均价并标记 `PARTIAL`。
 Binance 根据 USDⓈ-M `userTrades` 的成交
 方向、`positionSide` 和逐笔 `realizedPnl` 重建单向或双向持仓周期。由于 Binance
 成交记录没有原生仓位周期 ID，且资金费不能可靠分配给同时存在的多空两侧，重建结果
-统一标记 `RECONSTRUCTED / PARTIAL`。同一 `orderId` 的多个成交分片会先按成交数量
+统一标记 `EXCHANGE_FILLS / PARTIAL`，页面显示“交易所成交 API”，明确数据来自 Binance
+签名接口而不是平台本地估算。同一 `orderId` 的多个成交分片会先按成交数量
 加权合并，再进入仓位周期重建，避免一张平仓单在历史仓位显示成多条；已实现收益和
 手续费仍取所有成交分片之和。资金费在账务流水和收益汇总中独立准确统计。
 
