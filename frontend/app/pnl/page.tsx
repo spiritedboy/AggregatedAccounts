@@ -51,14 +51,28 @@ type PnlBootstrapData = {
   monthly: PnlPoint[];
   by_exchange: ExchangePnl[];
   by_side: SidePnl;
+  trade_quality: TradeQuality;
 };
 
-type SideMetrics = { count: number; net_pnl: number; average_net_pnl: number };
+type SideMetrics = {
+  count: number;
+  net_pnl: number;
+  average_net_pnl: number;
+  win_rate: number;
+  average_win: number;
+  average_loss: number;
+};
 type SidePnl = {
   long: SideMetrics;
   short: SideMetrics;
-  pnl_ratio: number | null;
   count_ratio: number | null;
+};
+type ExtremeTrade = { exchange: string; symbol: string; side: "LONG" | "SHORT"; net_pnl: number; close_time: string };
+type TradeQuality = SideMetrics & {
+  payoff_ratio: number | null;
+  profit_factor: number | null;
+  best_trade: ExtremeTrade | null;
+  worst_trade: ExtremeTrade | null;
 };
 
 export default function PnlPage() {
@@ -76,6 +90,7 @@ function PnlContent() {
   const [monthly, setMonthly] = useState<PnlPoint[]>([]);
   const [byExchange, setByExchange] = useState<ExchangePnl[]>([]);
   const [bySide, setBySide] = useState<SidePnl | null>(null);
+  const [tradeQuality, setTradeQuality] = useState<TradeQuality | null>(null);
   const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
@@ -95,6 +110,7 @@ function PnlContent() {
         setMonthly(nextData.monthly);
         setByExchange(nextData.by_exchange);
         setBySide(nextData.by_side);
+        setTradeQuality(nextData.trade_quality);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
@@ -275,7 +291,8 @@ function PnlContent() {
         </article>
       </section>
 
-      {bySide ? <SidePerformance data={bySide} formatMoney={formatMoney} /> : null}
+      {tradeQuality ? <TradeQualityPanel data={tradeQuality} formatMoney={formatMoney} /> : null}
+      {bySide ? <SidePerformance data={bySide} quality={tradeQuality} formatMoney={formatMoney} /> : null}
 
       <section className="panel mt-4 p-5 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -337,7 +354,56 @@ function PnlContent() {
   );
 }
 
-function SidePerformance({ data, formatMoney }: { data: SidePnl; formatMoney: (value: number) => string }) {
+function TradeQualityPanel({ data, formatMoney }: { data: TradeQuality; formatMoney: (value: number) => string }) {
+  const ratio = (value: number | null) => (value === null ? "--" : value.toFixed(2));
+  const metrics = [
+    ["交易胜率", `${data.win_rate.toFixed(1)}%`],
+    ["平均盈利", formatMoney(data.average_win)],
+    ["平均亏损", formatMoney(data.average_loss)],
+    ["盈亏比", ratio(data.payoff_ratio)],
+    ["盈利因子", ratio(data.profit_factor)],
+  ];
+
+  return (
+    <section className="panel mt-4 overflow-hidden">
+      <div className="border-b px-5 py-4 md:px-6" style={{ borderColor: "var(--line)" }}>
+        <p className="section-label">交易质量</p>
+        <p className="muted mt-1 text-xs">按历史仓位净收益衡量胜率、平均盈亏与收益质量</p>
+      </div>
+      <div className="grid xl:grid-cols-[1.2fr_.8fr]">
+        <div className="grid gap-3 border-b p-5 sm:grid-cols-2 lg:grid-cols-5 xl:border-b-0 xl:border-r md:p-6" style={{ borderColor: "var(--line)" }}>
+          {metrics.map(([label, value]) => (
+            <div key={label} className="soft-block p-4">
+              <p className="metric-label">{label}</p>
+              <p className="mono-number mt-3 text-lg font-bold">{value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-3 p-5 sm:grid-cols-2 md:p-6">
+          <ExtremeTradeCard label="最大单笔盈利" trade={data.best_trade} formatMoney={formatMoney} tone="positive" />
+          <ExtremeTradeCard label="最大单笔亏损" trade={data.worst_trade} formatMoney={formatMoney} tone="negative" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExtremeTradeCard({ label, trade, formatMoney, tone }: { label: string; trade: ExtremeTrade | null; formatMoney: (value: number) => string; tone: "positive" | "negative" }) {
+  return (
+    <div className="soft-block p-4">
+      <p className="metric-label">{label}</p>
+      {trade ? (
+        <>
+          <p className={`mono-number mt-2 text-lg font-bold ${tone === "positive" ? "text-positive" : "text-negative"}`}>{formatMoney(trade.net_pnl)}</p>
+          <p className="mt-2 truncate text-xs font-semibold">{trade.symbol}</p>
+          <p className="muted mt-1 text-[10px]">{trade.exchange} · {trade.side === "LONG" ? "做多" : "做空"}</p>
+        </>
+      ) : <p className="muted mt-3 text-sm">暂无数据</p>}
+    </div>
+  );
+}
+
+function SidePerformance({ data, quality, formatMoney }: { data: SidePnl; quality: TradeQuality | null; formatMoney: (value: number) => string }) {
   const sides = [
     { label: "做多", tone: "positive", data: data.long },
     { label: "做空", tone: "negative", data: data.short },
@@ -372,13 +438,18 @@ function SidePerformance({ data, formatMoney }: { data: SidePnl; formatMoney: (v
                 {formatMoney(side.data.average_net_pnl)}
               </span>
             </div>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <SideDetail label="胜率" value={`${side.data.win_rate.toFixed(1)}%`} />
+              <SideDetail label="平均盈利" value={formatMoney(side.data.average_win)} tone="positive" />
+              <SideDetail label="平均亏损" value={formatMoney(side.data.average_loss)} tone="negative" />
+            </div>
           </div>
         ))}
         <div className="grid grid-cols-2 gap-3 p-5 lg:grid-cols-1 md:p-6">
           <div className="soft-block p-4">
-            <p className="metric-label">多空净收益比</p>
-            <p className="mono-number mt-2 text-lg font-bold">{ratio(data.pnl_ratio)}</p>
-            <p className="muted mt-1 text-[10px]">做多 ÷ 做空</p>
+            <p className="metric-label">盈利因子</p>
+            <p className="mono-number mt-2 text-lg font-bold">{quality?.profit_factor == null ? "--" : quality.profit_factor.toFixed(2)}</p>
+            <p className="muted mt-1 text-[10px]">总盈利 ÷ 总亏损绝对值</p>
           </div>
           <div className="soft-block p-4">
             <p className="metric-label">多空次数比</p>
@@ -388,6 +459,15 @@ function SidePerformance({ data, formatMoney }: { data: SidePnl; formatMoney: (v
         </div>
       </div>
     </section>
+  );
+}
+
+function SideDetail({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
+  return (
+    <div className="rounded-lg bg-[var(--surface-soft)] p-2.5">
+      <p className="muted text-[9px]">{label}</p>
+      <p className={`mono-number mt-1 truncate text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
+    </div>
   );
 }
 

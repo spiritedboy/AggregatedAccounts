@@ -561,10 +561,21 @@ describe("portfolio pages", () => {
           },
         ],
         by_side: {
-          long: { count: 8, net_pnl: 160, average_net_pnl: 20 },
-          short: { count: 4, net_pnl: -40, average_net_pnl: -10 },
-          pnl_ratio: -4,
+          long: { count: 8, net_pnl: 160, average_net_pnl: 20, win_rate: 62.5, average_win: 48, average_loss: -26.67 },
+          short: { count: 4, net_pnl: -40, average_net_pnl: -10, win_rate: 25, average_win: 30, average_loss: -23.33 },
           count_ratio: 2,
+        },
+        trade_quality: {
+          count: 12,
+          net_pnl: 120,
+          average_net_pnl: 10,
+          win_rate: 50,
+          average_win: 45,
+          average_loss: -25,
+          payoff_ratio: 1.8,
+          profit_factor: 1.8,
+          best_trade: { exchange: "BINANCE", symbol: "BTC-USDT-PERP", side: "LONG", net_pnl: 120, close_time: "2026-07-26T00:00:00Z" },
+          worst_trade: { exchange: "OKX", symbol: "ETH-USDT-PERP", side: "SHORT", net_pnl: -80, close_time: "2026-07-25T00:00:00Z" },
         },
       },
     });
@@ -577,7 +588,10 @@ describe("portfolio pages", () => {
     expect(screen.getByText("多空表现")).toBeInTheDocument();
     expect(screen.getByText("8 笔")).toBeInTheDocument();
     expect(screen.getByText("4 笔")).toBeInTheDocument();
-    expect(screen.getByText("-4.00 : 1")).toBeInTheDocument();
+    expect(screen.getByText("交易质量")).toBeInTheDocument();
+    expect(screen.getByText("最大单笔盈利")).toBeInTheDocument();
+    expect(screen.getByText("最大单笔亏损")).toBeInTheDocument();
+    expect(screen.getAllByText("盈利因子")).not.toHaveLength(0);
     expect(screen.getByText("2.00 : 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每周" })).toBeInTheDocument();

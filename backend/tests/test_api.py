@@ -36,11 +36,14 @@ def test_other_page_bootstraps_return_complete_payloads(client):
     pnl = client.get("/api/pnl/bootstrap")
     assert pnl.status_code == 200
     pnl_data = pnl.json()["data"]
-    assert {"summary", "daily", "weekly", "monthly", "by_exchange", "by_side"} == set(
+    assert {"summary", "daily", "weekly", "monthly", "by_exchange", "by_side", "trade_quality"} == set(
         pnl_data
     )
-    assert {"long", "short", "pnl_ratio", "count_ratio"} == set(
+    assert {"long", "short", "count_ratio"} == set(
         pnl_data["by_side"]
+    )
+    assert {"win_rate", "payoff_ratio", "profit_factor", "best_trade", "worst_trade"} <= set(
+        pnl_data["trade_quality"]
     )
     assert pnl_data["daily"]
     assert pnl_data["summary"] == client.get("/api/pnl/summary").json()["data"]

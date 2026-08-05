@@ -1218,13 +1218,9 @@ async def _pnl_by_exchange_data(
 
 
 async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
-    rows = (
-        await db.execute(
-            select(
-                ClosedPosition.side,
-                func.count(ClosedPosition.id),
-                func.coalesce(func.sum(ClosedPosition.net_pnl), 0),
-            )
+    positions = list(
+        await db.scalars(
+            select(ClosedPosition)
             .join(ExchangeAccount)
             .join(TrackingPeriod)
             .where(
@@ -1232,37 +1228,75 @@ async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
                 TrackingPeriod.is_active.is_(True),
                 ClosedPosition.side.in_(("LONG", "SHORT")),
             )
-            .group_by(ClosedPosition.side)
         )
-    ).all()
-    totals = {side: {"count": 0, "net_pnl": 0.0} for side in ("LONG", "SHORT")}
-    for side, count, net_pnl in rows:
-        totals[side] = {"count": int(count), "net_pnl": _num(net_pnl)}
+    )
 
-    for values in totals.values():
-        values["average_net_pnl"] = (
-            values["net_pnl"] / values["count"] if values["count"] else 0.0
-        )
-    short_pnl = totals["SHORT"]["net_pnl"]
-    short_count = totals["SHORT"]["count"]
+    def metrics(items: list[ClosedPosition]) -> dict[str, Any]:
+        pnls = [_num(item.net_pnl) for item in items]
+        wins = [value for value in pnls if value > 0]
+        losses = [value for value in pnls if value < 0]
+        return {
+            "count": len(items),
+            "net_pnl": sum(pnls),
+            "average_net_pnl": sum(pnls) / len(items) if items else 0,
+            "win_rate": len(wins) / len(items) * 100 if items else 0,
+            "average_win": sum(wins) / len(wins) if wins else 0,
+            "average_loss": sum(losses) / len(losses) if losses else 0,
+        }
+
+    by_side = {
+        side: metrics([position for position in positions if position.side == side])
+        for side in ("LONG", "SHORT")
+    }
+    all_metrics = metrics(positions)
+    all_pnls = [_num(position.net_pnl) for position in positions]
+    wins = [value for value in all_pnls if value > 0]
+    losses = [value for value in all_pnls if value < 0]
+
+    def extreme(position: ClosedPosition | None) -> dict[str, Any] | None:
+        if position is None:
+            return None
+        return {
+            "exchange": position.exchange,
+            "symbol": position.normalized_symbol,
+            "side": position.side,
+            "net_pnl": _num(position.net_pnl),
+            "close_time": position.close_time,
+        }
+
+    best = max(positions, key=lambda item: _num(item.net_pnl), default=None)
+    worst = min(positions, key=lambda item: _num(item.net_pnl), default=None)
+    short_count = by_side["SHORT"]["count"]
+    average_win = all_metrics["average_win"]
+    average_loss = all_metrics["average_loss"]
     return {
-        "long": totals["LONG"],
-        "short": totals["SHORT"],
-        "pnl_ratio": totals["LONG"]["net_pnl"] / short_pnl if short_pnl else None,
-        "count_ratio": totals["LONG"]["count"] / short_count if short_count else None,
+        "by_side": {
+            "long": by_side["LONG"],
+            "short": by_side["SHORT"],
+            "count_ratio": by_side["LONG"]["count"] / short_count if short_count else None,
+        },
+        "quality": {
+            **all_metrics,
+            "payoff_ratio": average_win / abs(average_loss) if average_loss else None,
+            "profit_factor": sum(wins) / abs(sum(losses)) if losses else None,
+            "best_trade": extreme(best),
+            "worst_trade": extreme(worst),
+        },
     }
 
 
 async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
     rows = await _daily_pnl_rows(db)
     daily = _daily_pnl_points_from_rows(rows)
+    trade_analytics = await _pnl_by_side_data(db)
     return {
         "summary": await _pnl_summary_data(db, daily),
         "daily": daily,
         "weekly": _bucket_pnl_points(daily, "week"),
         "monthly": _bucket_pnl_points(daily, "month"),
         "by_exchange": await _pnl_by_exchange_data(db, rows),
-        "by_side": await _pnl_by_side_data(db),
+        "by_side": trade_analytics["by_side"],
+        "trade_quality": trade_analytics["quality"],
     }
 
 
