@@ -200,7 +200,7 @@ function HistoryContent() {
                           {title}
                           <CalculationHint
                             label="历史仓位收益率"
-                            text="收益率 = 净收益 ÷ 仓位本金 × 100%。净收益已经计入资金费并扣除手续费；无法确认历史杠杆和本金时不猜测，显示“杠杆数据不足”。"
+                            text="有可靠本金时显示杠杆收益率：净收益 ÷ 仓位本金 × 100%。缺少历史杠杆时改为显示开仓价到平仓价的价格变动，做空仓位按反方向计算。"
                           />
                           <SortButton
                             direction={netPnlSort}
@@ -237,9 +237,7 @@ function HistoryContent() {
                     <td className={`mono-number font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">
                       {formatMoney(position.net_pnl)}
                       <p className="mt-1 text-xs">
-                        {position.margin_used > 0
-                          ? `${number(position.return_percent, 2)}%`
-                          : "杠杆数据不足"}
+                        {historicalReturnLabel(position)}
                       </p>
                     </td>
                     <td>
@@ -281,16 +279,14 @@ function HistoryContent() {
                       净收益
                       <CalculationHint
                         label="历史仓位收益率"
-                        text="收益率 = 净收益 ÷ 仓位本金 × 100%。无法确认历史杠杆和本金时显示“杠杆数据不足”。"
+                        text="有可靠本金时显示杠杆收益率；缺少历史杠杆时显示开仓价到平仓价的价格变动，做空仓位按反方向计算。"
                       />
                     </p>
                     <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                       {formatMoney(position.net_pnl)}
                     </p>
                     <p className="muted mono-number mt-1 text-[10px]">
-                      {position.margin_used > 0
-                        ? `${number(position.return_percent, 2)}%`
-                        : "杠杆数据不足"}
+                      {historicalReturnLabel(position)}
                     </p>
                   </div>
                   <div className="soft-block p-3">
@@ -325,6 +321,18 @@ function HistoryContent() {
       )}
     </>
   );
+}
+
+function historicalReturnLabel(position: ClosedPosition) {
+  if (position.margin_used > 0) return `${number(position.return_percent, 2)}%`;
+  if (position.average_entry_price <= 0) return "价格变动 --";
+  const direction = position.side === "SHORT" ? -1 : 1;
+  const priceChange =
+    ((position.average_exit_price - position.average_entry_price) /
+      position.average_entry_price) *
+    100 *
+    direction;
+  return `价格变动 ${priceChange >= 0 ? "+" : ""}${number(priceChange, 2)}%`;
 }
 
 function Select({ value, onChange, label, children }: { value: string; onChange: (value: string) => void; label: string; children: React.ReactNode }) {

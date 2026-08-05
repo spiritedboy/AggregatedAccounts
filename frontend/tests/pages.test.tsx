@@ -485,8 +485,8 @@ describe("portfolio pages", () => {
             funding_fee: 0,
             trading_fee: 1,
             net_pnl: -26,
-            leverage: 20,
-            margin_used: 125,
+            leverage: 0,
+            margin_used: 0,
             return_percent: -20.8,
             data_source: "EXCHANGE_API",
             data_completeness: "COMPLETE",
@@ -499,6 +499,8 @@ describe("portfolio pages", () => {
     expect(await screen.findAllByText("交易所成交 API")).not.toHaveLength(0);
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
     expect(screen.getAllByText("12.76%")).not.toHaveLength(0);
+    expect(screen.getAllByText("价格变动 -1%")).not.toHaveLength(0);
+    expect(screen.queryByText("杠杆数据不足")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "历史仓位收益率计算说明" })).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
