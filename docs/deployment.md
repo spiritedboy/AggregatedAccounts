@@ -1,141 +1,315 @@
-# 部署说明
+# Atlas Ledger 生产部署手册
 
-## 本地 WSL
+本文面向第一次接触 Atlas Ledger 的 Linux 运维人员。按顺序执行后，可在全新的
+Ubuntu 24.04 LTS 服务器上完成 PostgreSQL、TimescaleDB、Docker、应用、Nginx、TLS、
+备份、日志维护和升级回滚配置。
 
-前置条件：
+## 1. 部署约定与要求
 
-- Docker Engine 与 Docker Compose
-- WSL 宿主机 PostgreSQL 16
-- 与 PostgreSQL 版本匹配的 TimescaleDB
-- 正式数据库 `exchange_aggregator`
-- 测试数据库 `exchange_aggregator_test`
-- PostgreSQL 允许项目 Docker 子网 `172.30.42.0/24` 以
-  `scram-sha-256` 连接上述两个数据库
+| 项目 | 本文示例 |
+|---|---|
+| 域名 | `assets.example.com` |
+| 项目目录 | `/opt/atlas-ledger/app` |
+| 应用系统用户 | `atlas` |
+| 数据库 / 用户 | `exchange_aggregator` / `atlas_app` |
+| 应用源站 | `127.0.0.1:8000` |
+| Docker 内部网段 | `172.30.42.0/24` |
 
-启动：
+请替换域名和密码。建议至少 2 vCPU、4 GB RAM、40 GB SSD。服务器需有公网域名、
+root/sudo 权限、准确 NTP 时间，并能出站访问 GitHub、Docker Hub 和交易所 API。
+
+公网只开放 SSH、80 和 443，不开放 5432、8000、8001 或 3000。
 
 ```bash
-cd /home/yyf/codex/AggregatedAccounts
-make dev-up
+timedatectl status
+df -h
+free -h
 ```
 
-开发覆盖文件把 gateway 映射为：
+## 2. 安装基础软件与 PostgreSQL 16
 
-```yaml
-ports:
-  - "0.0.0.0:8000:80"
+先添加 PostgreSQL 官方仓库，避免 Ubuntu 默认版本不一致：
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl git gnupg jq openssl cron logrotate
+sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+  | sudo gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo \"$VERSION_CODENAME\")-pgdg main" \
+  | sudo tee /etc/apt/sources.list.d/pgdg.list
+sudo apt update
+sudo apt install -y postgresql-16 postgresql-client-16 postgresql-common
+sudo systemctl enable --now postgresql
 ```
 
-## 远程服务器
+## 3. 安装 TimescaleDB
 
-1. 将项目放入远程 Linux 文件系统。
-2. 创建 PostgreSQL 正式库与测试库，并仅放行项目 Docker 子网。
-3. 安装与 PostgreSQL 主版本匹配的 TimescaleDB；先备份
-   `/etc/postgresql/<version>/main/postgresql.conf`，再配置
-   `shared_preload_libraries = 'timescaledb'` 并重启 PostgreSQL。
-4. 复制 `.env.example` 为 `.env`，填写数据库密码、主加密密钥和已启用账户引用的环境变量。
-5. 运行 `make init` 自动生成缺失的主加密密钥和会话密钥。
-6. 将 `COOKIE_SECURE=true`、`APP_ENV=production`、`DEMO_MODE=false` 写入 `.env`。
-7. 如需启用 Polymarket 简体中文标题，在 `.env` 中配置百度 LLM 翻译：
+```bash
+curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/timescaledb.gpg
+echo "deb [signed-by=/usr/share/keyrings/timescaledb.gpg] https://packagecloud.io/timescale/timescaledb/ubuntu/ $(. /etc/os-release && echo \"$VERSION_CODENAME\") main" \
+  | sudo tee /etc/apt/sources.list.d/timescaledb.list
+sudo apt update
+sudo apt install -y timescaledb-2-postgresql-16
+sudo timescaledb-tune --quiet --yes
+sudo systemctl restart postgresql
+sudo -u postgres psql -Atqc \
+  "SELECT default_version FROM pg_available_extensions WHERE name='timescaledb';"
+```
+
+最后一条命令必须输出版本号。再确认预加载：
+
+```bash
+sudo -u postgres psql -Atqc "SHOW shared_preload_libraries;"
+```
+
+输出应包含 `timescaledb`。
+
+## 4. 创建数据库
+
+先生成强密码：
+
+```bash
+openssl rand -base64 36
+```
+
+进入 PostgreSQL，并替换密码占位符：
+
+```bash
+sudo -u postgres psql
+```
+
+```sql
+CREATE ROLE atlas_app LOGIN PASSWORD 'REPLACE_WITH_STRONG_PASSWORD';
+CREATE DATABASE exchange_aggregator OWNER atlas_app;
+\connect exchange_aggregator
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+GRANT ALL ON SCHEMA public TO atlas_app;
+\q
+```
+
+## 5. 允许容器访问宿主机数据库
+
+应用使用固定 Docker 网段 `172.30.42.0/24`。定位配置文件：
+
+```bash
+sudo -u postgres psql -Atqc "SHOW config_file; SHOW hba_file;"
+```
+
+在 `postgresql.conf` 设置：
+
+```conf
+listen_addresses = '127.0.0.1,172.30.42.1'
+```
+
+在 `pg_hba.conf` 追加：
+
+```conf
+host  exchange_aggregator  atlas_app  172.30.42.0/24  scram-sha-256
+```
+
+然后重启：
+
+```bash
+sudo systemctl restart postgresql
+sudo systemctl --no-pager --full status postgresql
+sudo ss -lntp | grep 5432
+```
+
+如果 Docker 网桥尚未创建，PostgreSQL 可能无法绑定 `172.30.42.1`。可暂时使用
+`listen_addresses='*'`，但必须通过 `pg_hba.conf` 和防火墙限制访问；应用首次启动创建
+网桥后再改回明确地址。
+
+## 6. 安装 Docker Engine 与 Compose
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+docker compose version
+```
+
+## 7. 获取代码
+
+```bash
+sudo useradd --system --create-home --home-dir /opt/atlas-ledger --shell /bin/bash atlas
+sudo -u atlas git clone https://github.com/spiritedboy/AggregatedAccounts.git /opt/atlas-ledger/app
+cd /opt/atlas-ledger/app
+git rev-parse --short HEAD
+git status --short
+```
+
+最后一条命令应无输出。
+
+## 8. 创建生产 `.env`
+
+```bash
+sudo -u atlas cp .env.example .env
+sudo -u atlas bash scripts/init-env.sh
+sudo chmod 600 .env
+sudo chown atlas:atlas .env
+sudo -u atlas nano .env
+```
+
+生产关键配置：
+
+```dotenv
+APP_ENV=production
+APP_ENCRYPTION_KEY=保留脚本自动生成的值
+COOKIE_SECURE=true
+DATABASE_URL=postgresql+asyncpg://atlas_app:URL_ENCODED_PASSWORD@host.docker.internal:5432/exchange_aggregator
+DATABASE_URL_SYNC=postgresql+psycopg://atlas_app:URL_ENCODED_PASSWORD@host.docker.internal:5432/exchange_aggregator
+TEST_DATABASE_URL=postgresql+asyncpg://atlas_app:URL_ENCODED_PASSWORD@host.docker.internal:5432/exchange_aggregator_test
+DEMO_MODE=false
+SYNC_BALANCE_SECONDS=60
+SYNC_POSITION_SECONDS=15
+SYNC_HISTORY_SECONDS=300
+SYNC_CLOSED_POSITION_SECONDS=600
+SYNC_HEALTH_SECONDS=60
+SYNC_JOB_RETENTION_DAYS=0
+BALANCE_SNAPSHOT_RETENTION_DAYS=0
+EQUITY_CURVE_CACHE_SECONDS=30
+MAINTENANCE_HOUR_UTC=4
+MAINTENANCE_MINUTE_UTC=20
+REQUEST_TIMEOUT_SECONDS=12
+EXCHANGE_ACCOUNTS_CONFIG=/app/config/exchange_accounts.local.json
+```
+
+数据库密码必须 URL 编码：
+
+```bash
+python3 -c 'import urllib.parse; print(urllib.parse.quote(input("Password: "), safe=""))'
+```
+
+注意：
+
+- `DEMO_MODE=false` 确保生产环境不生成测试数据
+- 两个 retention 值为 `0` 时业务数据永久保留
+- `APP_ENCRYPTION_KEY` 必须离线备份，并与数据库备份分开保存
+- 丢失加密密钥会导致已保存的交易所凭证无法解密
+- `.env` 不得提交 Git、复制到工单或输出到日志
+
+## 9. 配置交易所账户
+
+不要直接修改仓库跟踪的模板，否则后续 `git pull` 可能冲突。复制为已被 `.gitignore`
+忽略的生产配置：
+
+```bash
+sudo -u atlas cp \
+  backend/config/exchange_accounts.json \
+  backend/config/exchange_accounts.local.json
+sudo -u atlas nano backend/config/exchange_accounts.local.json
+```
+
+同一交易所的 `connection_name` 必须唯一。启用账户时只写环境变量名称：
+
+```json
+{
+  "exchange": "OKX",
+  "connection_name": "OKX 主账户",
+  "enabled": true,
+  "api_key_env": "OKX_API_KEY",
+  "api_secret_env": "OKX_API_SECRET",
+  "passphrase_env": "OKX_PASSPHRASE"
+}
+```
+
+真实值写入 `.env`：
+
+```dotenv
+OKX_API_KEY=
+OKX_API_SECRET=
+OKX_PASSPHRASE=
+HYPERLIQUID_WALLET_ADDRESS=0x...
+POLYMARKET_WALLET_ADDRESS=0x...
+```
+
+中心化交易所 API 必须只允许读取，建议绑定服务器出口 IP。Hyperliquid 和 Polymarket
+只使用公开钱包地址。详细权限见 [交易所 API 参考](exchange-api-reference.md)。
+
+启用 Polymarket 大模型翻译时填写：
 
 ```dotenv
 BAIDU_TRANSLATION_ENABLED=true
-BAIDU_TRANSLATION_APPID=<server-only-appid>
-BAIDU_TRANSLATION_API_KEY=<server-only-api-key>
+BAIDU_TRANSLATION_APPID=
+BAIDU_TRANSLATION_API_KEY=
+BAIDU_TRANSLATION_ENDPOINT=https://fanyi-api.baidu.com/ait/api/aiTextTranslate
 ```
 
-   凭证只保存在服务器 `.env`，文件权限应为 `600`，不得提交 Git 或写入日志。
-8. 永久保留生产数据库数据：
-
-```dotenv
-SYNC_JOB_RETENTION_DAYS=0
-BALANCE_SNAPSHOT_RETENTION_DAYS=0
-```
-
-9. 启动生产覆盖：
+## 10. 首次构建和启动
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  run --rm backend alembic upgrade head
-
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  up -d --build
+cd /opt/atlas-ledger/app
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml config >/tmp/atlas-ledger-compose.yml
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-生产覆盖仅绑定：
+backend 启动前自动执行 `alembic upgrade head`，首次运行会创建表、索引、TimescaleDB
+hypertable 和连续聚合。不要同时启动多个执行迁移的 backend 副本。
 
-```yaml
-ports:
-  - "127.0.0.1:8000:80"
-```
-
-项目不会占用宿主机 80/443，不管理 Let's Encrypt，也不会覆盖现有 Nginx。
-
-## 账户配置
-
-编辑 `backend/config/exchange_accounts.json`，启用需要的平台。真实凭证放在服务器
-`.env` 中，由 JSON 的 `api_key_env`、`api_secret_env`、`passphrase_env` 或
-`wallet_address_env` 引用。不要把真实密钥直接写入仓库。
-
-backend 每次启动都会读取配置：
-
-- 禁用项直接跳过；
-- 同交易所、同连接名称的启用账户保持不变；
-- 仅为缺失的启用账户测试只读权限并创建初始快照；
-- 不会因为配置项缺失或禁用而删除数据库中的已有账户和历史数据。
-
-Polymarket 翻译结果保存在独立的 `polymarket_translations` 表，迁移只新增表和索引，
-不修改账户、当前仓位或历史仓位。首次启用后可安全回填存量市场：
+等待并验证：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/backfill_polymarket_translations.py
+sleep 20
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+curl -fsS http://127.0.0.1:8000/api/health | jq .
 ```
 
-脚本先按正常只读流程同步 Polymarket，再翻译尚未缓存的 outcome token。失败项保留
-英文原文并由后续任务重试；已成功的译文在仓位平仓后继续复用。
+backend、frontend、gateway 都应为 `healthy`。
 
-网站为公开只读模式，不需要访问密码；添加、删除、连接测试和手动同步只能通过服务器
-配置、后台调度或运维流程完成，公网页面和对应写 API 均不能触发。
+## 11. 验证数据库初始化
 
-## 宿主机 Nginx 示例
+```bash
+sudo -u postgres psql -d exchange_aggregator -c "SELECT version_num FROM alembic_version;"
+sudo -u postgres psql -d exchange_aggregator -c \
+  "SELECT extname, extversion FROM pg_extension WHERE extname='timescaledb';"
+sudo -u postgres psql -d exchange_aggregator -c \
+  "SELECT hypertable_name FROM timescaledb_information.hypertables;"
+sudo -u postgres psql -d exchange_aggregator -c \
+  "SELECT view_name FROM timescaledb_information.continuous_aggregates;"
+```
 
-以下配置仅供手工合并，不应自动覆盖服务器现有配置：
+应存在 `portfolio_equity_points` hypertable 和四个组合净值连续聚合。
+
+```bash
+curl -fsS http://127.0.0.1:8000/api/accounts/bootstrap | jq .
+```
+
+首次接入时没有历史快照正常；等待一至两个同步周期后再检查页面。
+
+## 12. 配置 Nginx 与 HTTPS
+
+安装 Nginx 和 Certbot：
+
+```bash
+sudo apt install -y nginx certbot python3-certbot-nginx
+```
+
+创建 `/etc/nginx/sites-available/atlas-ledger`：
 
 ```nginx
 server {
     listen 80;
-    server_name portfolio.example.com;
-
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name portfolio.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/portfolio.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/portfolio.example.com/privkey.pem;
-
-    client_max_body_size 2m;
+    listen [::]:80;
+    server_name assets.example.com;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
-
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-
         proxy_connect_timeout 10s;
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
@@ -143,242 +317,247 @@ server {
 }
 ```
 
-## 上线检查
-
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  ps
-
-curl -f http://127.0.0.1:8000/api/health
-make security-check
+sudo ln -s /etc/nginx/sites-available/atlas-ledger /etc/nginx/sites-enabled/atlas-ledger
+sudo nginx -t
+sudo systemctl enable --now nginx
+sudo systemctl reload nginx
+curl -I http://assets.example.com
+sudo certbot --nginx -d assets.example.com
+sudo certbot renew --dry-run
+curl -fsS https://assets.example.com/api/health | jq .
 ```
 
-确认：
+Cloudflare 不应缓存 `/api/*`。HTML 应绕过缓存或使用短 TTL；带内容哈希的
+`/_next/static/*` 可以长期缓存。
 
-- gateway 仅绑定 `127.0.0.1:8000`
-- backend 与 frontend 没有宿主机端口
-- 没有 PostgreSQL 容器
-- `.env` 权限是 `600` 且未被 Git 跟踪
-- `/api/auth/login` 不存在，读取接口无需登录，写接口返回 403
-- 宿主机防火墙没有对公网开放 8000 或 5432
-- `timescaledb` 和 `timescaledb_toolkit` 扩展版本可查询
-- `portfolio_equity_points` 位于 `timescaledb_information.hypertables`
-- 四个 `portfolio_equity_*` 连续聚合存在
-- `SYNC_JOB_RETENTION_DAYS=0`、`BALANCE_SNAPSHOT_RETENTION_DAYS=0`
-
-## 读取性能检查
-
-首页使用 `/api/dashboard/bootstrap?range=1d` 一次取得总览、风险指标和净值曲线。
-余额汇总查询按启用账户读取最新一条 `account_balance_snapshots`，依赖已有的
-`(exchange_account_id, recorded_at)` 索引；不需要 Redis，也不改变快照永久保留
-策略。部署后可在源站本机检查响应时间：
+## 13. 防火墙
 
 ```bash
-curl -sS -o /dev/null \
-  -w 'bootstrap=%{http_code} total=%{time_total}s\n' \
-  'http://127.0.0.1:8000/api/dashboard/bootstrap?range=1d'
-
-curl -sS -o /dev/null \
-  -w 'summary=%{http_code} total=%{time_total}s\n' \
-  'http://127.0.0.1:8000/api/dashboard/summary'
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+sudo ufw status verbose
+sudo ss -lntp
 ```
 
-Cloudflare 等边缘缓存属于站点外部配置，不由项目部署脚本修改。
+确认 8000 只监听 `127.0.0.1`，5432 没有监听公网地址。
 
-其余页面的聚合读取接口为：
+## 14. 每日备份与恢复验证
 
-- `/api/accounts/bootstrap`
-- `/api/pnl/bootstrap`
-- `/api/accounting/bootstrap`
-- `/api/analytics/bootstrap`
+脚本会创建 custom-format 备份、SHA-256 校验，并恢复到随机临时数据库验证完整性，
+最后删除临时库和超过 90 天的备份。
 
-这些接口只合并只读查询，不创建缓存数据库、不修改同步周期。逐资产余额通过
-`ix_asset_balance_latest` 读取每个账户最新批次；同步任务与对账记录在数据库端筛选或
-聚合，历史业务数据仍永久保留。
-
-## 备份与密钥
-
-先手工执行并验证一次：
+恢复验证需要创建临时数据库及 TimescaleDB 扩展。创建一个仅供宿主机备份脚本使用的独立
+角色，不要给应用角色提权：
 
 ```bash
-./scripts/backup-postgres.sh
+openssl rand -base64 36
+sudo -u postgres psql -c \
+  "CREATE ROLE atlas_backup LOGIN SUPERUSER PASSWORD 'REPLACE_WITH_SEPARATE_BACKUP_PASSWORD';"
 ```
 
-脚本执行 `pg_dump` custom format、SHA-256 校验和 `pg_restore --list`，随后将备份
-恢复到随机命名的 `atlas_restore_check_*` 临时数据库。恢复过程先创建 TimescaleDB
-扩展并执行 `timescaledb_pre_restore()`，完成后执行
-`timescaledb_post_restore()` 与 `ANALYZE`，再验证业务表与 Alembic 版本并删除临时库。
-恢复验证失败的文件不会保留。默认备份目录是仓库同级的 `backups`，默认保留 90 天。
-
-确认成功后，以 root 安装每日 03:17 的 cron、90 天备份保留与 7 天备份日志轮换：
+此角色权限很高，只允许从本机 `127.0.0.1` 使用；不得写入应用 `.env`、不得用于应用
+`DATABASE_URL`，也不得开放远程访问。创建独立备份环境文件：
 
 ```bash
-sudo ./scripts/install-backup-cron.sh
-cat /etc/cron.d/aggregated-accounts-backup
+sudo install -m 0600 -o root -g root /dev/null /etc/atlas-ledger-backup.env
+sudo nano /etc/atlas-ledger-backup.env
 ```
 
-主加密密钥必须与数据库备份分开保管；丢失主密钥后，已保存的交易所凭证无法恢复。
-轮换主密钥需要先实现专用的离线重加密流程，不能直接替换 `.env` 中的值。
-
-## 运行数据与日志保留
-
-生产数据库永久保留，相关环境变量必须为：
+内容如下，密码需要 URL 编码：
 
 ```dotenv
-SYNC_JOB_RETENTION_DAYS=0
-BALANCE_SNAPSHOT_RETENTION_DAYS=0
-MAINTENANCE_HOUR_UTC=4
-MAINTENANCE_MINUTE_UTC=20
+BACKUP_DATABASE_URL=postgresql://atlas_backup:URL_ENCODED_BACKUP_PASSWORD@127.0.0.1:5432/exchange_aggregator
+BACKUP_DIR=/var/backups/aggregated-accounts
+BACKUP_RETENTION_DAYS=90
+BACKUP_VERIFY_RESTORE=1
 ```
-
-`0` 会跳过对应删除语句。备份文件独立保留 90 天，不等同于数据库只保留 90 天。
-
-项目容器使用 Docker `journald` 日志驱动。生产服务器应设置
-`MaxRetentionSec=7day`，并把 Nginx、PostgreSQL 和项目备份日志的 logrotate 配置为
-`daily`、`rotate 7`。修改后执行：
 
 ```bash
-systemctl restart systemd-journald
-journalctl --vacuum-time=7d
-logrotate -d /etc/logrotate.conf
+sudo install -d -m 0700 -o atlas -g atlas /var/backups/aggregated-accounts
+sudo ENV_FILE=/etc/atlas-ledger-backup.env ./scripts/backup-postgres.sh
+sudo ls -lh /var/backups/aggregated-accounts
+sudo BACKUP_ENV_FILE=/etc/atlas-ledger-backup.env ./scripts/install-backup-cron.sh
+sudo cat /etc/cron.d/aggregated-accounts-backup
+sudo systemctl enable --now cron
 ```
 
-日志清理不得匹配 PostgreSQL 数据目录、备份目录或项目上传文件目录。
+高安全环境可进一步使用 sudo/peer authentication 或外部备份系统替代密码型超级用户，
+但必须保留“实际恢复到独立数据库并验证”的步骤，不能只检查 `pg_dump` 是否退出成功。
 
-## 无数据丢失升级顺序
+备份保留 90 天只影响备份文件，生产数据库业务数据仍永久保留。
 
-1. 记录升级前 Git 提交、容器状态、Alembic 版本和核心表行数。
-2. 执行 `backup-postgres.sh`，检查 SHA-256，并完成临时库恢复验证。
-3. 备份 PostgreSQL 配置；安装 TimescaleDB 后仅重启 PostgreSQL，不重建数据库。
-4. 验证原有核心表行数未减少。
-5. 执行 Alembic 增量迁移。迁移只新增净值表、hypertable 和连续聚合。
-6. 运行 `backfill_portfolio_equity.py`；脚本只读取既有余额快照并向新表 UPSERT。
-7. 先更新 backend，验证健康检查和新旧 API，再更新 frontend/gateway。
-8. 验证五个交易所账户、当前仓位、历史仓位、账务流水、净值曲线和自动同步。
+## 15. 日志和 Docker 缓存
 
-应用回滚时切回升级前 Git 提交并重建容器；不要执行 Alembic downgrade。新增净值表
-可以留在数据库中，旧版本会忽略它们，避免回滚过程删除任何已写入数据。
+项目容器使用 journald。编辑 `/etc/systemd/journald.conf`：
 
-## Polymarket 重复记录维护
-
-先预览，不写数据库：
+```ini
+[Journal]
+MaxRetentionSec=7day
+SystemMaxUse=1G
+```
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  run --rm backend python scripts/cleanup_polymarket_duplicates.py
+sudo systemctl restart systemd-journald
+sudo journalctl --vacuum-time=7d
+sudo ./scripts/install-docker-cache-maintenance.sh
+sudo ./scripts/prune-docker-build-cache.sh
 ```
 
-仅在备份和预览确认后执行：
+缓存脚本将构建缓存控制在约 5 GB，不删除运行中的容器、镜像或卷。不要运行
+`docker system prune --volumes`。
+
+查看日志：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  run --rm backend python scripts/cleanup_polymarket_duplicates.py --apply
+sudo journalctl -t atlas-ledger-backend -f
+sudo journalctl -t atlas-ledger-frontend -f
+sudo journalctl -t atlas-ledger-gateway -f
+sudo journalctl -u nginx --since today
+sudo journalctl -u postgresql --since today
 ```
 
-命令只处理 `POLYMARKET` 已平仓记录，按稳定 outcome token 合并旧的
-`asset:timestamp` 记录，保留最新一条并重算受影响日期的已实现收益。
+## 16. 开机自启动
 
-## OKX 分批平仓重复记录维护
-
-旧版本曾把 OKX `positions-history` 的 `uTime` 写进来源 ID，导致同一 `posId` 的部分
-平仓和最终平仓显示为多条。先只读预览：
+容器配置了 `restart: unless-stopped`。启用宿主机服务：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/cleanup_okx_partial_closes.py
+sudo systemctl enable docker postgresql nginx cron
+sudo systemctl is-enabled docker postgresql nginx cron
 ```
 
-确认并完成数据库备份后执行：
+可安排重启测试，重新登录后执行：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/cleanup_okx_partial_closes.py --apply
+cd /opt/atlas-ledger/app
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+curl -fsS http://127.0.0.1:8000/api/health
 ```
 
-脚本按 `instType + posId` 分组，保留关闭时间最新的 OKX 累计记录、删除旧阶段快照，
-规范化来源 ID，并使用账务流水重新计算受影响日期的已实现收益。它不会把阶段金额相加，
-也不会处理其他交易所的数据。该脚本只用于清理由旧版 `uTime` 来源 ID 产生的重复
-阶段快照；不要用它代替下面的独立仓位周期重建。
-
-## OKX 独立仓位周期重建
-
-旧版本只用 `instType + posId` 标识历史仓位；OKX 在仓位归零后重新开仓时可能复用
-`posId`，导致后一次周期覆盖前一次。先实时读取 OKX 原始历史并只读预览：
+## 17. 日常无损升级
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/rebuild_okx_closed_position_cycles.py
+cd /opt/atlas-ledger/app
+
+# 记录版本和迁移状态
+git rev-parse HEAD
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+sudo -u postgres psql -d exchange_aggregator -Atqc "SELECT version_num FROM alembic_version;"
+
+# 先创建并恢复验证备份
+sudo ENV_FILE=/etc/atlas-ledger-backup.env ./scripts/backup-postgres.sh
+
+# 确认服务器无本地代码改动，再仅快进更新
+sudo -u atlas git status --short
+sudo -u atlas git pull --ff-only origin main
+
+# 构建并更新，backend 自动执行增量迁移
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend gateway
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 验证
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+curl -fsS http://127.0.0.1:8000/api/health | jq .
+curl -fsS https://assets.example.com/api/health | jq .
 ```
 
-确认 `unresolved_legacy_rows` 为空并完成数据库备份后执行：
+不要使用 `git reset --hard`、删除 PostgreSQL 数据目录、重新创建生产数据库或执行
+`docker compose down -v`。
+
+## 18. 回滚原则
+
+优先只回滚应用代码和镜像，不执行 Alembic downgrade：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/rebuild_okx_closed_position_cycles.py --apply
+cd /opt/atlas-ledger/app
+git log --oneline -10
+sudo -u atlas git checkout PREVIOUS_COMMIT
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend gateway
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+curl -fsS http://127.0.0.1:8000/api/health
 ```
 
-脚本使用 `instType + posId + cTime` 重建全部独立周期。与某个周期开仓时间一致的旧记录
-会原地迁移，缺失周期会新增；无法匹配的旧记录会阻止应用。受影响日期的已实现收益优先
-按幂等账务流水重算。
+直接降级数据库可能删除新数据。只有数据库损坏且无法前向修复时才从备份恢复；恢复前应
+停止应用、保留故障库，并先在独立数据库验证备份，不能覆盖唯一生产库。
 
-## Binance 平仓成交分片维护
+## 19. 故障排查
 
-旧版本可能把同一 Binance 平仓订单的多个 `userTrades` 成交分片重建为多条历史仓位。
-先只读预览，脚本会实时读取交易所数据并列出可安全合并的 `orderId`：
+### 容器不健康
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/cleanup_binance_fill_fragments.py
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+sudo journalctl -t atlas-ledger-backend -n 200 --no-pager
+sudo journalctl -t atlas-ledger-frontend -n 200 --no-pager
+sudo journalctl -t atlas-ledger-gateway -n 200 --no-pager
 ```
 
-确认预览中的合并数量、仓位数量和净收益后，完成数据库备份并执行：
+gateway 会等待 backend 和 frontend 健康，应先检查两个上游。
+
+### backend 无法连接 PostgreSQL
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/cleanup_binance_fill_fragments.py --apply
+sudo systemctl status postgresql
+sudo ss -lntp | grep 5432
+sudo grep -n '172.30.42.0/24' /etc/postgresql/16/main/pg_hba.conf
+sudo docker run --rm --network exchange-portfolio_internal \
+  --add-host=host.docker.internal:host-gateway \
+  postgres:16-alpine pg_isready -h host.docker.internal -p 5432
 ```
 
-脚本只删除同一账户、统计周期、合约、方向和 `orderId` 下的旧成交分片，随后用所有成交
-分片的合计结果更新保留记录，并重算受影响日期的已实现收益。无法唯一匹配的新旧记录会
-列入 `unresolved_groups`，应用模式将拒绝修改。
+检查数据库 URL 编码、密码、`listen_addresses`、`pg_hba.conf` 和 Docker 网段。
 
-## Bitget 历史仓位来源 ID 维护
-
-旧版本把关闭时间写入 Bitget 历史仓位来源 ID。先只读预览：
+### 迁移失败
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/cleanup_bitget_closed_positions.py
+sudo journalctl -t atlas-ledger-backend -n 300 --no-pager
+sudo -u postgres psql -d exchange_aggregator -c "SELECT version_num FROM alembic_version;"
 ```
 
-完成数据库备份后执行：
+不要删除数据库重试。先保存日志和备份，确认失败迁移是否已部分执行。
+
+### 页面没有账户或数据
+
+- JSON 账户必须为 `enabled: true`
+- JSON 引用的环境变量必须在 `.env` 有值
+- 中心化交易所 API 必须只读并绑定正确出口 IP
+- 修改后重启 backend 并查看日志
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  exec -T backend python scripts/cleanup_bitget_closed_positions.py --apply
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend
+sudo journalctl -t atlas-ledger-backend -f
 ```
 
-脚本按 `productType + positionId` 规范化来源 ID；若同一个仓位存在多个旧阶段记录，只
-保留关闭时间最新的一条。没有重复时只更新来源 ID，不改变仓位金额。
+平仓统计要在交易所历史同步后更新。默认平仓同步周期 10 分钟，浏览器每 60 秒刷新；
+上游历史接口本身也可能延迟。
+
+### 磁盘增长
+
+```bash
+df -h
+sudo du -sh /var/lib/postgresql /var/backups/aggregated-accounts
+sudo journalctl --disk-usage
+sudo docker system df
+```
+
+可清理过期日志、90 天前备份和 Docker 构建缓存，不能删除 PostgreSQL 数据文件。
+
+## 20. 上线验收清单
+
+- [ ] 域名 HTTPS 正常，证书自动续期通过
+- [ ] gateway 仅监听 `127.0.0.1:8000`
+- [ ] 5432、3000、8001 未暴露公网
+- [ ] backend、frontend、gateway 均为 `healthy`
+- [ ] `/api/health` 返回数据库已连接
+- [ ] Alembic、TimescaleDB hypertable 和连续聚合正常
+- [ ] `DEMO_MODE=false`，页面没有测试数据
+- [ ] 启用账户符合预期，中心化交易所 API 均为只读
+- [ ] 当前仓位、历史仓位、流水、收益分析和净值曲线能读取
+- [ ] `.env` 权限为 600，未被 Git 跟踪
+- [ ] `APP_ENCRYPTION_KEY` 已离线保存且与数据库备份分离
+- [ ] 手工数据库备份和临时库恢复验证成功
+- [ ] 每日备份、7 天日志和 Docker 缓存维护已安装
+- [ ] Docker、PostgreSQL、Nginx、cron 均已开机启动
+- [ ] `make security-check` 通过
+
+全部完成后，部署才算结束。

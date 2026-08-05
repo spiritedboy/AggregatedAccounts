@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+backend/config/exchange_accounts.local.json
 node_modules/
 .next/
 dist/
