@@ -3,8 +3,6 @@
 import {
   BarChart3,
   Compass,
-  Eye,
-  EyeOff,
   History,
   LayoutDashboard,
   Menu,
@@ -27,8 +25,13 @@ import {
   useMemo,
   useState,
 } from "react";
+import { money, type DisplayCurrency } from "@/lib/format";
 
 const THEME_STORAGE_KEY = "atlas-theme";
+const CURRENCY_STORAGE_KEY = "atlas-currency";
+const USD_CNY_RATE_STORAGE_KEY = "atlas-usd-cny-rate";
+const USD_CNY_RATE_DATE_STORAGE_KEY = "atlas-usd-cny-rate-date";
+const USD_CNY_RATE_URL = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY";
 
 type NavItemData = {
   href: string;
@@ -67,24 +70,31 @@ const mobileNavItems = allNavItems.filter((item) =>
   ["/dashboard", "/positions", "/pnl", "/ledger"].includes(item.href),
 );
 
-type PrivacyContextValue = {
-  hidden: boolean;
-  toggle: () => void;
+type CurrencyContextValue = {
+  currency: DisplayCurrency;
+  usdCnyRate: number;
+  rateDate: string | null;
+  formatMoney: (value: number) => string;
 };
 
-const PrivacyContext = createContext<PrivacyContextValue>({
-  hidden: false,
-  toggle: () => undefined,
+const CurrencyContext = createContext<CurrencyContextValue>({
+  currency: "USD",
+  usdCnyRate: 1,
+  rateDate: null,
+  formatMoney: (value) => money(value),
 });
 
-export function usePrivacy() {
-  return useContext(PrivacyContext);
+export function useCurrency() {
+  return useContext(CurrencyContext);
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [dark, setDark] = useState(true);
-  const [hidden, setHidden] = useState(false);
+  const [currency, setCurrency] = useState<DisplayCurrency>("USD");
+  const [usdCnyRate, setUsdCnyRate] = useState(1);
+  const [rateDate, setRateDate] = useState<string | null>(null);
+  const [rateReady, setRateReady] = useState(false);
   const [drawer, setDrawer] = useState(false);
 
   useEffect(() => {
@@ -97,6 +107,63 @@ export function AppShell({ children }: { children: ReactNode }) {
     document.documentElement.dataset.theme = nextDark ? "dark" : "light";
   }, []);
 
+  useEffect(() => {
+    const savedCurrency = window.localStorage.getItem(CURRENCY_STORAGE_KEY);
+    const savedRate = Number(window.localStorage.getItem(USD_CNY_RATE_STORAGE_KEY));
+    const savedDate = window.localStorage.getItem(USD_CNY_RATE_DATE_STORAGE_KEY);
+    if (Number.isFinite(savedRate) && savedRate > 0) {
+      setUsdCnyRate(savedRate);
+      setRateReady(true);
+      if (savedCurrency === "CNY") setCurrency("CNY");
+    }
+    if (savedDate) setRateDate(savedDate);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let midnightTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const localDate = () => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    };
+    const refreshRate = async () => {
+      try {
+        const response = await fetch(USD_CNY_RATE_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`汇率请求失败：${response.status}`);
+        const payload = (await response.json()) as { date?: string; rates?: { CNY?: number } };
+        const nextRate = Number(payload.rates?.CNY);
+        if (!Number.isFinite(nextRate) || nextRate <= 0) throw new Error("汇率响应无效");
+        if (cancelled) return;
+        const nextDate = localDate();
+        setUsdCnyRate(nextRate);
+        setRateReady(true);
+        setRateDate(payload.date ?? nextDate);
+        window.localStorage.setItem(USD_CNY_RATE_STORAGE_KEY, String(nextRate));
+        window.localStorage.setItem(USD_CNY_RATE_DATE_STORAGE_KEY, nextDate);
+      } catch {
+        // Keep the latest successful local rate; USD remains usable if no rate exists.
+      }
+    };
+    const scheduleMidnightRefresh = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now);
+      nextMidnight.setHours(24, 0, 0, 0);
+      midnightTimer = setTimeout(async () => {
+        await refreshRate();
+        scheduleMidnightRefresh();
+      }, nextMidnight.getTime() - now.getTime());
+    };
+
+    const cachedDate = window.localStorage.getItem(USD_CNY_RATE_DATE_STORAGE_KEY);
+    if (cachedDate !== localDate()) void refreshRate();
+    scheduleMidnightRefresh();
+    return () => {
+      cancelled = true;
+      if (midnightTimer) clearTimeout(midnightTimer);
+    };
+  }, []);
+
   function toggleTheme() {
     setDark((current) => {
       const next = !current;
@@ -107,16 +174,29 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }
 
-  const privacy = useMemo(
-    () => ({ hidden, toggle: () => setHidden((value) => !value) }),
-    [hidden],
+  const currencyContext = useMemo(
+    () => ({
+      currency,
+      usdCnyRate,
+      rateDate,
+      formatMoney: (value: number) => money(value, currency, usdCnyRate),
+    }),
+    [currency, rateDate, usdCnyRate],
   );
+
+  function toggleCurrency() {
+    setCurrency((current) => {
+      const next = current === "USD" ? "CNY" : "USD";
+      window.localStorage.setItem(CURRENCY_STORAGE_KEY, next);
+      return next;
+    });
+  }
 
   const activePage = allNavItems.find((item) => pathname === item.href);
   const moreActive = ["/history", "/reconciliation", "/accounts"].includes(pathname);
 
   return (
-    <PrivacyContext.Provider value={privacy}>
+    <CurrencyContext.Provider value={currencyContext}>
       <div className="min-h-screen lg:grid lg:grid-cols-[224px_1fr]">
         <aside
           className="sticky top-0 hidden h-screen border-r px-4 py-5 lg:flex lg:flex-col"
@@ -199,11 +279,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
               <button
                 type="button"
-                className="button-secondary h-10 min-h-10 w-10 p-0"
-                aria-label={hidden ? "显示金额" : "隐藏金额"}
-                onClick={() => setHidden((value) => !value)}
+                className="button-secondary h-10 min-h-10 px-3 font-mono text-xs font-bold tracking-wide"
+                aria-label={currency === "USD" ? "切换为人民币 CNY" : "切换为美元 USD"}
+                title={!rateReady ? "正在获取 USD/CNY 汇率" : currency === "CNY" ? `1 USD = ${usdCnyRate} CNY${rateDate ? ` · ${rateDate}` : ""}` : "当前以美元显示"}
+                onClick={toggleCurrency}
+                disabled={currency === "USD" && !rateReady}
               >
-                {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {currency}
               </button>
               <button
                 type="button"
@@ -295,7 +377,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
       </div>
-    </PrivacyContext.Provider>
+    </CurrencyContext.Provider>
   );
 }
 

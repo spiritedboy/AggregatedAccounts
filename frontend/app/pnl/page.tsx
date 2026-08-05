@@ -11,13 +11,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { Chart } from "@/components/chart";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, MetricCard, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { compactDate, usd } from "@/lib/format";
+import { compactDate } from "@/lib/format";
 import type { PnlPoint } from "@/lib/types";
 
 type PnlSummary = {
@@ -69,7 +69,11 @@ function PnlContent() {
   const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const { hidden } = usePrivacy();
+  const { currency, formatMoney, usdCnyRate } = useCurrency();
+  const displayValue = useCallback(
+    (value: number) => (currency === "CNY" ? value * usdCnyRate : value),
+    [currency, usdCnyRate],
+  );
 
   const load = useCallback(() => {
     setError("");
@@ -105,12 +109,15 @@ function PnlContent() {
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: "rgba(104,112,134,.12)" } },
-        axisLabel: { color: "#687086" },
+        axisLabel: {
+          color: "#687086",
+          formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}`,
+        },
       },
       series: [
         {
           type: "line",
-          data: daily.map((point) => point.cumulative_return),
+          data: daily.map((point) => displayValue(point.cumulative_return)),
           smooth: 0.35,
           symbol: "none",
           lineStyle: { color: "#7c5cfc", width: 2.5 },
@@ -118,7 +125,7 @@ function PnlContent() {
         },
       ],
     }),
-    [daily],
+    [currency, daily, displayValue],
   );
 
   const barOption = useMemo<EChartsOption>(
@@ -134,14 +141,17 @@ function PnlContent() {
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: "rgba(104,112,134,.12)" } },
-        axisLabel: { color: "#687086" },
+        axisLabel: {
+          color: "#687086",
+          formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}`,
+        },
       },
       series: [
         {
           type: "bar",
           barMaxWidth: 18,
           data: selected.map((point) => ({
-            value: point.investment_return,
+            value: displayValue(point.investment_return),
             itemStyle: {
               color: point.investment_return >= 0 ? "#08966d" : "#df5268",
               borderRadius: point.investment_return >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4],
@@ -150,7 +160,7 @@ function PnlContent() {
         },
       ],
     }),
-    [period, selected],
+    [currency, displayValue, period, selected],
   );
 
   if (error) return <ErrorState message={error} retry={load} />;
@@ -200,7 +210,7 @@ function PnlContent() {
       <section className="grid gap-3 xl:grid-cols-[1.1fr_.9fr]">
         <MetricCard
           label="累计净收益"
-          value={usd(summary.period_net_realized_pnl, hidden)}
+          value={formatMoney(summary.period_net_realized_pnl)}
           detail="已实现毛收益 + 资金费 - 手续费"
           icon={CircleDollarSign}
           tone={summary.period_net_realized_pnl >= 0 ? "positive" : "negative"}
@@ -211,7 +221,7 @@ function PnlContent() {
             <MetricCard
               key={metric.label}
               label={metric.label}
-              value={usd(metric.value, hidden)}
+              value={formatMoney(metric.value)}
               detail={metric.detail}
               icon={metric.icon}
               tone={metric.value > 0 ? "positive" : metric.value < 0 ? "negative" : "neutral"}
@@ -230,8 +240,8 @@ function PnlContent() {
           <p className="section-label">周期表现</p>
           <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
           <div className="mt-5 grid grid-cols-2 gap-3">
-            <Stat icon={TrendingUp} label="最佳单日" value={usd(summary.best_day, hidden)} tone="positive" />
-            <Stat icon={TrendingDown} label="最大单日亏损" value={usd(summary.worst_day, hidden)} tone="negative" />
+            <Stat icon={TrendingUp} label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
+            <Stat icon={TrendingDown} label="最大单日亏损" value={formatMoney(summary.worst_day)} tone="negative" />
             <Stat icon={CalendarDays} label="盈利天数" value={`${summary.profitable_days} 天`} />
             <Stat icon={CalendarDays} label="亏损天数" value={`${summary.losing_days} 天`} />
           </div>
@@ -279,7 +289,7 @@ function PnlContent() {
                   <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
                     <span className="muted">投资收益</span>
                     <span className={`mono-number font-semibold ${row.investment_return >= 0 ? "text-positive" : "text-negative"}`}>
-                      {usd(row.investment_return, hidden)}
+                      {formatMoney(row.investment_return)}
                     </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-soft)]">
@@ -289,9 +299,9 @@ function PnlContent() {
                     />
                   </div>
                 </div>
-                <Metric label="已实现毛收益" value={row.realized_pnl} hidden={hidden} />
-                <Metric label="资金费" value={row.funding_fee} hidden={hidden} />
-                <Metric label="手续费" value={-row.trading_fee} hidden={hidden} />
+                <Metric label="已实现毛收益" value={row.realized_pnl} formatMoney={formatMoney} />
+                <Metric label="资金费" value={row.funding_fee} formatMoney={formatMoney} />
+                <Metric label="手续费" value={-row.trading_fee} formatMoney={formatMoney} />
               </div>
             ))}
           </div>
@@ -301,11 +311,11 @@ function PnlContent() {
   );
 }
 
-function Metric({ label, value, hidden }: { label: string; value: number; hidden: boolean }) {
+function Metric({ label, value, formatMoney }: { label: string; value: number; formatMoney: (value: number) => string }) {
   return (
     <div>
       <p className="metric-label">{label}</p>
-      <p className={`mono-number mt-1 text-sm ${value >= 0 ? "text-positive" : "text-negative"}`}>{usd(value, hidden)}</p>
+      <p className={`mono-number mt-1 text-sm ${value >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(value)}</p>
     </div>
   );
 }

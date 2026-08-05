@@ -12,7 +12,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { ProtectedPage } from "@/components/protected-page";
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import {
   Badge,
@@ -23,7 +23,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, usd } from "@/lib/format";
+import { dateTime, number } from "@/lib/format";
 import type {
   AccountBalance,
   AccountsBootstrapData,
@@ -45,7 +45,7 @@ function AccountsContent() {
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const { hidden } = usePrivacy();
+  const { formatMoney } = useCurrency();
 
   const load = useCallback(() => {
     setError("");
@@ -273,7 +273,7 @@ function AccountsContent() {
                         <Badge tone={asset.value_usd === null ? "warning" : "neutral"}>{asset.account_type}</Badge>
                       </div>
                       <p className="mono-number mt-2 text-sm">
-                        {asset.value_usd === null ? "无法估值" : usd(asset.value_usd, hidden)}
+                        {asset.value_usd === null ? "无法估值" : formatMoney(asset.value_usd)}
                       </p>
                       <p className="muted mono-number mt-1 text-[10px]">
                         可用 {number(asset.available)} · 锁定 {number(asset.locked)}

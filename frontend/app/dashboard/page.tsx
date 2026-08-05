@@ -26,7 +26,7 @@ import {
   MetricCard,
   PageHeader,
 } from "@/components/ui";
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type {
@@ -68,7 +68,7 @@ function DashboardContent() {
   const [isDark, setIsDark] = useState(true);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const { hidden } = usePrivacy();
+  const { currency, formatMoney, usdCnyRate } = useCurrency();
 
   const load = useCallback(() => {
     setError("");
@@ -111,7 +111,8 @@ function DashboardContent() {
         textStyle: { color: "#f4f6ff" },
         formatter: (params: unknown) => {
           const point = (params as Array<{ axisValue: string; value: number }>)[0];
-          return `${dateTime(point.axisValue)}<br/><b>${usd(point.value, hidden)}</b>`;
+          const sourceValue = currency === "CNY" ? point.value / usdCnyRate : point.value;
+          return `${dateTime(point.axisValue)}<br/><b>${formatMoney(sourceValue)}</b>`;
         },
       },
       xAxis: {
@@ -146,7 +147,7 @@ function DashboardContent() {
         splitLine: { lineStyle: { color: isDark ? "rgba(205,190,255,.1)" : "rgba(104,112,134,.12)" } },
         axisLabel: {
           color: isDark ? "#c3bad9" : "#687086",
-          formatter: equityAxisLabel,
+          formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${equityAxisLabel(value)}`,
         },
       },
       series: [
@@ -154,7 +155,9 @@ function DashboardContent() {
           type: "line",
           smooth: 0.35,
           symbol: "none",
-          data: curve?.points.map((point) => point.equity) ?? [],
+          data: curve?.points.map((point) =>
+            currency === "CNY" ? point.equity * usdCnyRate : point.equity,
+          ) ?? [],
           lineStyle: { color: isDark ? "#62f1d6" : "#7c5cfc", width: isDark ? 3.5 : 3 },
           areaStyle: {
             color: {
@@ -173,7 +176,7 @@ function DashboardContent() {
         },
       ],
     }),
-    [curve, curveRange, hidden, isDark],
+    [currency, curve, curveRange, formatMoney, isDark, usdCnyRate],
   );
 
   const allocationOption = useMemo<EChartsOption>(
@@ -244,16 +247,16 @@ function DashboardContent() {
       <section className="grid gap-3 xl:grid-cols-[1.15fr_.85fr]">
         <MetricCard
           label="估算总权益"
-          value={usd(data.estimated_total_equity, hidden)}
+          value={formatMoney(data.estimated_total_equity)}
           detail={
             <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4" style={{ borderColor: "var(--line)" }}>
               <div>
                 <p className="metric-label">可用余额</p>
-                <p className="mono-number mt-1 text-sm font-semibold">{usd(data.available_balance, hidden)}</p>
+                <p className="mono-number mt-1 text-sm font-semibold">{formatMoney(data.available_balance)}</p>
               </div>
               <div>
                 <p className="metric-label">保证金占用</p>
-                <p className="mono-number mt-1 text-sm font-semibold">{usd(data.margin_used, hidden)}</p>
+                <p className="mono-number mt-1 text-sm font-semibold">{formatMoney(data.margin_used)}</p>
               </div>
             </div>
           }
@@ -264,21 +267,21 @@ function DashboardContent() {
         <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
           <MetricCard
             label="今日收益"
-            value={usd(data.today_pnl, hidden)}
+            value={formatMoney(data.today_pnl)}
             detail={data.today_pnl >= 0 ? "当日净变化" : "当日处于回撤"}
             icon={data.today_pnl >= 0 ? ArrowUpRight : ArrowDownRight}
             tone={data.today_pnl >= 0 ? "positive" : "negative"}
           />
           <MetricCard
             label="累计净收益"
-            value={usd(data.cumulative_net_pnl, hidden)}
+            value={formatMoney(data.cumulative_net_pnl)}
             detail="已实现毛收益 + 资金费 − 手续费"
             icon={CircleDollarSign}
             tone={data.cumulative_net_pnl >= 0 ? "positive" : "negative"}
           />
           <MetricCard
             label="当前持仓收益"
-            value={usd(data.current_position_pnl, hidden)}
+            value={formatMoney(data.current_position_pnl)}
             detail="当前仓位“当前未实现盈亏”求和"
             icon={Activity}
             tone={data.current_position_pnl >= 0 ? "positive" : "negative"}
@@ -322,13 +325,13 @@ function DashboardContent() {
                 }`}
               >
                 净值变化：
-                {hidden || curve.change.amount === null
-                  ? "••••"
-                  : `${curve.change.amount > 0 ? "+" : ""}${number(curve.change.amount, 2)} USDT`}
+                {curve.change.amount === null
+                  ? "—"
+                  : `${curve.change.amount > 0 ? "+" : ""}${formatMoney(curve.change.amount)}`}
                 {" "}
                 (
-                {hidden || curve.change.percent === null
-                  ? "••••"
+                {curve.change.percent === null
+                  ? "—"
                   : `${curve.change.percent > 0 ? "+" : ""}${number(curve.change.percent, 2)}%`}
                 )
               </p>
@@ -390,12 +393,12 @@ function DashboardContent() {
                 </div>
                 <div className="hidden sm:block">
                   <p className="metric-label">仓位价值</p>
-                  <p className="mono-number mt-1 text-sm">{usd(position.position_value_usd, hidden)}</p>
+                  <p className="mono-number mt-1 text-sm">{usd(position.position_value_usd)}</p>
                 </div>
                 <div className="text-right">
                   <p className="metric-label">当前未实现盈亏</p>
                   <p className={`mono-number mt-1 text-sm ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
-                    {usd(position.unrealized_pnl, hidden)}
+                    {formatMoney(position.unrealized_pnl)}
                   </p>
                 </div>
               </div>
@@ -418,7 +421,7 @@ function DashboardContent() {
                   <ExchangeMark exchange={item.exchange} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{item.connection_name}</p>
-                    <p className="muted mt-0.5 text-xs">{usd(item.equity, hidden)}</p>
+                    <p className="muted mt-0.5 text-xs">{formatMoney(item.equity)}</p>
                   </div>
                 </div>
                 <Badge tone={item.status === "CONNECTED" ? "positive" : "warning"}>
@@ -430,11 +433,11 @@ function DashboardContent() {
           <div className="mt-6 grid grid-cols-2 gap-3 border-t pt-5" style={{ borderColor: "var(--line)" }}>
             <div>
               <p className="metric-label">可用余额</p>
-              <p className="mono-number mt-1 text-sm">{usd(data.available_balance, hidden)}</p>
+              <p className="mono-number mt-1 text-sm">{formatMoney(data.available_balance)}</p>
             </div>
             <div>
               <p className="metric-label">保证金占用</p>
-              <p className="mono-number mt-1 text-sm">{usd(data.margin_used, hidden)}</p>
+              <p className="mono-number mt-1 text-sm">{formatMoney(data.margin_used)}</p>
             </div>
           </div>
           {data.unvalued_asset_count > 0 && (

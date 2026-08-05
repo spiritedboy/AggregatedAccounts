@@ -10,7 +10,7 @@ import LedgerPage from "@/app/ledger/page";
 import PnlPage from "@/app/pnl/page";
 import PositionsPage from "@/app/positions/page";
 import ReconciliationPage from "@/app/reconciliation/page";
-import { AppShell } from "@/components/app-shell";
+import { AppShell, useCurrency } from "@/components/app-shell";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
@@ -706,5 +706,48 @@ describe("portfolio pages", () => {
     );
     await screen.findByText("主题测试页面");
     await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
+  });
+
+  it("switches monetary values to CNY while keeping the selected unit locally", async () => {
+    installFetch({});
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    window.localStorage.setItem("atlas-usd-cny-rate", "7");
+    window.localStorage.setItem("atlas-usd-cny-rate-date", localDate);
+
+    function CurrencyProbe() {
+      const { formatMoney } = useCurrency();
+      return <span>{formatMoney(100)}</span>;
+    }
+
+    render(
+      <AppShell>
+        <CurrencyProbe />
+      </AppShell>,
+    );
+    expect(await screen.findByText(/US\$100\.00/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "切换为人民币 CNY" }));
+    expect(await screen.findByText(/¥700\.00/)).toBeInTheDocument();
+    expect(window.localStorage.getItem("atlas-currency")).toBe("CNY");
+  });
+
+  it("converts position PnL but keeps entry price and position value in USD", async () => {
+    installFetch({
+      "/api/positions/current": { items: [position], total: 1 },
+      "/api/exchange-accounts": [account],
+    });
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    window.localStorage.setItem("atlas-usd-cny-rate", "7");
+    window.localStorage.setItem("atlas-usd-cny-rate-date", localDate);
+
+    render(<PositionsPage />);
+    expect(await screen.findAllByText(/US\$800\.00/)).not.toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "切换为人民币 CNY" }));
+
+    expect(await screen.findAllByText(/¥5,600\.00/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/US\$28,000\.00/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/US\$68,000\.00/)).not.toHaveLength(0);
   });
 });

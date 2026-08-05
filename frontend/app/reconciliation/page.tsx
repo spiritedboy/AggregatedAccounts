@@ -11,7 +11,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -35,7 +35,7 @@ function ReconciliationContent() {
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const { hidden } = usePrivacy();
+  const { formatMoney } = useCurrency();
 
   const load = useCallback(() => {
     setError("");
@@ -77,19 +77,19 @@ function ReconciliationContent() {
         <SummaryCard
           icon={ArrowRightLeft}
           label="权益口径收益"
-          value={usd(totals.equity_return, hidden)}
+          value={formatMoney(totals.equity_return)}
           detail="当前权益 − 初始权益 − 净资金流"
         />
         <SummaryCard
           icon={Layers3}
           label="累计净收益"
-          value={usd(totals.net_realized_pnl, hidden)}
+          value={formatMoney(totals.net_realized_pnl)}
           detail="已实现毛收益 + 资金费 − 手续费"
         />
         <SummaryCard
           icon={totals.status === "MATCHED" ? ShieldCheck : CircleAlert}
           label="待解释差额"
-          value={usd(totals.variance, hidden)}
+          value={formatMoney(totals.variance)}
           detail={totals.status === "MATCHED" ? "处于允许误差内" : "建议检查接口覆盖和数据源"}
           tone={totals.status === "MATCHED" ? "positive" : "warning"}
         />
@@ -107,16 +107,16 @@ function ReconciliationContent() {
           <p className="section-label">收益组成</p>
           <p className="muted mt-1 text-xs">{reconciliation.notice}</p>
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Breakdown label="充值" value={totals.deposits} hidden={hidden} />
-            <Breakdown label="提现" value={-totals.withdrawals} hidden={hidden} />
-            <Breakdown label="已实现毛收益" value={totals.realized_pnl} hidden={hidden} />
-            <Breakdown label="当前持仓收益" value={totals.current_position_pnl} hidden={hidden} />
-            <Breakdown label="资金费" value={totals.funding_fee} hidden={hidden} />
-            <Breakdown label="手续费" value={-totals.trading_fee} hidden={hidden} />
-            <Breakdown label="接入时持仓收益" value={totals.initial_position_pnl} hidden={hidden} />
-            <Breakdown label="对账组成收益" value={totals.component_return} hidden={hidden} />
-            <Breakdown label="初始权益" value={totals.initial_equity} hidden={hidden} />
-            <Breakdown label="当前权益" value={totals.current_equity} hidden={hidden} />
+            <Breakdown label="充值" value={totals.deposits} formatMoney={formatMoney} />
+            <Breakdown label="提现" value={-totals.withdrawals} formatMoney={formatMoney} />
+            <Breakdown label="已实现毛收益" value={totals.realized_pnl} formatMoney={formatMoney} />
+            <Breakdown label="当前持仓收益" value={totals.current_position_pnl} formatMoney={formatMoney} />
+            <Breakdown label="资金费" value={totals.funding_fee} formatMoney={formatMoney} />
+            <Breakdown label="手续费" value={-totals.trading_fee} formatMoney={formatMoney} />
+            <Breakdown label="接入时持仓收益" value={totals.initial_position_pnl} formatMoney={formatMoney} />
+            <Breakdown label="对账组成收益" value={totals.component_return} formatMoney={formatMoney} />
+            <Breakdown label="初始权益" value={totals.initial_equity} formatMoney={formatMoney} />
+            <Breakdown label="当前权益" value={totals.current_equity} formatMoney={formatMoney} />
           </div>
         </article>
 
@@ -167,16 +167,16 @@ function ReconciliationContent() {
                     <p className="muted mt-1 text-xs">{item.exchange} · {dateTime(item.last_synced_at)}</p>
                   </td>
                   <td className="mono-number" data-numeric="true">
-                    <p>{usd(item.initial_equity, hidden)}</p>
-                    <p className="muted mt-1 text-xs">{usd(item.current_equity, hidden)}</p>
+                    <p>{formatMoney(item.initial_equity)}</p>
+                    <p className="muted mt-1 text-xs">{formatMoney(item.current_equity)}</p>
                   </td>
-                  <td className="mono-number" data-numeric="true">{usd(item.net_cash_flow, hidden)}</td>
-                  <td className="mono-number" data-numeric="true">{usd(item.equity_return, hidden)}</td>
-                  <td className="mono-number" data-numeric="true">{usd(item.net_realized_pnl, hidden)}</td>
-                  <td className="mono-number" data-numeric="true">{usd(item.current_position_pnl, hidden)}</td>
-                  <td className="mono-number" data-numeric="true">{usd(item.component_return, hidden)}</td>
+                  <td className="mono-number" data-numeric="true">{formatMoney(item.net_cash_flow)}</td>
+                  <td className="mono-number" data-numeric="true">{formatMoney(item.equity_return)}</td>
+                  <td className="mono-number" data-numeric="true">{formatMoney(item.net_realized_pnl)}</td>
+                  <td className="mono-number" data-numeric="true">{formatMoney(item.current_position_pnl)}</td>
+                  <td className="mono-number" data-numeric="true">{formatMoney(item.component_return)}</td>
                   <td className={`mono-number ${Math.abs(item.variance) > item.tolerance ? "text-warning" : "text-positive"}`} data-numeric="true">
-                    {usd(item.variance, hidden)}
+                    {formatMoney(item.variance)}
                   </td>
                   <td>
                     <Badge tone={item.data_completeness === "COMPLETE" ? "positive" : "warning"}>
@@ -203,7 +203,7 @@ function ReconciliationContent() {
               <ProgressRow
                 key={item.exchange}
                 label={item.exchange}
-                value={`${usd(item.equity, hidden)} · ${number(item.percent, 1)}%`}
+                value={`${formatMoney(item.equity)} · ${number(item.percent, 1)}%`}
                 percent={item.percent}
               />
             ))}
@@ -216,7 +216,7 @@ function ReconciliationContent() {
               <ProgressRow
                 key={item.normalized_symbol}
                 label={item.symbol}
-                value={`${usd(item.position_value, hidden)} · ${number(item.equity_percent, 1)}%`}
+                value={`${usd(item.position_value)} · ${number(item.equity_percent, 1)}%`}
                 percent={item.equity_percent}
               />
             ))}
@@ -258,12 +258,12 @@ function SummaryCard({
   );
 }
 
-function Breakdown({ label, value, hidden }: { label: string; value: number; hidden: boolean }) {
+function Breakdown({ label, value, formatMoney }: { label: string; value: number; formatMoney: (value: number) => string }) {
   return (
     <div className="soft-block p-3">
       <p className="metric-label">{label}</p>
       <p className={`mono-number mt-2 text-sm font-semibold ${value > 0 ? "text-positive" : value < 0 ? "text-negative" : ""}`}>
-        {usd(value, hidden)}
+        {formatMoney(value)}
       </p>
     </div>
   );

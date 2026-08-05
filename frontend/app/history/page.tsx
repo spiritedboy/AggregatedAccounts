@@ -3,7 +3,7 @@
 import { Download, Filter, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
@@ -38,7 +38,7 @@ function HistoryContent() {
   const [netPnlSort, setNetPnlSort] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
-  const { hidden } = usePrivacy();
+  const { formatMoney } = useCurrency();
 
   const params = useCallback(() => {
     const query = new URLSearchParams({ page: String(page), page_size: "20" });
@@ -223,14 +223,14 @@ function HistoryContent() {
                       <p className="muted mt-1 text-xs">{dateTime(position.close_time)}</p>
                     </td>
                     <td className="mono-number" data-numeric="true">
-                      <p>{usd(position.average_entry_price, hidden)}</p>
-                      <p className="muted mt-1 text-xs">{usd(position.average_exit_price, hidden)}</p>
+                      <p>{usd(position.average_entry_price)}</p>
+                      <p className="muted mt-1 text-xs">{usd(position.average_exit_price)}</p>
                     </td>
                     <td className="mono-number" data-numeric="true">{number(position.max_position_size)}</td>
-                    <td className={`mono-number ${position.realized_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">{usd(position.realized_pnl, hidden)}</td>
-                    <td className="mono-number muted text-xs" data-numeric="true">{usd(position.funding_fee - position.trading_fee, hidden)}</td>
+                    <td className={`mono-number ${position.realized_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">{formatMoney(position.realized_pnl)}</td>
+                    <td className="mono-number muted text-xs" data-numeric="true">{formatMoney(position.funding_fee - position.trading_fee)}</td>
                     <td className={`mono-number font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">
-                      {usd(position.net_pnl, hidden)}
+                      {formatMoney(position.net_pnl)}
                       <p className="mt-1 text-xs">{number(position.return_percent, 2)}%</p>
                     </td>
                     <td>
@@ -270,14 +270,14 @@ function HistoryContent() {
                   <div className="soft-block p-3">
                     <p className="metric-label">净收益</p>
                     <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
-                      {usd(position.net_pnl, hidden)}
+                      {formatMoney(position.net_pnl)}
                     </p>
                     <p className="muted mono-number mt-1 text-[10px]">{number(position.return_percent, 2)}%</p>
                   </div>
                   <div className="soft-block p-3">
                     <p className="metric-label">开仓 / 平仓均价</p>
-                    <p className="mono-number mt-1 text-xs">{usd(position.average_entry_price, hidden)}</p>
-                    <p className="muted mono-number mt-1 text-[10px]">{usd(position.average_exit_price, hidden)}</p>
+                    <p className="mono-number mt-1 text-xs">{usd(position.average_entry_price)}</p>
+                    <p className="muted mono-number mt-1 text-[10px]">{usd(position.average_exit_price)}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">

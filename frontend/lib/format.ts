@@ -1,10 +1,20 @@
-export function usd(value: number, hidden = false): string {
-  if (hidden) return "$••••••";
+export type DisplayCurrency = "USD" | "CNY";
+
+export function money(
+  value: number,
+  currency: DisplayCurrency = "USD",
+  usdCnyRate = 1,
+): string {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(currency === "CNY" ? value * usdCnyRate : value);
+}
+
+/** Prices and position notional values intentionally stay denominated in USD. */
+export function usd(value: number): string {
+  return money(value, "USD", 1);
 }
 
 export function number(value: number, digits = 4): string {

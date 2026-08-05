@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { SortButton, type SortDirection } from "@/components/sort-button";
@@ -24,7 +24,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, usd } from "@/lib/format";
+import { dateTime } from "@/lib/format";
 import type {
   AccountingBootstrapData,
   AccountingRecordsData,
@@ -73,7 +73,7 @@ function LedgerContent() {
   const [financialImpactSort, setFinancialImpactSort] =
     useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const { hidden } = usePrivacy();
+  const { formatMoney } = useCurrency();
 
   const params = useCallback(() => {
     const query = new URLSearchParams({ page: String(page), page_size: "30" });
@@ -141,35 +141,35 @@ function LedgerContent() {
           <Metric
             icon={ShieldCheck}
             label="累计净收益"
-            value={usd(records.summary.net_realized_pnl, hidden)}
+            value={formatMoney(records.summary.net_realized_pnl)}
             tone={records.summary.net_realized_pnl >= 0 ? "positive" : "negative"}
             detail="已实现毛收益 + 资金费 − 手续费"
           />
           <Metric
             icon={BadgeDollarSign}
             label="已实现毛收益"
-            value={usd(records.summary.realized_pnl, hidden)}
+            value={formatMoney(records.summary.realized_pnl)}
             tone={records.summary.realized_pnl >= 0 ? "positive" : "negative"}
             detail="取自历史仓位的已实现收益"
           />
           <Metric
             icon={Landmark}
             label="资金费"
-            value={usd(records.summary.funding_fee, hidden)}
+            value={formatMoney(records.summary.funding_fee)}
             tone={records.summary.funding_fee >= 0 ? "positive" : "negative"}
             detail="正数收入，负数支出"
           />
           <Metric
             icon={ReceiptText}
             label="手续费"
-            value={usd(-records.summary.trading_fee, hidden)}
+            value={formatMoney(-records.summary.trading_fee)}
             tone="warning"
             detail="作为累计净收益的扣减项"
           />
           <Metric
             icon={ArrowDownToLine}
             label="净资金流"
-            value={usd(records.summary.net_cash_flow, hidden)}
+            value={formatMoney(records.summary.net_cash_flow)}
             tone={records.summary.net_cash_flow >= 0 ? "positive" : "negative"}
             detail="充值 − 提现，不计入收益"
           />
@@ -328,7 +328,7 @@ function LedgerContent() {
                       }`}
                       data-numeric="true"
                     >
-                      {usd(record.signed_amount_usd, hidden)}
+                      {formatMoney(record.signed_amount_usd)}
                     </td>
                     <td>
                       <p
@@ -352,7 +352,7 @@ function LedgerContent() {
                     <p className="muted mt-2 text-xs">{record.connection_name} · {record.exchange}</p>
                   </div>
                   <p className={`mono-number text-sm font-semibold ${record.signed_amount_usd > 0 ? "text-positive" : record.signed_amount_usd < 0 ? "text-negative" : ""}`}>
-                    {usd(record.signed_amount_usd, hidden)}
+                    {formatMoney(record.signed_amount_usd)}
                   </p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">

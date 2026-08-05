@@ -3,7 +3,7 @@
 import { Filter, Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePrivacy } from "@/components/app-shell";
+import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
@@ -35,7 +35,7 @@ function PositionsContent() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
-  const { hidden } = usePrivacy();
+  const { formatMoney } = useCurrency();
 
   const load = useCallback(() => {
     const params = new URLSearchParams();
@@ -245,10 +245,10 @@ function PositionsContent() {
                       </Badge>
                     </td>
                     <td className="mono-number" data-numeric="true">{number(position.position_size)}</td>
-                    <td className="mono-number" data-numeric="true">{usd(position.position_value_usd, hidden)}</td>
+                    <td className="mono-number" data-numeric="true">{usd(position.position_value_usd)}</td>
                     <td data-numeric="true">
-                      <p className="mono-number">{usd(position.entry_price, hidden)}</p>
-                      <p className="muted mono-number mt-1 text-xs">{usd(position.mark_price, hidden)}</p>
+                      <p className="mono-number">{usd(position.entry_price)}</p>
+                      <p className="muted mono-number mt-1 text-xs">{usd(position.mark_price)}</p>
                     </td>
                     <td data-numeric="true">
                       <p className="mono-number">{number(position.leverage, 1)}×</p>
@@ -256,7 +256,7 @@ function PositionsContent() {
                     </td>
                     <td data-numeric="true">
                       <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
-                        {usd(position.unrealized_pnl, hidden)}
+                        {formatMoney(position.unrealized_pnl)}
                       </p>
                       <p
                         className={`mono-number mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -287,9 +287,9 @@ function PositionsContent() {
                   </Badge>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
-                  <Metric label="仓位价值" value={usd(position.position_value_usd, hidden)} />
-                  <Metric label="当前未实现盈亏" value={usd(position.unrealized_pnl, hidden)} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
-                  <Metric label="入场 / 标记" value={`${usd(position.entry_price, hidden)} / ${usd(position.mark_price, hidden)}`} />
+                  <Metric label="仓位价值" value={usd(position.position_value_usd)} />
+                  <Metric label="当前未实现盈亏" value={formatMoney(position.unrealized_pnl)} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
+                  <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
                   <Metric label="数量 / 杠杆" value={`${number(position.position_size)} / ${number(position.leverage, 1)}×`} />
                 </div>
               </article>
