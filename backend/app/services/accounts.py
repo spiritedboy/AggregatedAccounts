@@ -411,15 +411,12 @@ async def _replace_positions(
         row.margin_mode = item.get("margin_mode", "UNKNOWN")
         row.unrealized_pnl = current_pnl
         row.tracking_unrealized_pnl_change = current_pnl - initial_pnl
-        row.unrealized_pnl_percent = Decimal(
-            str(
-                item.get(
-                    "unrealized_pnl_percent",
-                    current_pnl / row.position_value_usd * 100
-                    if row.position_value_usd
-                    else 0,
-                )
-            )
+        entry_notional = abs(row.entry_price * row.position_size)
+        position_margin = entry_notional / row.leverage if row.leverage else row.margin_used
+        row.unrealized_pnl_percent = (
+            current_pnl / position_margin * 100
+            if position_margin and position_margin > 0
+            else Decimal(str(item.get("unrealized_pnl_percent", 0)))
         )
         row.realized_pnl = Decimal(str(item.get("realized_pnl", 0)))
         row.open_time = item.get("open_time")
@@ -592,6 +589,150 @@ async def _upsert_closed_positions(
         row.data_source = item.get("data_source", "EXCHANGE_API")
         row.data_completeness = item.get("data_completeness", "PARTIAL")
     return len(positions)
+
+
+async def _run_data_quality_checks(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    previous_positions: list[CurrentPosition],
+    incoming_positions: list[dict[str, Any]],
+    incoming_closed: list[dict[str, Any]],
+    checked_at: datetime,
+) -> None:
+    """Persist the latest post-sync quality findings in account metadata."""
+    await db.flush()
+    issues: list[dict[str, Any]] = []
+    current_rows = (
+        await db.scalars(
+            select(CurrentPosition).where(
+                CurrentPosition.exchange_account_id == account.id,
+                CurrentPosition.tracking_period_id == period.id,
+            )
+        )
+    ).all()
+    for row in current_rows:
+        leverage = row.leverage or Decimal("0")
+        entry_notional = abs(row.entry_price * row.position_size)
+        margin = entry_notional / leverage if leverage > 0 else row.margin_used
+        identity = f"{row.normalized_symbol} {row.side}"
+        if leverage <= 0 or leverage > 200:
+            issues.append(
+                {
+                    "code": "INVALID_LEVERAGE",
+                    "severity": "WARNING",
+                    "entity": identity,
+                    "message": f"杠杆倍数异常：{leverage}",
+                }
+            )
+        if margin <= 0:
+            issues.append(
+                {
+                    "code": "NON_POSITIVE_MARGIN",
+                    "severity": "WARNING",
+                    "entity": identity,
+                    "message": "仓位本金小于或等于 0，无法计算可靠收益率",
+                }
+            )
+        elif abs(row.unrealized_pnl_percent - row.unrealized_pnl / margin * 100) > Decimal(
+            "0.01"
+        ):
+            issues.append(
+                {
+                    "code": "RETURN_MISMATCH",
+                    "severity": "ERROR",
+                    "entity": identity,
+                    "message": "当前收益率与“未实现盈亏 ÷ 本金”不一致",
+                }
+            )
+
+    closed_rows = (
+        await db.scalars(
+            select(ClosedPosition).where(
+                ClosedPosition.exchange_account_id == account.id,
+                ClosedPosition.tracking_period_id == period.id,
+                ClosedPosition.margin_used > 0,
+            )
+        )
+    ).all()
+    for row in closed_rows:
+        identity = f"{row.normalized_symbol} {row.side}"
+        if row.leverage is not None and (row.leverage <= 0 or row.leverage > 200):
+            issues.append(
+                {
+                    "code": "INVALID_HISTORICAL_LEVERAGE",
+                    "severity": "WARNING",
+                    "entity": identity,
+                    "message": f"历史仓位杠杆倍数异常：{row.leverage}",
+                }
+            )
+        expected_return = row.net_pnl / row.margin_used * 100
+        if abs(row.return_percent - expected_return) > Decimal("0.01"):
+            issues.append(
+                {
+                    "code": "HISTORICAL_RETURN_MISMATCH",
+                    "severity": "ERROR",
+                    "entity": identity,
+                    "message": "历史收益率与“净收益 ÷ 本金”不一致",
+                }
+            )
+
+    incoming_keys = {
+        (item["normalized_symbol"], item["side"]) for item in incoming_positions
+    }
+    recent_closed_keys = {
+        (item["normalized_symbol"], item["side"])
+        for item in incoming_closed
+        if abs((checked_at - item["close_time"]).total_seconds()) < 300
+    }
+    for row in previous_positions:
+        key = (row.normalized_symbol, row.side)
+        if key not in incoming_keys and key not in recent_closed_keys:
+            issues.append(
+                {
+                    "code": "POSITION_DISAPPEARED",
+                    "severity": "ERROR",
+                    "entity": f"{row.normalized_symbol} {row.side}",
+                    "message": "当前仓位已消失，但最近平仓数据中没有对应记录",
+                }
+            )
+
+    duplicate_rows = (
+        await db.execute(
+            select(
+                ClosedPosition.normalized_symbol,
+                ClosedPosition.side,
+                ClosedPosition.open_time,
+                ClosedPosition.close_time,
+                func.count(ClosedPosition.id).label("row_count"),
+            )
+            .where(
+                ClosedPosition.exchange_account_id == account.id,
+                ClosedPosition.tracking_period_id == period.id,
+            )
+            .group_by(
+                ClosedPosition.normalized_symbol,
+                ClosedPosition.side,
+                ClosedPosition.open_time,
+                ClosedPosition.close_time,
+            )
+            .having(func.count(ClosedPosition.id) > 1)
+        )
+    ).mappings()
+    for duplicate in duplicate_rows:
+        issues.append(
+            {
+                "code": "DUPLICATE_CLOSED_POSITION",
+                "severity": "ERROR",
+                "entity": f"{duplicate['normalized_symbol']} {duplicate['side']}",
+                "message": f"检测到 {duplicate['row_count']} 条相同开平仓周期记录",
+            }
+        )
+
+    details = dict(account.data_completeness_details or {})
+    details["quality_checked_at"] = checked_at.isoformat()
+    details["quality_issues"] = issues
+    account.data_completeness_details = details
 
 
 async def _upsert_amount_records(
@@ -896,6 +1037,15 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                         "closed_positions": closed_status,
                     },
                     authoritative=True,
+                )
+                await _run_data_quality_checks(
+                    db,
+                    account,
+                    period,
+                    list(previous_positions),
+                    positions,
+                    closed_positions,
+                    started,
                 )
                 history_count = 0
                 if history_due:

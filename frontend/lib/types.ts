@@ -332,6 +332,22 @@ export type ReconciliationData = {
     status: "MATCHED" | "REVIEW";
     data_completeness: string;
   }>;
+  quality: {
+    status: "HEALTHY" | "REVIEW";
+    issue_count: number;
+    error_count: number;
+    warning_count: number;
+    issues: Array<{
+      code: string;
+      severity: "ERROR" | "WARNING";
+      entity: string;
+      message: string;
+      account_id: string;
+      exchange: string;
+      connection_name: string;
+      checked_at: string | null;
+    }>;
+  };
   notice: string;
 };
 

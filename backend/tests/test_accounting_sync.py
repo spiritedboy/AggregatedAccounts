@@ -199,6 +199,11 @@ async def test_full_sync_idempotently_persists_accounting_records(monkeypatch):
         result = await sync_account(db, stored)
         assert result["status"] == "SUCCESS"
         assert stored.data_completeness == "COMPLETE"
+        assert stored.data_completeness_details["quality_checked_at"]
+        assert {
+            issue["code"]
+            for issue in stored.data_completeness_details["quality_issues"]
+        } == {"INVALID_LEVERAGE"}
         assert (
             await db.scalar(select(func.count()).select_from(AssetBalanceSnapshot))
             == 1

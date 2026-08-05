@@ -215,6 +215,13 @@ const reconciliationData = {
       data_completeness: "COMPLETE",
     },
   ],
+  quality: {
+    status: "HEALTHY",
+    issue_count: 0,
+    error_count: 0,
+    warning_count: 0,
+    issues: [],
+  },
   notice: "reconciliation notice",
 };
 
@@ -399,6 +406,8 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
     expect(screen.getAllByText("本金 US$5,600.00")).not.toHaveLength(0);
     expect(screen.getAllByText("14.29%")).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: "当前仓位收益率计算说明" })).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: "仓位本金计算说明" })).not.toHaveLength(0);
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
     expect(screen.getAllByText("做多")).not.toHaveLength(0);
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
@@ -488,6 +497,7 @@ describe("portfolio pages", () => {
     expect(await screen.findAllByText("交易所成交 API")).not.toHaveLength(0);
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
     expect(screen.getAllByText("12.76%")).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: "历史仓位收益率计算说明" })).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
@@ -686,6 +696,8 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("当前持仓收益")).not.toHaveLength(0);
     expect(screen.getByText("LOW")).toBeInTheDocument();
     expect(screen.getAllByText(/BTCUSDT/)).not.toHaveLength(0);
+    expect(screen.getByText("数据异常检查")).toBeInTheDocument();
+    expect(screen.getByText("最近一次同步检查通过。")).toBeInTheDocument();
   });
 
   it("persists the selected theme when the app shell remounts", async () => {

@@ -308,6 +308,73 @@ class BitgetAdapter(ExchangeAdapter):
             cursor = next_cursor
         return rows
 
+    async def _order_history_rows(
+        self,
+        product_type: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        base_params: dict[str, Any] = {
+            "productType": product_type,
+            "startTime": int(start_time.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000),
+            "limit": 100,
+        }
+        rows: list[dict[str, Any]] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        for _ in range(50):
+            params = {**base_params}
+            if cursor:
+                params["idLessThan"] = cursor
+            payload = await self._get("/api/v2/mix/order/orders-history", params)
+            page = (payload or {}).get("entrustedList", [])
+            rows.extend(page)
+            next_cursor = str((payload or {}).get("endId") or "")
+            if (
+                len(page) < 100
+                or not next_cursor
+                or next_cursor == cursor
+                or next_cursor in seen_cursors
+            ):
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        return rows
+
+    @staticmethod
+    def _closed_position_leverage(
+        position: dict[str, Any], orders: list[dict[str, Any]]
+    ) -> float | None:
+        symbol = str(position.get("symbol") or "").upper()
+        hold_side = normalize_side(str(position.get("holdSide") or ""))
+        open_ms = int(position.get("ctime") or 0)
+        close_ms = int(position.get("utime") or 0)
+        candidates: set[float] = set()
+        for order in orders:
+            order_time = int(order.get("cTime") or 0)
+            if str(order.get("symbol") or "").upper() != symbol:
+                continue
+            if open_ms and not open_ms - 300_000 <= order_time <= close_ms:
+                continue
+            trade_side = str(order.get("tradeSide") or "").lower()
+            if "open" not in trade_side and str(order.get("reduceOnly") or "").upper() != "NO":
+                continue
+            order_pos_side = str(order.get("posSide") or "").lower()
+            order_side = str(order.get("side") or "").lower()
+            side_matches = (
+                order_pos_side == hold_side.lower()
+                or order_pos_side == "net"
+                and (
+                    (hold_side == "LONG" and order_side == "buy")
+                    or (hold_side == "SHORT" and order_side == "sell")
+                )
+            )
+            leverage = float(order.get("leverage") or 0)
+            if side_matches and leverage > 0:
+                candidates.add(leverage)
+        return candidates.pop() if len(candidates) == 1 else None
+
     async def get_closed_positions(
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
@@ -315,7 +382,15 @@ class BitgetAdapter(ExchangeAdapter):
         start_ms = int(start_time.timestamp() * 1000)
         end_ms = int(end_time.timestamp() * 1000)
         for product_type in ("USDT-FUTURES", "USDC-FUTURES"):
-            rows = await self._position_history_rows(product_type, start_time, end_time)
+            rows_result, orders_result = await asyncio.gather(
+                self._position_history_rows(product_type, start_time, end_time),
+                self._order_history_rows(product_type, start_time, end_time),
+                return_exceptions=True,
+            )
+            if isinstance(rows_result, BaseException):
+                raise rows_result
+            rows = rows_result
+            order_rows = [] if isinstance(orders_result, BaseException) else orders_result
             for item in rows:
                 close_timestamp = int(item.get("utime") or 0)
                 if not start_ms <= close_timestamp <= end_ms:
@@ -335,6 +410,7 @@ class BitgetAdapter(ExchangeAdapter):
                     float(item.get("openTotalPos") or item.get("closeTotalPos") or 0)
                 )
                 initial_notional = entry_price * max_size
+                leverage = self._closed_position_leverage(item, order_rows)
                 position_id = str(item.get("positionId") or "").strip()
                 if position_id:
                     source_record_id = f"bitget:{product_type}:{position_id}"
@@ -361,8 +437,14 @@ class BitgetAdapter(ExchangeAdapter):
                     "funding_fee": funding_fee,
                     "trading_fee": -fee_contribution,
                     "net_pnl": net_pnl,
+                    "leverage": leverage,
+                    "margin_used": initial_notional / leverage if leverage else 0,
                     "return_percent": (
-                        realized_pnl / initial_notional * 100 if initial_notional else 0
+                        net_pnl / (initial_notional / leverage) * 100
+                        if initial_notional and leverage
+                        else realized_pnl / initial_notional * 100
+                        if initial_notional
+                        else 0
                     ),
                     "data_source": "EXCHANGE_API",
                     "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",

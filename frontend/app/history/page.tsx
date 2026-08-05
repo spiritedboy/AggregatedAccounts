@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { CalculationHint } from "@/components/calculation-hint";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
@@ -197,6 +198,10 @@ function HistoryContent() {
                       {title === "净收益" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
+                          <CalculationHint
+                            label="历史仓位收益率"
+                            text="收益率 = 净收益 ÷ 仓位本金 × 100%。净收益已经计入资金费并扣除手续费；无法确认历史杠杆和本金时不猜测，显示“杠杆数据不足”。"
+                          />
                           <SortButton
                             direction={netPnlSort}
                             label="净收益"
@@ -272,7 +277,13 @@ function HistoryContent() {
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="soft-block p-3">
-                    <p className="metric-label">净收益</p>
+                    <p className="metric-label">
+                      净收益
+                      <CalculationHint
+                        label="历史仓位收益率"
+                        text="收益率 = 净收益 ÷ 仓位本金 × 100%。无法确认历史杠杆和本金时显示“杠杆数据不足”。"
+                      />
+                    </p>
                     <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                       {formatMoney(position.net_pnl)}
                     </p>

@@ -114,6 +114,10 @@ def test_sync_reconciliation_and_risk_analytics_are_public(authenticated):
     assert reconciliation.status_code == 200
     assert "equity_return" in reconciliation.json()["data"]["totals"]
     assert reconciliation.json()["data"]["accounts"]
+    assert reconciliation.json()["data"]["quality"]["status"] in {
+        "HEALTHY",
+        "REVIEW",
+    }
 
     risk = client.get("/api/analytics/risk")
     assert risk.status_code == 200

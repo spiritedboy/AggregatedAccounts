@@ -195,6 +195,38 @@ function ReconciliationContent() {
         </div>
       </section>
 
+      <section className="data-panel mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: "var(--line)" }}>
+          <div>
+            <p className="section-label">数据异常检查</p>
+            <p className="muted mt-1 text-xs">每次账户同步后检查本金、杠杆、收益率、仓位消失和平仓重复记录。</p>
+          </div>
+          <Badge tone={reconciliation.quality.status === "HEALTHY" ? "positive" : "warning"}>
+            {reconciliation.quality.status === "HEALTHY"
+              ? "未发现异常"
+              : `${reconciliation.quality.issue_count} 项待复核`}
+          </Badge>
+        </div>
+        {reconciliation.quality.issues.length === 0 ? (
+          <div className="px-5 py-6 text-sm text-positive">最近一次同步检查通过。</div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: "var(--line)" }}>
+            {reconciliation.quality.issues.map((issue, index) => (
+              <div key={`${issue.account_id}-${issue.code}-${issue.entity}-${index}`} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+                <div>
+                  <p className="font-semibold">{issue.entity}</p>
+                  <p className="muted mt-1 text-xs">{issue.exchange} · {issue.connection_name}</p>
+                  <p className="mt-2 text-sm">{issue.message}</p>
+                </div>
+                <Badge tone={issue.severity === "ERROR" ? "negative" : "warning"}>
+                  {issue.severity === "ERROR" ? "异常" : "提示"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="mt-4 grid gap-4 xl:grid-cols-2">
         <article className="panel p-5 md:p-6">
           <p className="section-label">交易所集中度</p>

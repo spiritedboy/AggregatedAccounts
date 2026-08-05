@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { CalculationHint } from "@/components/calculation-hint";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
@@ -210,6 +211,10 @@ function PositionsContent() {
                       {title === "仓位价值" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
+                          <CalculationHint
+                            label="当前仓位收益率"
+                            text="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已经包含杠杆影响。"
+                          />
                           <SortButton
                             direction={valueSortDirection}
                             label="仓位价值"
@@ -223,6 +228,14 @@ function PositionsContent() {
                             direction={pnlSortDirection}
                             label="未实现盈亏"
                             onChange={(direction) => changeSort("pnl", direction)}
+                          />
+                        </span>
+                      ) : title === "杠杆 / 保证金" ? (
+                        <span className="inline-flex items-center whitespace-nowrap">
+                          {title}
+                          <CalculationHint
+                            label="仓位本金"
+                            text="仓位本金 = 入场价 × 仓位数量 ÷ 杠杆倍数。这里展示的是建立该仓位所需的本金，不是当前仓位价值。"
                           />
                         </span>
                       ) : title}
@@ -288,9 +301,9 @@ function PositionsContent() {
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd)} />
-                  <Metric label="当前未实现盈亏" value={`${formatMoney(position.unrealized_pnl)} · ${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
+                  <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatMoney(position.unrealized_pnl)} · ${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
-                  <Metric label="杠杆 / 本金" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
+                  <Metric label="杠杆 / 本金" hint="本金 = 入场价 × 仓位数量 ÷ 杠杆倍数。" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
                 </div>
               </article>
             ))}
@@ -323,10 +336,13 @@ function FilterSelect({
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
+function Metric({ label, value, tone, hint }: { label: string; value: string; tone?: "positive" | "negative"; hint?: string }) {
   return (
     <div>
-      <p className="metric-label">{label}</p>
+      <p className="metric-label">
+        {label}
+        {hint ? <CalculationHint label={label} text={hint} /> : null}
+      </p>
       <p className={`mono-number mt-1 text-sm ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );

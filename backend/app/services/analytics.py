@@ -484,9 +484,33 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
     )
     totals = {key: sum(item[key] for item in items) for key in total_keys}
     totals["status"] = "MATCHED" if all(item["status"] == "MATCHED" for item in items) else "REVIEW"
+    quality_issues = [
+        {
+            **issue,
+            "account_id": account.id,
+            "exchange": account.exchange,
+            "connection_name": account.connection_name,
+            "checked_at": (account.data_completeness_details or {}).get(
+                "quality_checked_at"
+            ),
+        }
+        for account in accounts
+        for issue in (account.data_completeness_details or {}).get("quality_issues", [])
+    ]
     return {
         "totals": totals,
         "accounts": items,
+        "quality": {
+            "status": "HEALTHY" if not quality_issues else "REVIEW",
+            "issue_count": len(quality_issues),
+            "error_count": sum(
+                issue.get("severity") == "ERROR" for issue in quality_issues
+            ),
+            "warning_count": sum(
+                issue.get("severity") == "WARNING" for issue in quality_issues
+            ),
+            "issues": quality_issues,
+        },
         "notice": (
             "累计净收益 = 已实现毛收益 + 资金费 - 手续费；对账组成收益再加当前"
             "持仓收益并扣除接入时未实现盈亏。差额用于发现接口覆盖不足或重复记录。"

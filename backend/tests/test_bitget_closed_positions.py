@@ -29,7 +29,21 @@ async def test_bitget_closed_positions_normalize_native_history(monkeypatch):
     async def fake_rows(product_type, *_):
         return [row] if product_type == "USDT-FUTURES" else []
 
+    async def fake_orders(product_type, *_):
+        return [
+            {
+                "symbol": "BTCUSDT",
+                "posSide": "long",
+                "side": "buy",
+                "tradeSide": "open",
+                "reduceOnly": "NO",
+                "leverage": "20",
+                "cTime": row["ctime"],
+            }
+        ] if product_type == "USDT-FUTURES" else []
+
     monkeypatch.setattr(adapter, "_position_history_rows", fake_rows)
+    monkeypatch.setattr(adapter, "_order_history_rows", fake_orders)
     try:
         positions = await adapter.get_closed_positions(
             datetime(2026, 7, 26, 11, tzinfo=UTC),
@@ -50,7 +64,9 @@ async def test_bitget_closed_positions_normalize_native_history(monkeypatch):
     assert position["funding_fee"] == -0.1
     assert position["trading_fee"] == pytest.approx(0.2)
     assert position["net_pnl"] == 4.7
-    assert position["return_percent"] == pytest.approx(1.5625)
+    assert position["leverage"] == 20
+    assert position["margin_used"] == 16
+    assert position["return_percent"] == pytest.approx(29.375)
     assert position["data_source"] == "EXCHANGE_API"
     assert position["data_completeness"] == "COMPLETE"
 
@@ -84,7 +100,11 @@ async def test_bitget_closed_positions_keep_latest_row_for_position_id(
     async def fake_rows(product_type, *_):
         return rows if product_type == "USDT-FUTURES" else []
 
+    async def fake_orders(*_):
+        return []
+
     monkeypatch.setattr(adapter, "_position_history_rows", fake_rows)
+    monkeypatch.setattr(adapter, "_order_history_rows", fake_orders)
     try:
         positions = await adapter.get_closed_positions(
             datetime(2026, 7, 26, 11, tzinfo=UTC),
@@ -124,3 +144,24 @@ async def test_bitget_position_history_uses_end_id_pagination(monkeypatch):
     assert calls[0][0] == "/api/v2/mix/position/history-position"
     assert "idLessThan" not in calls[0][1]
     assert calls[1][1]["idLessThan"] == "cursor-1"
+
+
+def test_bitget_history_does_not_guess_when_open_orders_disagree():
+    position = {
+        "symbol": "BTCUSDT",
+        "holdSide": "long",
+        "ctime": "1785059143881",
+        "utime": "1785080589858",
+    }
+    orders = [
+        {
+            "symbol": "BTCUSDT",
+            "posSide": "long",
+            "tradeSide": "open",
+            "leverage": leverage,
+            "cTime": "1785059143881",
+        }
+        for leverage in ("10", "20")
+    ]
+
+    assert BitgetAdapter._closed_position_leverage(position, orders) is None
