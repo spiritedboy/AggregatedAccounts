@@ -371,6 +371,18 @@ BALANCE_SNAPSHOT_RETENTION_DAYS=0
 正整数启用安全清理；高频快照只有在对应日汇总存在时才允许删除。每次检查都会写入
 `DATA_RETENTION_APPLIED` 安全审计记录。
 
+## Docker 构建缓存维护
+
+生产服务器每天 04:40 使用 BuildKit 的 LRU 策略维护构建缓存，默认最多保留 5 GB。
+该任务只删除最久未使用的构建层，不删除镜像、运行中的容器、Docker 卷、数据库或备份。
+维护日志保留 7 天。
+
+```bash
+sudo ./scripts/install-docker-cache-maintenance.sh
+```
+
+可通过 `DOCKER_BUILD_CACHE_LIMIT` 调整上限；正常部署无需手动清空缓存。
+
 ## PostgreSQL 自动备份
 
 备份脚本默认将文件保存到仓库同级的 `backups` 目录，权限为 `700`；每个备份使用
