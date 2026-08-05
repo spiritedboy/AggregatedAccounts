@@ -186,7 +186,7 @@ function HistoryContent() {
         <div className="panel"><EmptyState title="没有历史仓位" description="当前筛选范围内没有已关闭仓位。" /></div>
       ) : (
         <>
-          <div className="table-shell hidden lg:block">
+          <div className="table-shell table-shell-sticky hidden lg:block">
             <table className="data-table min-w-[1040px]">
               <thead>
                 <tr>

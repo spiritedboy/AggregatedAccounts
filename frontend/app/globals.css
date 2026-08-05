@@ -222,6 +222,13 @@ select:focus-visible {
     box-shadow: var(--panel-shadow);
   }
 
+  .table-shell-sticky {
+    max-height: calc(100vh - 7rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
   .data-table {
     @apply w-full text-sm;
   }
@@ -232,9 +239,14 @@ select:focus-visible {
   }
 
   .data-table th {
-    @apply sticky top-0 z-10 whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold tracking-wide;
+    @apply sticky top-0 z-20 whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold tracking-wide;
     background: color-mix(in srgb, var(--surface-soft) 82%, var(--surface));
     border-bottom: 1px solid var(--line);
+  }
+
+  .data-table th:hover,
+  .data-table th:focus-within {
+    z-index: 40;
   }
 
   .data-table td {

@@ -12,7 +12,7 @@ export function CalculationHint({ label, text }: { label: string; text: string }
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full right-0 z-30 mb-2 hidden w-64 rounded-xl border bg-[var(--panel)] p-3 text-left text-xs font-normal leading-5 text-[var(--text)] shadow-xl group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-64 rounded-xl border bg-[var(--panel)] p-3 text-left text-xs font-normal leading-5 text-[var(--text)] shadow-xl group-hover:block group-focus-within:block"
         style={{ borderColor: "var(--line)" }}
       >
         {text}

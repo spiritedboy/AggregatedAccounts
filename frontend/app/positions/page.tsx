@@ -199,7 +199,7 @@ function PositionsContent() {
         </div>
       ) : (
         <>
-          <div className="table-shell hidden lg:block">
+          <div className="table-shell table-shell-sticky hidden lg:block">
             <table className="data-table min-w-[1000px]">
               <thead>
                 <tr>
@@ -212,8 +212,8 @@ function PositionsContent() {
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
                           <CalculationHint
-                            label="当前仓位收益率"
-                            text="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已经包含杠杆影响。"
+                            label="仓位价值"
+                            text="仓位价值 = 当前标记价格 × 仓位数量，用于衡量当前持仓敞口；该字段固定使用美元显示。"
                           />
                           <SortButton
                             direction={valueSortDirection}

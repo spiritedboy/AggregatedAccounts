@@ -406,8 +406,10 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
     expect(screen.getAllByText("本金 US$5,600.00")).not.toHaveLength(0);
     expect(screen.getAllByText("14.29%")).not.toHaveLength(0);
-    expect(screen.getAllByRole("button", { name: "当前仓位收益率计算说明" })).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: "仓位价值计算说明" })).not.toHaveLength(0);
     expect(screen.getAllByRole("button", { name: "仓位本金计算说明" })).not.toHaveLength(0);
+    expect(document.querySelector(".table-shell-sticky")).toBeInTheDocument();
+    expect(screen.getByRole("tooltip", { name: /仓位价值 =/ })).toHaveClass("top-full");
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
     expect(screen.getAllByText("做多")).not.toHaveLength(0);
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
