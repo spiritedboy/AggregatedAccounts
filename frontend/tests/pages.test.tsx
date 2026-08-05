@@ -518,7 +518,9 @@ describe("portfolio pages", () => {
       },
     });
     render(<PnlPage />);
-    expect(await screen.findByText("累计收益")).toBeInTheDocument();
+    expect(await screen.findByText("累计净收益")).toBeInTheDocument();
+    expect(screen.getByText("已实现毛收益")).toBeInTheDocument();
+    expect(screen.getByText("收益组成项，尚未扣除手续费与资金费")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每周" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();

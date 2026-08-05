@@ -155,10 +155,30 @@ function PnlContent() {
   if (!summary) return <LoadingState rows={7} />;
 
   const metrics = [
-    { label: "已实现收益", value: summary.period_realized_pnl, icon: Landmark },
-    { label: "未实现变化", value: summary.period_unrealized_pnl_change, icon: TrendingUp },
-    { label: "手续费", value: -summary.period_trading_fee, icon: ReceiptText },
-    { label: "资金费", value: summary.period_funding_fee, icon: CalendarDays },
+    {
+      label: "已实现毛收益",
+      value: summary.period_realized_pnl,
+      detail: "收益组成项，尚未扣除手续费与资金费",
+      icon: Landmark,
+    },
+    {
+      label: "未实现变化",
+      value: summary.period_unrealized_pnl_change,
+      detail: "当前未实现盈亏相对统计期初的变化",
+      icon: TrendingUp,
+    },
+    {
+      label: "手续费",
+      value: -summary.period_trading_fee,
+      detail: "交易手续费对累计收益的影响",
+      icon: ReceiptText,
+    },
+    {
+      label: "资金费",
+      value: summary.period_funding_fee,
+      detail: "永续合约资金费的净影响",
+      icon: CalendarDays,
+    },
   ];
   const maxContribution = Math.max(...byExchange.map((item) => Math.abs(item.investment_return)), 1);
 
@@ -177,9 +197,9 @@ function PnlContent() {
       />
       <section className="grid gap-3 xl:grid-cols-[1.1fr_.9fr]">
         <MetricCard
-          label="累计收益"
+          label="累计净收益"
           value={usd(summary.period_investment_return, hidden)}
-          detail={`以统计期初权益 ${usd(summary.period_initial_equity, hidden)} 为基准，已剔除充值与提现`}
+          detail={`统计期累计权益变化，以期初权益 ${usd(summary.period_initial_equity, hidden)} 为基准，已剔除充值与提现`}
           icon={CircleDollarSign}
           tone={summary.period_investment_return >= 0 ? "positive" : "negative"}
           featured
@@ -190,6 +210,7 @@ function PnlContent() {
               key={metric.label}
               label={metric.label}
               value={usd(metric.value, hidden)}
+              detail={metric.detail}
               icon={metric.icon}
               tone={metric.value > 0 ? "positive" : metric.value < 0 ? "negative" : "neutral"}
             />

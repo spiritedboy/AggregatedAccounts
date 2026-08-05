@@ -1132,7 +1132,9 @@ async def _pnl_summary_data(
     values = [row["investment_return"] for row in daily]
     return {
         "period_initial_equity": sum(_num(row.initial_equity) for row in latest_initial),
-        "period_investment_return": sum(values[-1:]),
+        # Daily points store period deltas; the summary needs the period-to-date
+        # value from the cumulative curve rather than only the final day's delta.
+        "period_investment_return": daily[-1]["cumulative_return"] if daily else 0,
         "period_realized_pnl": sum(row["realized_pnl"] for row in daily),
         "period_unrealized_pnl_change": (
             daily[-1]["cumulative_unrealized_pnl_change"] if daily else 0
