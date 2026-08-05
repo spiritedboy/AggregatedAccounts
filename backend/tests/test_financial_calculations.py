@@ -12,6 +12,7 @@ from app.api import (
 from app.database import SessionLocal
 from app.models import (
     AccountBalanceSnapshot,
+    AssetBalanceSnapshot,
     ClosedPosition,
     CurrentPosition,
     DailyPnlSnapshot,
@@ -106,6 +107,31 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
                 tracking_started_at=period.started_at,
             )
         )
+        db.add_all(
+            [
+                AccountBalanceSnapshot(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id="dashboard-balance",
+                    total_equity_usd=Decimal("112"),
+                    unvalued_asset_count=1,
+                    recorded_at=datetime(2026, 7, 3, tzinfo=UTC),
+                ),
+                AssetBalanceSnapshot(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id="dashboard-unvalued-asset",
+                    asset="LDUSDT",
+                    account_type="SPOT",
+                    available=Decimal("0.36257566"),
+                    value_usd=None,
+                    price_source="EXCHANGE_TICKER",
+                    recorded_at=datetime(2026, 7, 3, tzinfo=UTC),
+                ),
+            ]
+        )
         await db.commit()
         daily = await _daily_pnl_points(db)
         summary = await _pnl_summary_data(db, daily)
@@ -121,6 +147,16 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
     assert summary["current_position_pnl"] == 9.5
     assert dashboard["cumulative_net_pnl"] == summary["period_net_realized_pnl"]
     assert dashboard["current_position_pnl"] == summary["current_position_pnl"]
+    assert dashboard["unvalued_assets"] == [
+        {
+            "exchange": "OKX",
+            "connection_name": "OKX-calculation-test",
+            "asset": "LDUSDT",
+            "account_type": "SPOT",
+            "quantity": 0.36257566,
+            "price_source": "EXCHANGE_TICKER",
+        }
+    ]
     weekly = _bucket_pnl_points(daily, "week")
     assert weekly[0]["investment_return"] == 12
     assert weekly[0]["cumulative_return"] == 12

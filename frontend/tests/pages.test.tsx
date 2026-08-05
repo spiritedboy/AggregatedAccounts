@@ -299,6 +299,16 @@ describe("portfolio pages", () => {
           today_pnl: 230,
           cumulative_pnl: 4200,
           unvalued_asset_count: 1,
+          unvalued_assets: [
+            {
+              exchange: "BINANCE",
+              connection_name: "Binance 演示账户",
+              asset: "LDUSDT",
+              account_type: "SPOT",
+              quantity: 0.36257566,
+              price_source: "BINANCE_SPOT_TICKER",
+            },
+          ],
           tracking_started_at: "2026-07-01T00:00:00Z",
           last_updated_at: "2026-07-26T00:00:00Z",
           by_exchange: [
@@ -362,6 +372,8 @@ describe("portfolio pages", () => {
     expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
     expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
     expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
+    expect(screen.getByText(/LDUSDT · BINANCE/)).toBeInTheDocument();
+    expect(screen.getByText(/数量 0.36257566/)).toBeInTheDocument();
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "1年" }));

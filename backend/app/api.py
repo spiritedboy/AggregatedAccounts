@@ -381,6 +381,41 @@ def _bucket_pnl_points(
     return [grouped[key] for key in sorted(grouped)]
 
 
+async def _latest_asset_rows(
+    db: AsyncSession, account_ids: list[uuid.UUID]
+) -> list[AssetBalanceSnapshot]:
+    if not account_ids:
+        return []
+    latest_asset_time = (
+        select(AssetBalanceSnapshot.recorded_at.label("recorded_at"))
+        .where(AssetBalanceSnapshot.exchange_account_id == ExchangeAccount.id)
+        .order_by(AssetBalanceSnapshot.recorded_at.desc())
+        .limit(1)
+        .correlate(ExchangeAccount)
+        .lateral("latest_asset_time")
+    )
+    return (
+        await db.scalars(
+            select(AssetBalanceSnapshot)
+            .select_from(ExchangeAccount)
+            .join(latest_asset_time, true())
+            .join(
+                AssetBalanceSnapshot,
+                and_(
+                    AssetBalanceSnapshot.exchange_account_id == ExchangeAccount.id,
+                    AssetBalanceSnapshot.recorded_at == latest_asset_time.c.recorded_at,
+                ),
+            )
+            .where(ExchangeAccount.id.in_(account_ids))
+            .order_by(
+                AssetBalanceSnapshot.exchange_account_id,
+                AssetBalanceSnapshot.account_type,
+                AssetBalanceSnapshot.asset,
+            )
+        )
+    ).all()
+
+
 async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     latest = await _latest_balances(db)
     current_positions = (
@@ -403,6 +438,19 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     today_return = sum(
         row["investment_return"] for row in daily_rows if row["period"] == today_key
     )
+    account_by_id = {account.id: account for _, account in latest}
+    unvalued_assets = [
+        {
+            "exchange": account_by_id[row.exchange_account_id].exchange,
+            "connection_name": account_by_id[row.exchange_account_id].connection_name,
+            "asset": row.asset,
+            "account_type": row.account_type,
+            "quantity": _num(row.available) + _num(row.locked),
+            "price_source": row.price_source,
+        }
+        for row in await _latest_asset_rows(db, list(account_by_id))
+        if row.value_usd is None and (_num(row.available) or _num(row.locked))
+    ]
     return {
         "estimated_total_equity": total_equity,
         "available_balance": available,
@@ -414,6 +462,7 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
         "unrealized_pnl_change": current_position_pnl,
         "cumulative_pnl": cumulative_net_pnl,
         "unvalued_asset_count": sum(row.unvalued_asset_count for row, _ in latest),
+        "unvalued_assets": unvalued_assets,
         "tracking_started_at": min(
             (account.tracking_started_at for _, account in latest), default=None
         ),
@@ -516,41 +565,7 @@ async def _balances_data(
 ) -> list[dict[str, Any]]:
     latest = await _latest_balances(db, exchange)
     account_ids = [account.id for _, account in latest]
-    if account_ids:
-        latest_asset_time = (
-            select(AssetBalanceSnapshot.recorded_at.label("recorded_at"))
-            .where(
-                AssetBalanceSnapshot.exchange_account_id == ExchangeAccount.id
-            )
-            .order_by(AssetBalanceSnapshot.recorded_at.desc())
-            .limit(1)
-            .correlate(ExchangeAccount)
-            .lateral("latest_asset_time")
-        )
-        asset_rows = (
-            await db.scalars(
-                select(AssetBalanceSnapshot)
-                .select_from(ExchangeAccount)
-                .join(latest_asset_time, true())
-                .join(
-                    AssetBalanceSnapshot,
-                    and_(
-                        AssetBalanceSnapshot.exchange_account_id
-                        == ExchangeAccount.id,
-                        AssetBalanceSnapshot.recorded_at
-                        == latest_asset_time.c.recorded_at,
-                    ),
-                )
-                .where(ExchangeAccount.id.in_(account_ids))
-                .order_by(
-                    AssetBalanceSnapshot.exchange_account_id,
-                    AssetBalanceSnapshot.account_type,
-                    AssetBalanceSnapshot.asset,
-                )
-            )
-        ).all()
-    else:
-        asset_rows = []
+    asset_rows = await _latest_asset_rows(db, account_ids)
     assets_by_account: dict[uuid.UUID, list[AssetBalanceSnapshot]] = defaultdict(list)
     for asset_row in asset_rows:
         assets_by_account[asset_row.exchange_account_id].append(asset_row)

@@ -438,9 +438,26 @@ function DashboardContent() {
             </div>
           </div>
           {data.unvalued_asset_count > 0 && (
-            <div className="mt-4 flex gap-2 rounded-xl bg-[var(--warning-soft)] p-3 text-xs text-[var(--warning)]">
-              <Coins className="h-4 w-4 shrink-0" />
-              {data.unvalued_asset_count} 项资产暂时无法估值，未按 0 计入。
+            <div className="mt-4 rounded-xl bg-[var(--warning-soft)] p-3 text-xs text-[var(--warning)]">
+              <div className="flex gap-2 font-semibold">
+                <Coins className="h-4 w-4 shrink-0" />
+                {data.unvalued_asset_count} 项资产暂时无法估值，未按 0 计入
+              </div>
+              <div className="mt-2 space-y-2 pl-6">
+                {(data.unvalued_assets ?? []).map((asset) => (
+                  <div key={`${asset.exchange}-${asset.connection_name}-${asset.account_type}-${asset.asset}`}>
+                    <p className="font-semibold text-[var(--text)]">
+                      {asset.asset} · {asset.exchange} / {asset.connection_name}
+                    </p>
+                    <p className="mt-0.5 opacity-90">
+                      {asset.account_type} · 数量 {number(asset.quantity, 8)} · 估值源 {asset.price_source || "不可用"}
+                    </p>
+                  </div>
+                ))}
+                {(data.unvalued_assets ?? []).length === 0 && (
+                  <p>当前同步批次未返回可定位的逐资产明细。</p>
+                )}
+              </div>
             </div>
           )}
         </article>

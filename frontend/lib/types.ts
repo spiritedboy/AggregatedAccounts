@@ -111,6 +111,14 @@ export type DashboardData = {
   today_pnl: number;
   cumulative_pnl: number;
   unvalued_asset_count: number;
+  unvalued_assets: Array<{
+    exchange: string;
+    connection_name: string;
+    asset: string;
+    account_type: string;
+    quantity: number;
+    price_source: string;
+  }>;
   tracking_started_at: string | null;
   last_updated_at: string | null;
   by_exchange: Array<{
