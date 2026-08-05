@@ -7,6 +7,7 @@ from app.database import SessionLocal
 from app.models import (
     AccountBalanceSnapshot,
     CashFlowRecord,
+    ClosedPosition,
     ExchangeAccount,
     FundingRecord,
     IncomeRecord,
@@ -65,6 +66,20 @@ async def test_accounting_records_and_component_completeness():
                     income_type="REALIZED_PNL",
                     amount_usd=Decimal("5"),
                 ),
+                ClosedPosition(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id="closed",
+                    symbol="BTCUSDT",
+                    normalized_symbol="BTC-USDT-PERP",
+                    side="LONG",
+                    open_time=now,
+                    close_time=now,
+                    realized_pnl=Decimal("6"),
+                    net_pnl=Decimal("4.5"),
+                    tracking_started_at=now,
+                ),
                 FundingRecord(
                     **common,
                     source_record_id="funding",
@@ -103,13 +118,14 @@ async def test_accounting_records_and_component_completeness():
         result = await list_accounting_records(db, limit=20)
         assert result["total"] == 5
         assert result["summary"] == {
-            "realized_pnl": 5.0,
+            "realized_pnl": 6.0,
             "funding_fee": -1.0,
             "trading_fee": 0.5,
             "deposits": 10.0,
             "withdrawals": 3.0,
             "net_effect": 10.5,
             "net_cash_flow": 7.0,
+            "net_realized_pnl": 4.5,
         }
         fee_result = await list_accounting_records(
             db, record_type="TRADING_FEE", limit=20

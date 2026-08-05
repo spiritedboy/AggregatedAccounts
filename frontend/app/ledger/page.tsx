@@ -37,14 +37,14 @@ const componentLabels = {
   balances: "逐资产余额",
   positions: "当前仓位",
   closed_positions: "已平仓仓位",
-  realized_pnl: "已实现收益",
+  realized_pnl: "已实现毛收益",
   funding_fee: "资金费",
   trading_fee: "交易手续费",
   cash_flow: "资金流",
 } as const;
 
 const recordTypeLabels: Record<string, string> = {
-  REALIZED_PNL: "已实现收益",
+  REALIZED_PNL: "已实现毛收益",
   FUNDING_FEE: "资金费",
   TRADING_FEE: "交易手续费",
   DEPOSIT: "转入 / 充值",
@@ -124,7 +124,7 @@ function LedgerContent() {
       <PageHeader
         eyebrow="每笔来往"
         title="账务流水"
-        description="集中查看统计期内的已实现收益、资金费、交易手续费与资金流；所有记录均使用交易所原始 ID 幂等写入。"
+        description="集中查看已实现毛收益、资金费、交易手续费与资金流，并按统一公式汇总累计净收益。"
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
@@ -137,30 +137,41 @@ function LedgerContent() {
       />
 
       {records && (
-        <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Metric
+            icon={ShieldCheck}
+            label="累计净收益"
+            value={usd(records.summary.net_realized_pnl, hidden)}
+            tone={records.summary.net_realized_pnl >= 0 ? "positive" : "negative"}
+            detail="已实现毛收益 + 资金费 − 手续费"
+          />
           <Metric
             icon={BadgeDollarSign}
-            label="已实现收益"
+            label="已实现毛收益"
             value={usd(records.summary.realized_pnl, hidden)}
             tone={records.summary.realized_pnl >= 0 ? "positive" : "negative"}
+            detail="取自历史仓位的已实现收益"
           />
           <Metric
             icon={Landmark}
             label="资金费"
             value={usd(records.summary.funding_fee, hidden)}
             tone={records.summary.funding_fee >= 0 ? "positive" : "negative"}
+            detail="正数收入，负数支出"
           />
           <Metric
             icon={ReceiptText}
-            label="交易手续费"
-            value={usd(records.summary.trading_fee, hidden)}
+            label="手续费"
+            value={usd(-records.summary.trading_fee, hidden)}
             tone="warning"
+            detail="作为累计净收益的扣减项"
           />
           <Metric
             icon={ArrowDownToLine}
             label="净资金流"
             value={usd(records.summary.net_cash_flow, hidden)}
             tone={records.summary.net_cash_flow >= 0 ? "positive" : "negative"}
+            detail="充值 − 提现，不计入收益"
           />
         </section>
       )}
@@ -190,7 +201,7 @@ function LedgerContent() {
           }}
         >
           <option value="">全部类型</option>
-          <option value="REALIZED_PNL">已实现收益</option>
+          <option value="REALIZED_PNL">已实现毛收益</option>
           <option value="FUNDING_FEE">资金费</option>
           <option value="TRADING_FEE">交易手续费</option>
           <option value="DEPOSIT">转入 / 充值</option>
@@ -484,11 +495,13 @@ function Metric({
   label,
   value,
   tone,
+  detail,
 }: {
   icon: typeof ShieldCheck;
   label: string;
   value: string;
   tone: "positive" | "negative" | "warning";
+  detail?: string;
 }) {
   const colors = {
     positive: "text-positive bg-[var(--positive-soft)]",
@@ -504,6 +517,7 @@ function Metric({
         </span>
       </div>
       <p className="mono-number mt-3 text-xl font-semibold">{value}</p>
+      {detail && <p className="muted mt-1.5 text-[11px] leading-4">{detail}</p>}
     </article>
   );
 }

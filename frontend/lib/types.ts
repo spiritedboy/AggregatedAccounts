@@ -234,6 +234,7 @@ export type AccountingRecordsData = {
     deposits: number;
     withdrawals: number;
     net_cash_flow: number;
+    net_realized_pnl: number;
     net_effect: number;
   };
 };

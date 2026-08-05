@@ -230,7 +230,35 @@ async def list_accounting_records(
         )
     ).mappings().one()
     summary = {key: _num(value) for key, value in summary_row.items()}
+    closed_query = (
+        select(func.coalesce(func.sum(ClosedPosition.realized_pnl), 0))
+        .join(
+            ExchangeAccount,
+            ExchangeAccount.id == ClosedPosition.exchange_account_id,
+        )
+        .where(ExchangeAccount.is_active.is_(True))
+    )
+    if exchange:
+        closed_query = closed_query.where(ClosedPosition.exchange == exchange.upper())
+    if account_id:
+        closed_query = closed_query.where(
+            ClosedPosition.exchange_account_id == account_id
+        )
+    if start_time:
+        closed_query = closed_query.where(ClosedPosition.close_time >= start_time)
+    if end_time:
+        closed_query = closed_query.where(ClosedPosition.close_time <= end_time)
+    summary["realized_pnl"] = (
+        _num(await db.scalar(closed_query))
+        if record_type is None or record_type.upper() == "REALIZED_PNL"
+        else 0.0
+    )
     summary["net_cash_flow"] = summary["deposits"] - summary["withdrawals"]
+    summary["net_realized_pnl"] = (
+        summary["realized_pnl"]
+        + summary["funding_fee"]
+        - summary["trading_fee"]
+    )
     return {
         "items": [
             {

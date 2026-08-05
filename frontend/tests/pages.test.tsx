@@ -547,6 +547,7 @@ describe("portfolio pages", () => {
             deposits: 10,
             withdrawals: 0,
             net_cash_flow: 10,
+            net_realized_pnl: 115,
             net_effect: 125,
           },
           items: [
@@ -586,6 +587,9 @@ describe("portfolio pages", () => {
     render(<LedgerPage />);
     expect(await screen.findByText("数据完整性明细")).toBeInTheDocument();
     expect(screen.getAllByText("资金费").length).toBeGreaterThan(0);
+    expect(screen.getByText("累计净收益")).toBeInTheDocument();
+    expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
+    expect(screen.getAllByText("已实现毛收益")).not.toHaveLength(0);
     expect(screen.getByText("funding-source-1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
     expect(screen.getByText("8 项完整")).toBeInTheDocument();
