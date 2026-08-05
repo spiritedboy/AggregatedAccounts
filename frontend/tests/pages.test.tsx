@@ -494,6 +494,8 @@ describe("portfolio pages", () => {
           period_initial_equity: 10000,
           period_investment_return: 120,
           period_realized_pnl: 100,
+          period_net_realized_pnl: 95,
+          current_position_pnl: 18,
           period_unrealized_pnl_change: 25,
           period_funding_fee: -2,
           period_trading_fee: 3,
@@ -519,8 +521,10 @@ describe("portfolio pages", () => {
     });
     render(<PnlPage />);
     expect(await screen.findByText("累计净收益")).toBeInTheDocument();
-    expect(screen.getByText("已实现毛收益")).toBeInTheDocument();
-    expect(screen.getByText("收益组成项，尚未扣除手续费与资金费")).toBeInTheDocument();
+    expect(screen.getAllByText("已实现毛收益")).not.toHaveLength(0);
+    expect(screen.getByText("已实现毛收益 + 资金费 - 手续费")).toBeInTheDocument();
+    expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
+    expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每周" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();

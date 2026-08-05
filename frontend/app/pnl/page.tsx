@@ -24,6 +24,8 @@ type PnlSummary = {
   period_initial_equity: number;
   period_investment_return: number;
   period_realized_pnl: number;
+  period_net_realized_pnl: number;
+  current_position_pnl: number;
   period_unrealized_pnl_change: number;
   period_funding_fee: number;
   period_trading_fee: number;
@@ -158,26 +160,26 @@ function PnlContent() {
     {
       label: "已实现毛收益",
       value: summary.period_realized_pnl,
-      detail: "收益组成项，尚未扣除手续费与资金费",
+      detail: "历史仓位“已实现收益”求和（不含费用）",
       icon: Landmark,
-    },
-    {
-      label: "未实现变化",
-      value: summary.period_unrealized_pnl_change,
-      detail: "当前未实现盈亏相对统计期初的变化",
-      icon: TrendingUp,
-    },
-    {
-      label: "手续费",
-      value: -summary.period_trading_fee,
-      detail: "交易手续费对累计收益的影响",
-      icon: ReceiptText,
     },
     {
       label: "资金费",
       value: summary.period_funding_fee,
-      detail: "永续合约资金费的净影响",
+      detail: "资金费流水求和（正数收入，负数支出）",
       icon: CalendarDays,
+    },
+    {
+      label: "手续费",
+      value: -summary.period_trading_fee,
+      detail: "手续费流水求和，在公式中作为扣减项",
+      icon: ReceiptText,
+    },
+    {
+      label: "当前持仓收益",
+      value: summary.current_position_pnl,
+      detail: "当前仓位“当前未实现盈亏”求和",
+      icon: TrendingUp,
     },
   ];
   const maxContribution = Math.max(...byExchange.map((item) => Math.abs(item.investment_return)), 1);
@@ -198,10 +200,10 @@ function PnlContent() {
       <section className="grid gap-3 xl:grid-cols-[1.1fr_.9fr]">
         <MetricCard
           label="累计净收益"
-          value={usd(summary.period_investment_return, hidden)}
-          detail={`统计期累计权益变化，以期初权益 ${usd(summary.period_initial_equity, hidden)} 为基准，已剔除充值与提现`}
+          value={usd(summary.period_net_realized_pnl, hidden)}
+          detail="已实现毛收益 + 资金费 - 手续费"
           icon={CircleDollarSign}
-          tone={summary.period_investment_return >= 0 ? "positive" : "negative"}
+          tone={summary.period_net_realized_pnl >= 0 ? "positive" : "negative"}
           featured
         />
         <div className="grid gap-3 sm:grid-cols-2">
@@ -220,8 +222,8 @@ function PnlContent() {
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
         <article className="panel p-5 md:p-6">
-          <p className="section-label">累计投资收益曲线</p>
-          <p className="muted mt-1 text-xs">权益变化扣除充值与提现，包含未实现盈亏变化</p>
+          <p className="section-label">累计权益收益曲线</p>
+          <p className="muted mt-1 text-xs">当前权益 - 统计期初权益 - 净充值提现</p>
           <Chart option={curveOption} height={330} />
         </article>
         <article className="panel p-5 md:p-6">
@@ -287,7 +289,7 @@ function PnlContent() {
                     />
                   </div>
                 </div>
-                <Metric label="已实现" value={row.realized_pnl} hidden={hidden} />
+                <Metric label="已实现毛收益" value={row.realized_pnl} hidden={hidden} />
                 <Metric label="资金费" value={row.funding_fee} hidden={hidden} />
                 <Metric label="手续费" value={-row.trading_fee} hidden={hidden} />
               </div>

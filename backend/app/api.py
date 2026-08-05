@@ -1130,17 +1130,27 @@ async def _pnl_summary_data(
         )
     ).all()
     values = [row["investment_return"] for row in daily]
+    realized_pnl = sum(row["realized_pnl"] for row in daily)
+    funding_fee = sum(row["funding_fee"] for row in daily)
+    trading_fee = sum(row["trading_fee"] for row in daily)
+    current_position_pnl = await db.scalar(
+        select(func.coalesce(func.sum(CurrentPosition.unrealized_pnl), 0))
+        .join(ExchangeAccount)
+        .where(ExchangeAccount.is_active.is_(True))
+    )
     return {
         "period_initial_equity": sum(_num(row.initial_equity) for row in latest_initial),
         # Daily points store period deltas; the summary needs the period-to-date
         # value from the cumulative curve rather than only the final day's delta.
         "period_investment_return": daily[-1]["cumulative_return"] if daily else 0,
-        "period_realized_pnl": sum(row["realized_pnl"] for row in daily),
+        "period_realized_pnl": realized_pnl,
+        "period_net_realized_pnl": realized_pnl + funding_fee - trading_fee,
+        "current_position_pnl": _num(current_position_pnl),
         "period_unrealized_pnl_change": (
             daily[-1]["cumulative_unrealized_pnl_change"] if daily else 0
         ),
-        "period_funding_fee": sum(row["funding_fee"] for row in daily),
-        "period_trading_fee": sum(row["trading_fee"] for row in daily),
+        "period_funding_fee": funding_fee,
+        "period_trading_fee": trading_fee,
         "best_day": max(values, default=0),
         "worst_day": min(values, default=0),
         "profitable_days": sum(value > 0 for value in values),
