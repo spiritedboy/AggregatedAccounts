@@ -252,7 +252,7 @@ function PositionsContent() {
                     </td>
                     <td data-numeric="true">
                       <p className="mono-number">{number(position.leverage, 1)}×</p>
-                      <p className="muted mt-1 text-xs">{position.margin_mode}</p>
+                      <p className="muted mt-1 text-xs">本金 {formatMoney(position.margin_used)}</p>
                     </td>
                     <td data-numeric="true">
                       <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
@@ -280,7 +280,7 @@ function PositionsContent() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <PositionLabel position={position} />
-                    <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>
+                    <p className="muted mt-1 text-xs">{position.exchange}</p>
                   </div>
                   <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
                     {positionSideLabel(position.side, position.exchange)}
@@ -288,9 +288,9 @@ function PositionsContent() {
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd)} />
-                  <Metric label="当前未实现盈亏" value={formatMoney(position.unrealized_pnl)} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
+                  <Metric label="当前未实现盈亏" value={`${formatMoney(position.unrealized_pnl)} · ${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
-                  <Metric label="数量 / 杠杆" value={`${number(position.position_size)} / ${number(position.leverage, 1)}×`} />
+                  <Metric label="杠杆 / 本金" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
                 </div>
               </article>
             ))}

@@ -256,6 +256,8 @@ class ClosedPosition(Base, BusinessMixin):
     funding_fee: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
     trading_fee: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
     net_pnl: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    leverage: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    margin_used: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
     return_percent: Mapped[Decimal] = mapped_column(Numeric(18, 8), default=0)
     data_source: Mapped[str] = mapped_column(String(24), default="EXCHANGE_API")
     data_completeness: Mapped[str] = mapped_column(String(24), default="COMPLETE")

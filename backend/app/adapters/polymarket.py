@@ -239,6 +239,8 @@ class PolymarketAdapter(ExchangeAdapter):
                     "funding_fee": 0,
                     "trading_fee": 0,
                     "net_pnl": realized,
+                    "leverage": 1,
+                    "margin_used": entry * bought,
                     "return_percent": realized / (entry * bought) * 100
                     if entry and bought
                     else 0,

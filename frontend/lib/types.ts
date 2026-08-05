@@ -95,6 +95,8 @@ export type ClosedPosition = {
   funding_fee: number;
   trading_fee: number;
   net_pnl: number;
+  leverage: number;
+  margin_used: number;
   return_percent: number;
   data_source: string;
   data_completeness: string;

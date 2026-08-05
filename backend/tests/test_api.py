@@ -90,6 +90,15 @@ def test_demo_dashboard_positions_and_pnl(authenticated):
     positions = client.get("/api/positions/current").json()["data"]
     assert positions["total"] >= 4
     assert {item["side"] for item in positions["items"]} <= {"LONG", "SHORT"}
+    leveraged = next(item for item in positions["items"] if item["leverage"] > 1)
+    expected_margin = (
+        abs(leveraged["entry_price"] * leveraged["position_size"])
+        / leveraged["leverage"]
+    )
+    assert leveraged["margin_used"] == expected_margin
+    assert leveraged["unrealized_pnl_percent"] == (
+        leveraged["unrealized_pnl"] / expected_margin * 100
+    )
     pnl = client.get("/api/pnl/daily").json()["data"]
     assert len(pnl) == 30
 

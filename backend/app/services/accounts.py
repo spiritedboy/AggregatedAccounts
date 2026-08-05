@@ -564,6 +564,18 @@ async def _upsert_closed_positions(
         row.side = item["side"]
         row.open_time = item["open_time"]
         row.close_time = item["close_time"]
+        leverage = Decimal(str(item.get("leverage") or 0))
+        margin_used = Decimal(str(item.get("margin_used") or 0))
+        if margin_used <= 0 and leverage > 0:
+            margin_used = (
+                abs(Decimal(str(item.get("average_entry_price") or 0)))
+                * abs(Decimal(str(item.get("max_position_size") or 0)))
+                / leverage
+            )
+        item["margin_used"] = margin_used
+        item["leverage"] = leverage or None
+        if margin_used > 0:
+            item["return_percent"] = Decimal(str(item.get("net_pnl") or 0)) / margin_used * 100
         for field in (
             "average_entry_price",
             "average_exit_price",
@@ -572,9 +584,11 @@ async def _upsert_closed_positions(
             "funding_fee",
             "trading_fee",
             "net_pnl",
+            "margin_used",
             "return_percent",
         ):
             setattr(row, field, Decimal(str(item.get(field, 0))))
+        row.leverage = leverage or None
         row.data_source = item.get("data_source", "EXCHANGE_API")
         row.data_completeness = item.get("data_completeness", "PARTIAL")
     return len(positions)
@@ -823,6 +837,28 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                     )
                 await _write_summary(db, account, period, summary, started)
                 await _write_asset_balances(db, account, period, balances, started)
+                previous_positions = (
+                    await db.scalars(
+                        select(CurrentPosition).where(
+                            CurrentPosition.exchange_account_id == account.id,
+                            CurrentPosition.tracking_period_id == period.id,
+                        )
+                    )
+                ).all()
+                previous_by_key = {
+                    (row.normalized_symbol, row.side): row for row in previous_positions
+                }
+                for closed in closed_positions:
+                    previous = previous_by_key.get(
+                        (closed["normalized_symbol"], closed["side"])
+                    )
+                    if (
+                        previous is not None
+                        and previous.open_time is not None
+                        and abs((closed["open_time"] - previous.open_time).total_seconds()) < 2
+                    ):
+                        closed.setdefault("leverage", previous.leverage)
+                        closed.setdefault("margin_used", previous.margin_used)
                 await _replace_positions(db, account, period, positions, started)
                 await _write_position_snapshots(
                     db, account, period, positions, started

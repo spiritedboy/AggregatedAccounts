@@ -74,7 +74,7 @@ const position = {
   margin_used: 5600,
   unrealized_pnl: 800,
   tracking_unrealized_pnl_change: 520,
-  unrealized_pnl_percent: 1.85,
+  unrealized_pnl_percent: 14.29,
   realized_pnl: 0,
   funding_fee: -3,
   trading_fee: 5,
@@ -397,6 +397,8 @@ describe("portfolio pages", () => {
     render(<PositionsPage />);
     expect(await screen.findAllByText("BTC-USDT-PERP")).not.toHaveLength(0);
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
+    expect(screen.getAllByText("本金 US$5,600.00")).not.toHaveLength(0);
+    expect(screen.getAllByText("14.29%")).not.toHaveLength(0);
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
     expect(screen.getAllByText("做多")).not.toHaveLength(0);
     expect(screen.getAllByText("做空")).not.toHaveLength(0);

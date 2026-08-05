@@ -190,6 +190,12 @@ class OkxAdapter(ExchangeAdapter):
                     f"symbol:{item.get('instId') or 'position'}:"
                     f"cycle:{open_timestamp or close_timestamp}"
                 )
+            pnl_ratio = float(item.get("pnlRatio") or 0)
+            initial_notional = abs(
+                float(item.get("openAvgPx") or 0)
+                * float(item.get("openMaxPos") or item.get("closeTotalPos") or 0)
+            )
+            margin_used = abs(pnl / pnl_ratio) if pnl_ratio else 0
             normalized = {
                 "source_record_id": source_record_id,
                 "symbol": item["instId"],
@@ -208,7 +214,9 @@ class OkxAdapter(ExchangeAdapter):
                 "funding_fee": funding_fee,
                 "trading_fee": -fee,
                 "net_pnl": net_pnl,
-                "return_percent": float(item.get("pnlRatio") or 0) * 100,
+                "leverage": initial_notional / margin_used if margin_used else None,
+                "margin_used": margin_used,
+                "return_percent": pnl_ratio * 100,
                 "data_source": "EXCHANGE_API",
                 "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",
             }

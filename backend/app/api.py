@@ -630,6 +630,10 @@ def _position_dict(
     row: CurrentPosition,
     translation: PolymarketTranslation | None = None,
 ) -> dict[str, Any]:
+    leverage = _num(row.leverage)
+    entry_notional = abs(_num(row.entry_price) * _num(row.position_size))
+    margin_used = entry_notional / leverage if leverage > 0 else abs(_num(row.margin_used))
+    unrealized_pnl = _num(row.unrealized_pnl)
     return {
         "id": row.id,
         "exchange": row.exchange,
@@ -644,12 +648,16 @@ def _position_dict(
         "entry_price": _num(row.entry_price),
         "mark_price": _num(row.mark_price),
         "liquidation_price": _num(row.liquidation_price) if row.liquidation_price else None,
-        "leverage": _num(row.leverage),
+        "leverage": leverage,
         "margin_mode": row.margin_mode,
-        "margin_used": _num(row.margin_used),
-        "unrealized_pnl": _num(row.unrealized_pnl),
+        "margin_used": margin_used,
+        "unrealized_pnl": unrealized_pnl,
         "tracking_unrealized_pnl_change": _num(row.tracking_unrealized_pnl_change),
-        "unrealized_pnl_percent": _num(row.unrealized_pnl_percent),
+        "unrealized_pnl_percent": (
+            unrealized_pnl / margin_used * 100
+            if margin_used > 0
+            else _num(row.unrealized_pnl_percent)
+        ),
         "realized_pnl": _num(row.realized_pnl),
         "funding_fee": _num(row.funding_fee),
         "trading_fee": _num(row.trading_fee),
@@ -797,6 +805,8 @@ def _closed_dict(
         "funding_fee": _num(row.funding_fee),
         "trading_fee": _num(row.trading_fee),
         "net_pnl": _num(row.net_pnl),
+        "leverage": _num(row.leverage),
+        "margin_used": _num(row.margin_used),
         "return_percent": _num(row.return_percent),
         "data_source": row.data_source,
         "data_completeness": row.data_completeness,
