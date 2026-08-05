@@ -394,10 +394,11 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     total_equity = sum(_num(row.total_equity_usd) for row, _ in latest)
     available = sum(_num(row.available_balance_usd) for row, _ in latest)
     margin = sum(_num(row.margin_balance_usd) for row, _ in latest)
-    unrealized_change = (
-        daily_rows[-1]["cumulative_unrealized_pnl_change"] if daily_rows else 0
-    )
-    cumulative = daily_rows[-1]["cumulative_return"] if daily_rows else 0
+    realized_pnl = sum(row["realized_pnl"] for row in daily_rows)
+    funding_fee = sum(row["funding_fee"] for row in daily_rows)
+    trading_fee = sum(row["trading_fee"] for row in daily_rows)
+    cumulative_net_pnl = realized_pnl + funding_fee - trading_fee
+    current_position_pnl = sum(_num(row.unrealized_pnl) for row in current_positions)
     today_key = str(datetime.now(UTC).date())
     today_return = sum(
         row["investment_return"] for row in daily_rows if row["period"] == today_key
@@ -406,9 +407,12 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
         "estimated_total_equity": total_equity,
         "available_balance": available,
         "margin_used": margin,
-        "unrealized_pnl_change": unrealized_change,
+        "current_position_pnl": current_position_pnl,
         "today_pnl": today_return,
-        "cumulative_pnl": cumulative,
+        "cumulative_net_pnl": cumulative_net_pnl,
+        # Compatibility aliases for older read-only clients.
+        "unrealized_pnl_change": current_position_pnl,
+        "cumulative_pnl": cumulative_net_pnl,
         "unvalued_asset_count": sum(row.unvalued_asset_count for row, _ in latest),
         "tracking_started_at": min(
             (account.tracking_started_at for _, account in latest), default=None

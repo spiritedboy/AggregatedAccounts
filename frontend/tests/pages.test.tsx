@@ -293,6 +293,8 @@ describe("portfolio pages", () => {
           estimated_total_equity: 100000,
           available_balance: 62000,
           margin_used: 18000,
+          current_position_pnl: 520,
+          cumulative_net_pnl: 4200,
           unrealized_pnl_change: 520,
           today_pnl: 230,
           cumulative_pnl: 4200,
@@ -356,6 +358,10 @@ describe("portfolio pages", () => {
     expect(screen.getByText(/净值变化：/)).toBeInTheDocument();
     expect(screen.getByText("1年")).toBeInTheDocument();
     expect(screen.getByText("做多")).toBeInTheDocument();
+    expect(screen.getByText("累计净收益")).toBeInTheDocument();
+    expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
+    expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
+    expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "1年" }));

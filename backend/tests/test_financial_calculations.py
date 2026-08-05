@@ -3,7 +3,12 @@ from decimal import Decimal
 
 import pytest
 
-from app.api import _bucket_pnl_points, _daily_pnl_points, _pnl_summary_data
+from app.api import (
+    _bucket_pnl_points,
+    _daily_pnl_points,
+    _dashboard_summary_data,
+    _pnl_summary_data,
+)
 from app.database import SessionLocal
 from app.models import (
     AccountBalanceSnapshot,
@@ -104,6 +109,7 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
         await db.commit()
         daily = await _daily_pnl_points(db)
         summary = await _pnl_summary_data(db, daily)
+        dashboard = await _dashboard_summary_data(db)
 
     assert [point["investment_return"] for point in daily] == [10, -3, 5]
     assert [point["cumulative_return"] for point in daily] == [10, 7, 12]
@@ -113,6 +119,8 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
     assert summary["period_trading_fee"] == 1
     assert summary["period_net_realized_pnl"] == 4
     assert summary["current_position_pnl"] == 9.5
+    assert dashboard["cumulative_net_pnl"] == summary["period_net_realized_pnl"]
+    assert dashboard["current_position_pnl"] == summary["current_position_pnl"]
     weekly = _bucket_pnl_points(daily, "week")
     assert weekly[0]["investment_return"] == 12
     assert weekly[0]["cumulative_return"] == 12

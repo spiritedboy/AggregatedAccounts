@@ -105,6 +105,8 @@ export type DashboardData = {
   estimated_total_equity: number;
   available_balance: number;
   margin_used: number;
+  current_position_pnl: number;
+  cumulative_net_pnl: number;
   unrealized_pnl_change: number;
   today_pnl: number;
   cumulative_pnl: number;

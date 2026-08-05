@@ -270,18 +270,18 @@ function DashboardContent() {
             tone={data.today_pnl >= 0 ? "positive" : "negative"}
           />
           <MetricCard
-            label="累计收益"
-            value={usd(data.cumulative_pnl, hidden)}
-            detail="当前统计周期"
+            label="累计净收益"
+            value={usd(data.cumulative_net_pnl, hidden)}
+            detail="已实现毛收益 + 资金费 − 手续费"
             icon={CircleDollarSign}
-            tone={data.cumulative_pnl >= 0 ? "positive" : "negative"}
+            tone={data.cumulative_net_pnl >= 0 ? "positive" : "negative"}
           />
           <MetricCard
-            label="未实现收益变化"
-            value={usd(data.unrealized_pnl_change, hidden)}
-            detail="添加 API Key 后的变化"
+            label="当前持仓收益"
+            value={usd(data.current_position_pnl, hidden)}
+            detail="当前仓位“当前未实现盈亏”求和"
             icon={Activity}
-            tone={data.unrealized_pnl_change >= 0 ? "positive" : "negative"}
+            tone={data.current_position_pnl >= 0 ? "positive" : "negative"}
           />
         </div>
       </section>
