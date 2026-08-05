@@ -247,16 +247,16 @@ function PnlContent() {
           <p className="muted mt-1 text-xs">当前权益 - 统计期初权益 - 净充值提现</p>
           <Chart option={curveOption} height={330} />
         </article>
-        <article className="panel p-5 md:p-6">
+        <article className="panel flex h-full flex-col p-5 md:p-6">
           <p className="section-label">周期表现</p>
           <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
-          <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="mt-5 grid flex-1 auto-rows-fr grid-cols-2 gap-3">
             <Stat icon={TrendingUp} label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
             <Stat icon={TrendingDown} label="最大单日亏损" value={formatMoney(summary.worst_day)} tone="negative" />
             <Stat icon={CalendarDays} label="盈利天数" value={`${summary.profitable_days} 天`} />
             <Stat icon={CalendarDays} label="亏损天数" value={`${summary.losing_days} 天`} />
           </div>
-          <div className="soft-block muted mt-5 p-4 text-xs leading-5">
+          <div className="soft-block muted mt-3 p-4 text-xs leading-5">
             {summary.notice}。数据覆盖不足时会明确标记，不会猜测填补。
           </div>
         </article>
@@ -340,14 +340,19 @@ function SidePerformance({ data, formatMoney }: { data: SidePnl; formatMoney: (v
       <div className="grid lg:grid-cols-[1fr_1fr_.72fr]">
         {sides.map((side) => (
           <div key={side.label} className="border-b p-5 last:border-b-0 lg:border-b-0 lg:border-r md:p-6" style={{ borderColor: "var(--line)" }}>
-            <div className="flex items-center justify-between">
-              <p className={`text-sm font-bold ${side.tone === "positive" ? "text-positive" : "text-negative"}`}>{side.label}</p>
-              <span className="mono-number rounded-full bg-[var(--surface-soft)] px-2.5 py-1 text-xs font-semibold">{side.data.count} 笔</span>
+            <p className={`text-sm font-bold ${side.tone === "positive" ? "text-positive" : "text-negative"}`}>{side.label}</p>
+            <div className="mt-5 grid grid-cols-2 gap-4">
+              <div>
+                <p className="mono-number text-2xl font-bold">{side.data.count} 笔</p>
+                <p className="muted mt-1 text-xs">平仓笔数</p>
+              </div>
+              <div>
+                <p className={`mono-number text-2xl font-bold ${side.data.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
+                  {formatMoney(side.data.net_pnl)}
+                </p>
+                <p className="muted mt-1 text-xs">总净收益</p>
+              </div>
             </div>
-            <p className={`mono-number mt-5 text-2xl font-bold ${side.data.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
-              {formatMoney(side.data.net_pnl)}
-            </p>
-            <p className="muted mt-1 text-xs">总净收益</p>
             <div className="soft-block mt-4 flex items-center justify-between gap-3 p-3">
               <span className="metric-label">单笔平均</span>
               <span className={`mono-number text-sm font-semibold ${side.data.average_net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
@@ -384,10 +389,12 @@ function Metric({ label, value, formatMoney }: { label: string; value: number; f
 
 function Stat({ icon: Icon, label, value, tone }: { icon: typeof TrendingUp; label: string; value: string; tone?: "positive" | "negative" }) {
   return (
-    <div className="soft-block p-3">
-      <Icon className={`h-4 w-4 ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : "text-[var(--aqua)]"}`} />
-      <p className="metric-label mt-3">{label}</p>
-      <p className="mono-number mt-1 text-sm font-semibold">{value}</p>
+    <div className="soft-block flex min-h-24 flex-col justify-between p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="metric-label">{label}</p>
+        <Icon className={`h-4 w-4 ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : "text-[var(--aqua)]"}`} />
+      </div>
+      <p className="mono-number mt-3 text-lg font-semibold">{value}</p>
     </div>
   );
 }
