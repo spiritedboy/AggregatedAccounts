@@ -191,10 +191,11 @@ class OkxAdapter(ExchangeAdapter):
                     f"cycle:{open_timestamp or close_timestamp}"
                 )
             pnl_ratio = float(item.get("pnlRatio") or 0)
-            initial_notional = abs(
-                float(item.get("openAvgPx") or 0)
-                * float(item.get("openMaxPos") or item.get("closeTotalPos") or 0)
-            )
+            # pnlRatio is the exchange's native return on position margin. OKX
+            # reports contract counts rather than base-asset size for some
+            # instruments, so entry price × openMaxPos cannot safely recover
+            # historical notional or leverage. Recover only the ratio's margin
+            # denominator and never manufacture a leverage value.
             margin_used = abs(pnl / pnl_ratio) if pnl_ratio else 0
             normalized = {
                 "source_record_id": source_record_id,
@@ -214,9 +215,11 @@ class OkxAdapter(ExchangeAdapter):
                 "funding_fee": funding_fee,
                 "trading_fee": -fee,
                 "net_pnl": net_pnl,
-                "leverage": initial_notional / margin_used if margin_used else None,
+                "leverage": None,
                 "margin_used": margin_used,
-                "return_percent": pnl_ratio * 100,
+                "return_percent": (
+                    net_pnl / margin_used * 100 if margin_used else pnl_ratio * 100
+                ),
                 "data_source": "EXCHANGE_API",
                 "data_completeness": "COMPLETE" if open_timestamp else "PARTIAL",
             }

@@ -61,7 +61,9 @@ async def test_okx_closed_positions_normalize_exchange_history(monkeypatch):
     assert position["funding_fee"] == -0.02485346
     assert position["trading_fee"] == 0.498171
     assert position["net_pnl"] == -4.61542446
-    assert position["return_percent"] == pytest.approx(-18.45368156073002)
+    assert position["leverage"] is None
+    assert position["margin_used"] == pytest.approx(22.176604633238863)
+    assert position["return_percent"] == pytest.approx(-20.81213303988963)
     assert position["data_source"] == "EXCHANGE_API"
     assert position["data_completeness"] == "COMPLETE"
 
