@@ -1217,6 +1217,42 @@ async def _pnl_by_exchange_data(
     return result
 
 
+async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
+    rows = (
+        await db.execute(
+            select(
+                ClosedPosition.side,
+                func.count(ClosedPosition.id),
+                func.coalesce(func.sum(ClosedPosition.net_pnl), 0),
+            )
+            .join(ExchangeAccount)
+            .join(TrackingPeriod)
+            .where(
+                ExchangeAccount.is_active.is_(True),
+                TrackingPeriod.is_active.is_(True),
+                ClosedPosition.side.in_(("LONG", "SHORT")),
+            )
+            .group_by(ClosedPosition.side)
+        )
+    ).all()
+    totals = {side: {"count": 0, "net_pnl": 0.0} for side in ("LONG", "SHORT")}
+    for side, count, net_pnl in rows:
+        totals[side] = {"count": int(count), "net_pnl": _num(net_pnl)}
+
+    for values in totals.values():
+        values["average_net_pnl"] = (
+            values["net_pnl"] / values["count"] if values["count"] else 0.0
+        )
+    short_pnl = totals["SHORT"]["net_pnl"]
+    short_count = totals["SHORT"]["count"]
+    return {
+        "long": totals["LONG"],
+        "short": totals["SHORT"],
+        "pnl_ratio": totals["LONG"]["net_pnl"] / short_pnl if short_pnl else None,
+        "count_ratio": totals["LONG"]["count"] / short_count if short_count else None,
+    }
+
+
 async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
     rows = await _daily_pnl_rows(db)
     daily = _daily_pnl_points_from_rows(rows)
@@ -1226,6 +1262,7 @@ async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
         "weekly": _bucket_pnl_points(daily, "week"),
         "monthly": _bucket_pnl_points(daily, "month"),
         "by_exchange": await _pnl_by_exchange_data(db, rows),
+        "by_side": await _pnl_by_side_data(db),
     }
 
 

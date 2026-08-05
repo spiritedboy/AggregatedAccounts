@@ -560,6 +560,12 @@ describe("portfolio pages", () => {
             investment_return: 120,
           },
         ],
+        by_side: {
+          long: { count: 8, net_pnl: 160, average_net_pnl: 20 },
+          short: { count: 4, net_pnl: -40, average_net_pnl: -10 },
+          pnl_ratio: -4,
+          count_ratio: 2,
+        },
       },
     });
     render(<PnlPage />);
@@ -568,6 +574,11 @@ describe("portfolio pages", () => {
     expect(screen.getByText("已实现毛收益 + 资金费 - 手续费")).toBeInTheDocument();
     expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
     expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
+    expect(screen.getByText("多空表现")).toBeInTheDocument();
+    expect(screen.getByText("8 笔")).toBeInTheDocument();
+    expect(screen.getByText("4 笔")).toBeInTheDocument();
+    expect(screen.getByText("-4.00 : 1")).toBeInTheDocument();
+    expect(screen.getByText("2.00 : 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每周" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();

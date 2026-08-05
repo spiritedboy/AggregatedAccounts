@@ -50,6 +50,15 @@ type PnlBootstrapData = {
   weekly: PnlPoint[];
   monthly: PnlPoint[];
   by_exchange: ExchangePnl[];
+  by_side: SidePnl;
+};
+
+type SideMetrics = { count: number; net_pnl: number; average_net_pnl: number };
+type SidePnl = {
+  long: SideMetrics;
+  short: SideMetrics;
+  pnl_ratio: number | null;
+  count_ratio: number | null;
 };
 
 export default function PnlPage() {
@@ -66,6 +75,7 @@ function PnlContent() {
   const [weekly, setWeekly] = useState<PnlPoint[]>([]);
   const [monthly, setMonthly] = useState<PnlPoint[]>([]);
   const [byExchange, setByExchange] = useState<ExchangePnl[]>([]);
+  const [bySide, setBySide] = useState<SidePnl | null>(null);
   const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
@@ -84,6 +94,7 @@ function PnlContent() {
         setWeekly(nextData.weekly);
         setMonthly(nextData.monthly);
         setByExchange(nextData.by_exchange);
+        setBySide(nextData.by_side);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
@@ -251,6 +262,8 @@ function PnlContent() {
         </article>
       </section>
 
+      {bySide ? <SidePerformance data={bySide} formatMoney={formatMoney} /> : null}
+
       <section className="panel mt-4 p-5 md:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -308,6 +321,55 @@ function PnlContent() {
         </article>
       </section>
     </>
+  );
+}
+
+function SidePerformance({ data, formatMoney }: { data: SidePnl; formatMoney: (value: number) => string }) {
+  const sides = [
+    { label: "做多", tone: "positive", data: data.long },
+    { label: "做空", tone: "negative", data: data.short },
+  ] as const;
+  const ratio = (value: number | null) => (value === null ? "--" : `${value.toFixed(2)} : 1`);
+
+  return (
+    <section className="panel mt-4 overflow-hidden">
+      <div className="border-b px-5 py-4 md:px-6" style={{ borderColor: "var(--line)" }}>
+        <p className="section-label">多空表现</p>
+        <p className="muted mt-1 text-xs">按当前统计周期的历史仓位净收益计算，已计入手续费与资金费</p>
+      </div>
+      <div className="grid lg:grid-cols-[1fr_1fr_.72fr]">
+        {sides.map((side) => (
+          <div key={side.label} className="border-b p-5 last:border-b-0 lg:border-b-0 lg:border-r md:p-6" style={{ borderColor: "var(--line)" }}>
+            <div className="flex items-center justify-between">
+              <p className={`text-sm font-bold ${side.tone === "positive" ? "text-positive" : "text-negative"}`}>{side.label}</p>
+              <span className="mono-number rounded-full bg-[var(--surface-soft)] px-2.5 py-1 text-xs font-semibold">{side.data.count} 笔</span>
+            </div>
+            <p className={`mono-number mt-5 text-2xl font-bold ${side.data.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
+              {formatMoney(side.data.net_pnl)}
+            </p>
+            <p className="muted mt-1 text-xs">总净收益</p>
+            <div className="soft-block mt-4 flex items-center justify-between gap-3 p-3">
+              <span className="metric-label">单笔平均</span>
+              <span className={`mono-number text-sm font-semibold ${side.data.average_net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
+                {formatMoney(side.data.average_net_pnl)}
+              </span>
+            </div>
+          </div>
+        ))}
+        <div className="grid grid-cols-2 gap-3 p-5 lg:grid-cols-1 md:p-6">
+          <div className="soft-block p-4">
+            <p className="metric-label">多空净收益比</p>
+            <p className="mono-number mt-2 text-lg font-bold">{ratio(data.pnl_ratio)}</p>
+            <p className="muted mt-1 text-[10px]">做多 ÷ 做空</p>
+          </div>
+          <div className="soft-block p-4">
+            <p className="metric-label">多空次数比</p>
+            <p className="mono-number mt-2 text-lg font-bold">{ratio(data.count_ratio)}</p>
+            <p className="muted mt-1 text-[10px]">做多笔数 ÷ 做空笔数</p>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
