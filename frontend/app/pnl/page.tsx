@@ -244,31 +244,32 @@ function PnlContent() {
         </div>
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
+      <section className="mt-4 grid gap-4">
         <article className="panel p-5 md:p-6">
           <p className="section-label">累计权益收益曲线</p>
           <p className="muted mt-1 text-xs">当前权益 - 统计期初权益 - 净充值提现</p>
           <Chart option={curveOption} height={330} />
         </article>
-        <article className="panel grid p-5 md:p-6 xl:min-h-[426px] xl:grid-rows-[auto_1fr_auto]">
-          <div>
+        <article className="panel p-5 md:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
             <p className="section-label">周期表现</p>
             <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
+            </div>
+            <p className="muted text-[10px]">{summary.notice}</p>
           </div>
-          <div className="mt-5 grid auto-rows-fr grid-cols-2 gap-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Stat icon={TrendingUp} label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
             <Stat icon={TrendingDown} label="最大单日亏损" value={formatMoney(summary.worst_day)} tone="negative" />
             <Stat icon={CalendarDays} label="盈利天数" value={`${summary.profitable_days} 天`} />
             <Stat icon={CalendarDays} label="亏损天数" value={`${summary.losing_days} 天`} />
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="soft-block px-4 py-3">
+            <div className="soft-block flex min-h-24 flex-col justify-center p-4">
               <p className="metric-label">盈利日占比</p>
-              <p className="mono-number mt-1 text-lg font-bold text-positive">{profitableDayRate.toFixed(1)}%</p>
+              <p className="mono-number mt-4 text-2xl font-bold text-positive">{profitableDayRate.toFixed(1)}%</p>
             </div>
-            <div className="soft-block px-4 py-3">
+            <div className="soft-block flex min-h-24 flex-col justify-center p-4">
               <p className="metric-label">盈亏日比</p>
-              <p className="mono-number mt-1 text-lg font-bold">{dayRatio}</p>
+              <p className="mono-number mt-4 text-2xl font-bold">{dayRatio}</p>
             </div>
           </div>
         </article>
