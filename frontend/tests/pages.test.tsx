@@ -452,7 +452,9 @@ describe("portfolio pages", () => {
             funding_fee: -2,
             trading_fee: 4,
             net_pnl: 194,
-            return_percent: 2.5,
+            leverage: 5,
+            margin_used: 1520,
+            return_percent: 12.76,
             data_source: "EXCHANGE_FILLS",
             data_completeness: "PARTIAL",
             tracking_started_at: "2026-07-01T00:00:00Z",
@@ -472,7 +474,9 @@ describe("portfolio pages", () => {
             funding_fee: 0,
             trading_fee: 1,
             net_pnl: -26,
-            return_percent: -1.04,
+            leverage: 20,
+            margin_used: 125,
+            return_percent: -20.8,
             data_source: "EXCHANGE_API",
             data_completeness: "COMPLETE",
             tracking_started_at: "2026-07-01T00:00:00Z",
@@ -483,6 +487,7 @@ describe("portfolio pages", () => {
     render(<HistoryPage />);
     expect(await screen.findAllByText("交易所成交 API")).not.toHaveLength(0);
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
+    expect(screen.getAllByText("12.76%")).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();

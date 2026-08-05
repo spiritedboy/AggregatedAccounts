@@ -231,7 +231,11 @@ function HistoryContent() {
                     <td className="mono-number muted text-xs" data-numeric="true">{formatMoney(position.funding_fee - position.trading_fee)}</td>
                     <td className={`mono-number font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">
                       {formatMoney(position.net_pnl)}
-                      <p className="mt-1 text-xs">{number(position.return_percent, 2)}%</p>
+                      <p className="mt-1 text-xs">
+                        {position.margin_used > 0
+                          ? `${number(position.return_percent, 2)}%`
+                          : "杠杆数据不足"}
+                      </p>
                     </td>
                     <td>
                       <div className="flex flex-wrap gap-1.5">
@@ -272,7 +276,11 @@ function HistoryContent() {
                     <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                       {formatMoney(position.net_pnl)}
                     </p>
-                    <p className="muted mono-number mt-1 text-[10px]">{number(position.return_percent, 2)}%</p>
+                    <p className="muted mono-number mt-1 text-[10px]">
+                      {position.margin_used > 0
+                        ? `${number(position.return_percent, 2)}%`
+                        : "杠杆数据不足"}
+                    </p>
                   </div>
                   <div className="soft-block p-3">
                     <p className="metric-label">开仓 / 平仓均价</p>

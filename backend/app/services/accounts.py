@@ -854,8 +854,16 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                     )
                     if (
                         previous is not None
-                        and previous.open_time is not None
-                        and abs((closed["open_time"] - previous.open_time).total_seconds()) < 2
+                        and (
+                            (
+                                previous.open_time is not None
+                                and abs(
+                                    (closed["open_time"] - previous.open_time).total_seconds()
+                                )
+                                < 2
+                            )
+                            or abs((started - closed["close_time"]).total_seconds()) < 300
+                        )
                     ):
                         closed.setdefault("leverage", previous.leverage)
                         closed.setdefault("margin_used", previous.margin_used)
