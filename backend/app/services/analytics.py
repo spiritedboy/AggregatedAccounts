@@ -16,7 +16,6 @@ from app.models import (
     DailyPnlSnapshot,
     ExchangeAccount,
     FundingRecord,
-    IncomeRecord,
     InitialAccountSnapshot,
     SyncError,
     SyncJob,
@@ -379,12 +378,27 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
     closed_by_period = {
         row["tracking_period_id"]: dict(row) for row in closed_rows
     }
+    current_position_rows = (
+        await db.execute(
+            select(
+                CurrentPosition.exchange_account_id,
+                func.coalesce(func.sum(CurrentPosition.unrealized_pnl), 0).label(
+                    "current_position_pnl"
+                ),
+            )
+            .where(CurrentPosition.exchange_account_id.in_(account_ids))
+            .group_by(CurrentPosition.exchange_account_id)
+        )
+    ).mappings()
+    current_position_by_account = {
+        row["exchange_account_id"]: _number(row["current_position_pnl"])
+        for row in current_position_rows
+    }
     cash_by_period = {
         row["tracking_period_id"]: dict(row) for row in cash_rows
     }
     funding_by_period = await amount_stats(FundingRecord)
     fees_by_period = await amount_stats(TradingFeeRecord)
-    income_by_period = await amount_stats(IncomeRecord)
 
     items: list[dict[str, Any]] = []
     for account in accounts:
@@ -399,14 +413,11 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         deposits = _number(cash_stats.get("deposits"))
         withdrawals = _number(cash_stats.get("withdrawals"))
         net_cash_flow = deposits - withdrawals
-        income_stats = income_by_period.get(period_id, {})
         funding_stats = funding_by_period.get(period_id, {})
         fee_stats = fees_by_period.get(period_id, {})
-        realized_pnl = (
-            _number(income_stats.get("amount"))
-            if income_stats.get("record_count", 0)
-            else _number(closed_stats.get("realized_pnl"))
-        )
+        # Keep this aligned with the PnL page: gross realized PnL comes from
+        # historical closed positions and excludes funding and trading fees.
+        realized_pnl = _number(closed_stats.get("realized_pnl"))
         funding_fee = (
             _number(funding_stats.get("amount"))
             if funding_stats.get("record_count", 0)
@@ -417,11 +428,15 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
             if fee_stats.get("record_count", 0)
             else _number(closed_stats.get("trading_fee"))
         )
-        unrealized_change = _number(
-            balance.unrealized_pnl_usd if balance else None
-        ) - _number(initial.initial_unrealized_pnl if initial else None)
+        current_position_pnl = current_position_by_account.get(account.id, 0.0)
+        initial_position_pnl = _number(
+            initial.initial_unrealized_pnl if initial else None
+        )
         equity_return = current_equity - initial_equity - net_cash_flow
-        component_return = realized_pnl + funding_fee - trading_fee + unrealized_change
+        net_realized_pnl = realized_pnl + funding_fee - trading_fee
+        component_return = (
+            net_realized_pnl + current_position_pnl - initial_position_pnl
+        )
         variance = equity_return - component_return
         tolerance = max(1.0, abs(current_equity) * 0.001)
         items.append(
@@ -440,7 +455,9 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
                 "realized_pnl": realized_pnl,
                 "funding_fee": funding_fee,
                 "trading_fee": trading_fee,
-                "unrealized_pnl_change": unrealized_change,
+                "net_realized_pnl": net_realized_pnl,
+                "current_position_pnl": current_position_pnl,
+                "initial_position_pnl": initial_position_pnl,
                 "component_return": component_return,
                 "variance": variance,
                 "tolerance": tolerance,
@@ -459,7 +476,9 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         "realized_pnl",
         "funding_fee",
         "trading_fee",
-        "unrealized_pnl_change",
+        "net_realized_pnl",
+        "current_position_pnl",
+        "initial_position_pnl",
         "component_return",
         "variance",
     )
@@ -469,8 +488,8 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
         "totals": totals,
         "accounts": items,
         "notice": (
-            "权益收益来自当前权益减初始权益及净资金流；组成收益来自已实现收益、"
-            "资金费、手续费和未实现收益变化。差额用于发现接口覆盖不足或重复记录。"
+            "累计净收益 = 已实现毛收益 + 资金费 - 手续费；对账组成收益再加当前"
+            "持仓收益并扣除接入时未实现盈亏。差额用于发现接口覆盖不足或重复记录。"
         ),
     }
 

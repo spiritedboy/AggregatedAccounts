@@ -288,7 +288,9 @@ export type ReconciliationData = {
     realized_pnl: number;
     funding_fee: number;
     trading_fee: number;
-    unrealized_pnl_change: number;
+    net_realized_pnl: number;
+    current_position_pnl: number;
+    initial_position_pnl: number;
     component_return: number;
     variance: number;
     status: "MATCHED" | "REVIEW";
@@ -308,7 +310,9 @@ export type ReconciliationData = {
     realized_pnl: number;
     funding_fee: number;
     trading_fee: number;
-    unrealized_pnl_change: number;
+    net_realized_pnl: number;
+    current_position_pnl: number;
+    initial_position_pnl: number;
     component_return: number;
     variance: number;
     tolerance: number;

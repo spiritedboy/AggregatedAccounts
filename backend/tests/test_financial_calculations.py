@@ -154,7 +154,9 @@ async def test_reconciliation_keeps_initial_unrealized_baseline_after_position_c
         result = await build_reconciliation(db)
 
     item = result["accounts"][0]
-    assert item["unrealized_pnl_change"] == 20
+    assert item["net_realized_pnl"] == 5
+    assert item["current_position_pnl"] == 0
+    assert item["initial_position_pnl"] == -20
     assert item["component_return"] == 25
     assert item["variance"] == 0
     assert item["status"] == "MATCHED"

@@ -69,7 +69,7 @@ function ReconciliationContent() {
       <PageHeader
         eyebrow="资产体检"
         title="风险与收益对账"
-        description="把权益变化拆成资金流、已实现收益、费用和未实现变化，并集中查看账户敞口。"
+        description="按统一收益公式核对权益变化，并集中查看账户敞口。"
         action={<AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />}
       />
 
@@ -82,9 +82,9 @@ function ReconciliationContent() {
         />
         <SummaryCard
           icon={Layers3}
-          label="组成口径收益"
-          value={usd(totals.component_return, hidden)}
-          detail="已实现 + 资金费 − 手续费 + 未实现变化"
+          label="累计净收益"
+          value={usd(totals.net_realized_pnl, hidden)}
+          detail="已实现毛收益 + 资金费 − 手续费"
         />
         <SummaryCard
           icon={totals.status === "MATCHED" ? ShieldCheck : CircleAlert}
@@ -109,10 +109,12 @@ function ReconciliationContent() {
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Breakdown label="充值" value={totals.deposits} hidden={hidden} />
             <Breakdown label="提现" value={-totals.withdrawals} hidden={hidden} />
-            <Breakdown label="已实现" value={totals.realized_pnl} hidden={hidden} />
-            <Breakdown label="未实现变化" value={totals.unrealized_pnl_change} hidden={hidden} />
+            <Breakdown label="已实现毛收益" value={totals.realized_pnl} hidden={hidden} />
+            <Breakdown label="当前持仓收益" value={totals.current_position_pnl} hidden={hidden} />
             <Breakdown label="资金费" value={totals.funding_fee} hidden={hidden} />
             <Breakdown label="手续费" value={-totals.trading_fee} hidden={hidden} />
+            <Breakdown label="接入时持仓收益" value={totals.initial_position_pnl} hidden={hidden} />
+            <Breakdown label="对账组成收益" value={totals.component_return} hidden={hidden} />
             <Breakdown label="初始权益" value={totals.initial_equity} hidden={hidden} />
             <Breakdown label="当前权益" value={totals.current_equity} hidden={hidden} />
           </div>
@@ -152,8 +154,8 @@ function ReconciliationContent() {
           <table className="data-table min-w-[1040px]">
             <thead>
               <tr>
-                {["账户", "初始 / 当前权益", "净资金流", "权益收益", "组成收益", "差额", "完整性", "状态"].map((title) => (
-                  <th key={title} data-numeric={["初始 / 当前权益", "净资金流", "权益收益", "组成收益", "差额"].includes(title)}>{title}</th>
+                {["账户", "初始 / 当前权益", "净资金流", "权益收益", "累计净收益", "当前持仓收益", "对账组成收益", "差额", "完整性", "状态"].map((title) => (
+                  <th key={title} data-numeric={["初始 / 当前权益", "净资金流", "权益收益", "累计净收益", "当前持仓收益", "对账组成收益", "差额"].includes(title)}>{title}</th>
                 ))}
               </tr>
             </thead>
@@ -170,6 +172,8 @@ function ReconciliationContent() {
                   </td>
                   <td className="mono-number" data-numeric="true">{usd(item.net_cash_flow, hidden)}</td>
                   <td className="mono-number" data-numeric="true">{usd(item.equity_return, hidden)}</td>
+                  <td className="mono-number" data-numeric="true">{usd(item.net_realized_pnl, hidden)}</td>
+                  <td className="mono-number" data-numeric="true">{usd(item.current_position_pnl, hidden)}</td>
                   <td className="mono-number" data-numeric="true">{usd(item.component_return, hidden)}</td>
                   <td className={`mono-number ${Math.abs(item.variance) > item.tolerance ? "text-warning" : "text-positive"}`} data-numeric="true">
                     {usd(item.variance, hidden)}

@@ -182,7 +182,9 @@ const reconciliationData = {
     realized_pnl: 3400,
     funding_fee: -20,
     trading_fee: 40,
-    unrealized_pnl_change: 660,
+    net_realized_pnl: 3340,
+    current_position_pnl: 660,
+    initial_position_pnl: 0,
     component_return: 4000,
     variance: 0,
     status: "MATCHED",
@@ -203,7 +205,9 @@ const reconciliationData = {
       realized_pnl: 3400,
       funding_fee: -20,
       trading_fee: 40,
-      unrealized_pnl_change: 660,
+      net_realized_pnl: 3340,
+      current_position_pnl: 660,
+      initial_position_pnl: 0,
       component_return: 4000,
       variance: 0,
       tolerance: 100,
@@ -648,6 +652,9 @@ describe("portfolio pages", () => {
     });
     render(<ReconciliationPage />);
     expect(await screen.findAllByText(/US\$4,000\.00/)).not.toHaveLength(0);
+    expect(screen.getAllByText("累计净收益")).not.toHaveLength(0);
+    expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
+    expect(screen.getAllByText("当前持仓收益")).not.toHaveLength(0);
     expect(screen.getByText("LOW")).toBeInTheDocument();
     expect(screen.getAllByText(/BTCUSDT/)).not.toHaveLength(0);
   });
