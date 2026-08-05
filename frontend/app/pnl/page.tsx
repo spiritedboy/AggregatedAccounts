@@ -204,6 +204,9 @@ function PnlContent() {
     },
   ];
   const maxContribution = Math.max(...byExchange.map((item) => Math.abs(item.investment_return)), 1);
+  const activeDays = summary.profitable_days + summary.losing_days;
+  const profitableDayRate = activeDays ? (summary.profitable_days / activeDays) * 100 : 0;
+  const dayRatio = summary.losing_days ? `${(summary.profitable_days / summary.losing_days).toFixed(1)} : 1` : "--";
 
   return (
     <>
@@ -258,8 +261,15 @@ function PnlContent() {
             <Stat icon={CalendarDays} label="盈利天数" value={`${summary.profitable_days} 天`} />
             <Stat icon={CalendarDays} label="亏损天数" value={`${summary.losing_days} 天`} />
           </div>
-          <div className="soft-block muted mt-3 p-4 text-xs leading-5">
-            {summary.notice}。数据覆盖不足时会明确标记，不会猜测填补。
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="soft-block px-4 py-3">
+              <p className="metric-label">盈利日占比</p>
+              <p className="mono-number mt-1 text-lg font-bold text-positive">{profitableDayRate.toFixed(1)}%</p>
+            </div>
+            <div className="soft-block px-4 py-3">
+              <p className="metric-label">盈亏日比</p>
+              <p className="mono-number mt-1 text-lg font-bold">{dayRatio}</p>
+            </div>
           </div>
         </article>
       </section>
@@ -391,12 +401,12 @@ function Metric({ label, value, formatMoney }: { label: string; value: number; f
 
 function Stat({ icon: Icon, label, value, tone }: { icon: typeof TrendingUp; label: string; value: string; tone?: "positive" | "negative" }) {
   return (
-    <div className="soft-block flex min-h-24 flex-col justify-between p-4">
+    <div className="soft-block flex min-h-24 flex-col justify-center p-4">
       <div className="flex items-center justify-between gap-2">
         <p className="metric-label">{label}</p>
         <Icon className={`h-4 w-4 ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : "text-[var(--aqua)]"}`} />
       </div>
-      <p className="mono-number mt-3 text-lg font-semibold">{value}</p>
+      <p className="mono-number mt-4 text-2xl font-bold">{value}</p>
     </div>
   );
 }
