@@ -247,10 +247,12 @@ function PnlContent() {
           <p className="muted mt-1 text-xs">当前权益 - 统计期初权益 - 净充值提现</p>
           <Chart option={curveOption} height={330} />
         </article>
-        <article className="panel flex h-full flex-col p-5 md:p-6">
-          <p className="section-label">周期表现</p>
-          <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
-          <div className="mt-5 grid flex-1 auto-rows-fr grid-cols-2 gap-3">
+        <article className="panel grid p-5 md:p-6 xl:min-h-[426px] xl:grid-rows-[auto_1fr_auto]">
+          <div>
+            <p className="section-label">周期表现</p>
+            <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
+          </div>
+          <div className="mt-5 grid auto-rows-fr grid-cols-2 gap-3">
             <Stat icon={TrendingUp} label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
             <Stat icon={TrendingDown} label="最大单日亏损" value={formatMoney(summary.worst_day)} tone="negative" />
             <Stat icon={CalendarDays} label="盈利天数" value={`${summary.profitable_days} 天`} />
