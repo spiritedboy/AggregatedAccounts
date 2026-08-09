@@ -303,6 +303,12 @@ function HistoryContent() {
                     <p className="muted mono-number mt-1 truncate text-[11px]" title={usd(position.average_exit_price)}>{usd(position.average_exit_price)}</p>
                   </div>
                 </div>
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>
+                  <span className="muted">费用（资金费 − 手续费）</span>
+                  <span className="mono-number shrink-0 font-semibold">
+                    {formatMoney(position.funding_fee - position.trading_fee)}
+                  </span>
+                </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
                     {position.data_source === "EXCHANGE_API"
