@@ -4,13 +4,13 @@
 
 :root {
   color-scheme: light;
-  --bg: #f9f7ff;
-  --surface: rgba(255, 255, 255, 0.9);
+  --bg: #eeebf6;
+  --surface: rgba(255, 255, 255, 0.97);
   --surface-solid: #ffffff;
-  --surface-soft: #f3f0ff;
-  --surface-raised: #fffefe;
-  --line: rgba(106, 83, 176, 0.14);
-  --line-strong: rgba(106, 83, 176, 0.24);
+  --surface-soft: #eeeafb;
+  --surface-raised: #ffffff;
+  --line: rgba(79, 59, 137, 0.2);
+  --line-strong: rgba(79, 59, 137, 0.34);
   --text: #2c2742;
   --muted: #78718f;
   --accent: #7c5cfc;
@@ -24,19 +24,19 @@
   --negative-soft: #fff0f4;
   --warning: #d58a20;
   --warning-soft: #fff5df;
-  --panel-shadow: 0 18px 48px -34px rgba(88, 62, 164, 0.42);
-  --panel-shadow-hover: 0 24px 58px -34px rgba(99, 69, 190, 0.46);
+  --panel-shadow: 0 14px 34px -24px rgba(67, 48, 119, 0.4), 0 2px 8px rgba(67, 48, 119, 0.06);
+  --panel-shadow-hover: 0 20px 44px -24px rgba(77, 53, 150, 0.48), 0 3px 10px rgba(67, 48, 119, 0.08);
 }
 
 .dark {
   color-scheme: dark;
-  --bg: #17132b;
-  --surface: rgba(35, 29, 62, 0.9);
-  --surface-solid: #241e3e;
-  --surface-soft: #2b2449;
-  --surface-raised: #282143;
-  --line: rgba(205, 190, 255, 0.13);
-  --line-strong: rgba(205, 190, 255, 0.23);
+  --bg: #0f0c19;
+  --surface: rgba(35, 30, 53, 0.97);
+  --surface-solid: #231e35;
+  --surface-soft: #332b4b;
+  --surface-raised: #2b253f;
+  --line: rgba(219, 208, 255, 0.19);
+  --line-strong: rgba(219, 208, 255, 0.34);
   --text: #faf7ff;
   --muted: #b1a9c8;
   --accent: #aa8cff;
@@ -50,8 +50,8 @@
   --negative-soft: rgba(238, 88, 119, 0.14);
   --warning: #ffc463;
   --warning-soft: rgba(227, 156, 49, 0.15);
-  --panel-shadow: 0 24px 62px -40px rgba(4, 0, 20, 0.94);
-  --panel-shadow-hover: 0 28px 72px -40px rgba(5, 0, 25, 0.98);
+  --panel-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.88), 0 2px 10px rgba(0, 0, 0, 0.3);
+  --panel-shadow-hover: 0 24px 52px -24px rgba(0, 0, 0, 0.94), 0 3px 12px rgba(0, 0, 0, 0.38);
 }
 
 * {
@@ -66,10 +66,10 @@ body {
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 8% 4%, rgba(150, 110, 255, 0.2), transparent 30rem),
-    radial-gradient(circle at 94% 12%, rgba(60, 218, 197, 0.17), transparent 28rem),
-    radial-gradient(circle at 76% 94%, rgba(255, 111, 168, 0.13), transparent 30rem),
-    radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, transparent) 1px, transparent 1.4px),
+    radial-gradient(circle at 8% 4%, rgba(150, 110, 255, 0.12), transparent 30rem),
+    radial-gradient(circle at 94% 12%, rgba(60, 218, 197, 0.1), transparent 28rem),
+    radial-gradient(circle at 76% 94%, rgba(255, 111, 168, 0.08), transparent 30rem),
+    radial-gradient(circle, color-mix(in srgb, var(--accent) 10%, transparent) 1px, transparent 1.4px),
     var(--bg);
   background-attachment: fixed;
   background-size: auto, auto, auto, 28px 28px, auto;
@@ -78,6 +78,17 @@ body {
     ui-sans-serif, system-ui, sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at 8% 4%, rgba(135, 98, 238, 0.1), transparent 30rem),
+    radial-gradient(circle at 94% 12%, rgba(48, 178, 161, 0.07), transparent 28rem),
+    radial-gradient(circle at 76% 94%, rgba(207, 76, 132, 0.06), transparent 30rem),
+    radial-gradient(circle, rgba(170, 140, 255, 0.07) 1px, transparent 1.4px),
+    var(--bg);
+  background-attachment: fixed;
+  background-size: auto, auto, auto, 28px 28px, auto;
 }
 
 button,
@@ -114,6 +125,22 @@ select:focus-visible {
     background: var(--surface);
     border-color: var(--line);
     box-shadow: var(--panel-shadow);
+  }
+
+  .panel,
+  .panel-solid,
+  .data-panel,
+  .filter-panel,
+  .table-shell {
+    box-shadow: var(--panel-shadow), inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
+  }
+
+  .dark .panel,
+  .dark .panel-solid,
+  .dark .data-panel,
+  .dark .filter-panel,
+  .dark .table-shell {
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.045);
   }
 
   .panel:hover {
@@ -286,7 +313,7 @@ select:focus-visible {
   .soft-block {
     @apply rounded-2xl border;
     background: var(--surface-soft);
-    border-color: var(--line);
+    border-color: var(--line-strong);
   }
 
   .text-positive {
