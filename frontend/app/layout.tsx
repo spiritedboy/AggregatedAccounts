@@ -25,6 +25,12 @@ const dataFont = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Atlas Ledger · 多交易所资产",
   description: "只读的多交易所账户资产与收益聚合平台",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export const viewport: Viewport = {

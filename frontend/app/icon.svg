@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Atlas Ledger">
+  <defs>
+    <linearGradient id="atlas" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7657F6"/>
+      <stop offset="0.52" stop-color="#C95BCD"/>
+      <stop offset="1" stop-color="#FF786E"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#6B47D6" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="17" fill="url(#atlas)" filter="url(#shadow)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="32" cy="32" r="5"/>
+    <path d="M24.5 38.8c-4.7-2.3-7.5-5.4-7.5-8.8 0-5.2 6.7-9.5 15-9.5S47 24.8 47 30c0 3.4-2.8 6.5-7.5 8.8"/>
+    <path d="M28.6 19.1C32 15.2 35.8 13.5 38.7 15c4.6 2.4 4.9 10.4.9 17.7-4 7.4-10.8 11.4-15.4 9-2.9-1.5-4-5.4-3.3-10.2"/>
+  </g>
+  <circle cx="52" cy="10" r="5" fill="#67E8F9" stroke="#F8FAFF" stroke-width="2.5"/>
+</svg>
