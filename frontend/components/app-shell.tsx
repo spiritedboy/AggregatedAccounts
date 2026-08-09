@@ -23,6 +23,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { money, type DisplayCurrency } from "@/lib/format";
@@ -96,6 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [rateDate, setRateDate] = useState<string | null>(null);
   const [rateReady, setRateReady] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const themeTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -165,13 +167,29 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   function toggleTheme() {
-    setDark((current) => {
-      const next = !current;
+    const next = !dark;
+    const applyTheme = () => {
       window.localStorage.setItem(THEME_STORAGE_KEY, next ? "dark" : "light");
       document.documentElement.classList.toggle("dark", next);
       document.documentElement.dataset.theme = next ? "dark" : "light";
-      return next;
-    });
+      setDark(next);
+    };
+    const transitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+    };
+
+    if (transitionDocument.startViewTransition) {
+      transitionDocument.startViewTransition(applyTheme);
+      return;
+    }
+
+    document.documentElement.classList.add("theme-transitioning");
+    applyTheme();
+    if (themeTransitionTimer.current) clearTimeout(themeTransitionTimer.current);
+    themeTransitionTimer.current = setTimeout(() => {
+      document.documentElement.classList.remove("theme-transitioning");
+      themeTransitionTimer.current = null;
+    }, 450);
   }
 
   const currencyContext = useMemo(

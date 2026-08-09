@@ -4,11 +4,11 @@
 
 :root {
   color-scheme: light;
-  --bg: #eeebf6;
-  --surface: rgba(255, 255, 255, 0.97);
-  --surface-solid: #ffffff;
-  --surface-soft: #eeeafb;
-  --surface-raised: #ffffff;
+  --bg: #e9e5f0;
+  --surface: rgba(248, 246, 252, 0.97);
+  --surface-solid: #f8f6fc;
+  --surface-soft: #ebe6f3;
+  --surface-raised: #fbf9fd;
   --line: rgba(79, 59, 137, 0.2);
   --line-strong: rgba(79, 59, 137, 0.34);
   --text: #2c2742;
@@ -24,8 +24,8 @@
   --negative-soft: #fff0f4;
   --warning: #d58a20;
   --warning-soft: #fff5df;
-  --hero-start: rgba(255, 255, 255, 0.98);
-  --hero-end: rgba(239, 233, 255, 0.96);
+  --hero-start: rgba(250, 248, 253, 0.98);
+  --hero-end: rgba(235, 229, 247, 0.97);
   --panel-shadow: 0 14px 34px -24px rgba(67, 48, 119, 0.4), 0 2px 8px rgba(67, 48, 119, 0.06);
   --panel-shadow-hover: 0 20px 44px -24px rgba(77, 53, 150, 0.48), 0 3px 10px rgba(67, 48, 119, 0.08);
 }
@@ -65,6 +65,45 @@
 html,
 body {
   min-height: 100%;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(root) {
+  animation-name: theme-fade-out;
+}
+
+::view-transition-new(root) {
+  animation-name: theme-fade-in;
+}
+
+@keyframes theme-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+}
+
+html.theme-transitioning body,
+html.theme-transitioning .panel,
+html.theme-transitioning .panel-solid,
+html.theme-transitioning .data-panel,
+html.theme-transitioning .filter-panel,
+html.theme-transitioning .table-shell,
+html.theme-transitioning input,
+html.theme-transitioning select,
+html.theme-transitioning button,
+html.theme-transitioning aside,
+html.theme-transitioning header,
+html.theme-transitioning nav {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: 420ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 body {
@@ -444,6 +483,11 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.01ms !important;
+  }
+
   *,
   *::before,
   *::after {
