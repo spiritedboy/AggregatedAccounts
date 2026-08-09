@@ -227,6 +227,12 @@ class PositionSnapshot(Base, BusinessMixin):
             "source_record_id",
             name="uq_position_snapshot",
         ),
+        Index("ix_position_snapshot_recorded", "recorded_at"),
+        Index(
+            "ix_position_snapshot_account_recorded",
+            "exchange_account_id",
+            "recorded_at",
+        ),
     )
     normalized_symbol: Mapped[str] = mapped_column(String(80), nullable=False)
     side: Mapped[str] = mapped_column(String(8), nullable=False)
@@ -243,6 +249,7 @@ class ClosedPosition(Base, BusinessMixin):
             "exchange_account_id", "tracking_period_id", "source_record_id", name="uq_closed_source"
         ),
         Index("ix_closed_position_filters", "exchange", "normalized_symbol", "close_time"),
+        Index("ix_closed_position_close_time", "close_time"),
     )
     symbol: Mapped[str] = mapped_column(String(80), nullable=False)
     normalized_symbol: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -392,6 +399,21 @@ class PortfolioEquityPoint(Base):
 
 class SyncJob(Base, TimestampMixin):
     __tablename__ = "sync_jobs"
+    __table_args__ = (
+        Index(
+            "ix_sync_job_account_started",
+            "exchange_account_id",
+            "started_at",
+            "id",
+        ),
+        Index(
+            "ix_sync_job_account_status_started",
+            "exchange_account_id",
+            "status",
+            "started_at",
+            "id",
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     exchange_account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exchange_accounts.id"))
     job_type: Mapped[str] = mapped_column(String(32), nullable=False)
