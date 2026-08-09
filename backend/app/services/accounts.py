@@ -38,6 +38,7 @@ from app.services.maintenance import canonical_bitget_closed_source_id
 from app.services.polymarket_translation import (
     capture_polymarket_translation_sources,
 )
+from app.services.position_math import position_margin_used
 
 cipher = CredentialCipher(settings.app_encryption_key)
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
@@ -411,12 +412,14 @@ async def _replace_positions(
         row.margin_mode = item.get("margin_mode", "UNKNOWN")
         row.unrealized_pnl = current_pnl
         row.tracking_unrealized_pnl_change = current_pnl - initial_pnl
-        entry_notional = (
-            abs(row.position_value_usd * row.entry_price / row.mark_price)
-            if row.position_value_usd and row.entry_price and row.mark_price
-            else abs(row.entry_price * row.position_size)
+        position_margin = position_margin_used(
+            position_value_usd=row.position_value_usd,
+            entry_price=row.entry_price,
+            mark_price=row.mark_price,
+            position_size=row.position_size,
+            leverage=row.leverage or Decimal("0"),
+            reported_margin=row.margin_used,
         )
-        position_margin = entry_notional / row.leverage if row.leverage else row.margin_used
         row.unrealized_pnl_percent = (
             current_pnl / position_margin * 100
             if position_margin and position_margin > 0
@@ -617,8 +620,14 @@ async def _run_data_quality_checks(
     ).all()
     for row in current_rows:
         leverage = row.leverage or Decimal("0")
-        entry_notional = abs(row.entry_price * row.position_size)
-        margin = entry_notional / leverage if leverage > 0 else row.margin_used
+        margin = position_margin_used(
+            position_value_usd=row.position_value_usd,
+            entry_price=row.entry_price,
+            mark_price=row.mark_price,
+            position_size=row.position_size,
+            leverage=leverage,
+            reported_margin=row.margin_used,
+        )
         identity = f"{row.normalized_symbol} {row.side}"
         if leverage <= 0 or leverage > 200:
             issues.append(

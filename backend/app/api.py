@@ -43,6 +43,7 @@ from app.services.analytics import (
     build_sync_status,
 )
 from app.services.equity_curve import get_equity_curve
+from app.services.position_math import position_margin_used
 
 router = APIRouter(prefix="/api")
 
@@ -631,15 +632,16 @@ def _position_dict(
     translation: PolymarketTranslation | None = None,
 ) -> dict[str, Any]:
     leverage = _num(row.leverage)
-    position_value = abs(_num(row.position_value_usd))
-    mark_price = _num(row.mark_price)
-    entry_price = _num(row.entry_price)
-    entry_notional = (
-        position_value * entry_price / mark_price
-        if position_value > 0 and entry_price > 0 and mark_price > 0
-        else abs(entry_price * _num(row.position_size))
+    margin_used = float(
+        position_margin_used(
+            position_value_usd=row.position_value_usd,
+            entry_price=row.entry_price,
+            mark_price=row.mark_price,
+            position_size=row.position_size,
+            leverage=row.leverage or Decimal("0"),
+            reported_margin=row.margin_used,
+        )
     )
-    margin_used = entry_notional / leverage if leverage > 0 else abs(_num(row.margin_used))
     unrealized_pnl = _num(row.unrealized_pnl)
     return {
         "id": row.id,
