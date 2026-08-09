@@ -319,17 +319,19 @@ function PositionsContent() {
           </div>
           <div className="grid gap-3 lg:hidden">
             {positions.map((position) => (
-              <article key={position.id} className="panel p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+              <article key={position.id} className="panel min-w-0 overflow-hidden p-4">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
                     <PositionLabel position={position} />
-                    <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)}</p>
+                    <p className="muted mt-1 truncate text-xs">{exchangeDisplayName(position.exchange)}</p>
                   </div>
-                  <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                    {positionSideLabel(position.side, position.exchange)}
-                  </Badge>
+                  <span className="shrink-0">
+                    <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
+                      {positionSideLabel(position.side, position.exchange)}
+                    </Badge>
+                  </span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-4">
+                <div className="mt-4 grid min-w-0 grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd)} />
                   <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatMoney(position.unrealized_pnl)} · ${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
@@ -368,12 +370,12 @@ function FilterSelect({
 
 function Metric({ label, value, tone, hint }: { label: string; value: string; tone?: "positive" | "negative"; hint?: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="metric-label">
         {label}
         {hint ? <CalculationHint label={label} text={hint} /> : null}
       </p>
-      <p className={`mono-number mt-1 text-sm ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
+      <p className={`mono-number mt-1 break-words text-sm ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );
 }
