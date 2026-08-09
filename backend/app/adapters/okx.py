@@ -86,24 +86,40 @@ class OkxAdapter(ExchangeAdapter):
         rows = await self._get("/api/v5/account/positions")
         positions = []
         for item in rows:
-            size = float(item.get("pos") or 0)
-            if not size:
+            contract_count = float(item.get("pos") or 0)
+            if not contract_count:
                 continue
             mark = float(item.get("markPx") or 0)
+            entry = float(item.get("avgPx") or 0)
+            leverage = float(item.get("lever") or 0)
+            notional_usd = abs(float(item.get("notionalUsd") or 0))
+            # OKX `pos` is a contract count, not the underlying-asset quantity.
+            # Deriving quantity from the exchange's USD notional also handles
+            # instruments whose contract value is not one underlying unit.
+            position_size = notional_usd / mark if notional_usd and mark else abs(contract_count)
+            position_value_usd = notional_usd or position_size * mark
+            entry_notional = (
+                position_value_usd * entry / mark
+                if position_value_usd and entry and mark
+                else position_size * entry
+            )
+            margin_used = abs(float(item.get("margin") or 0))
+            if not margin_used and leverage:
+                margin_used = entry_notional / leverage
             positions.append(
                 {
                     "source_record_id": item.get("posId") or f"{item['instId']}:{item['posSide']}",
                     "symbol": item["instId"],
                     "normalized_symbol": SymbolNormalizer.normalize(item["instId"]),
-                    "side": normalize_side(item.get("posSide", ""), size),
-                    "position_size": abs(size),
-                    "position_value_usd": abs(float(item.get("notionalUsd") or size * mark)),
-                    "entry_price": float(item.get("avgPx") or 0),
+                    "side": normalize_side(item.get("posSide", ""), contract_count),
+                    "position_size": position_size,
+                    "position_value_usd": position_value_usd,
+                    "entry_price": entry,
                     "mark_price": mark,
                     "liquidation_price": float(item.get("liqPx") or 0) or None,
-                    "leverage": float(item.get("lever") or 0),
+                    "leverage": leverage,
                     "margin_mode": normalize_margin_mode(item.get("mgnMode")),
-                    "margin_used": float(item.get("margin") or 0),
+                    "margin_used": margin_used,
                     "unrealized_pnl": float(item.get("upl") or 0),
                 }
             )

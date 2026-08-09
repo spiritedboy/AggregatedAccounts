@@ -411,7 +411,11 @@ async def _replace_positions(
         row.margin_mode = item.get("margin_mode", "UNKNOWN")
         row.unrealized_pnl = current_pnl
         row.tracking_unrealized_pnl_change = current_pnl - initial_pnl
-        entry_notional = abs(row.entry_price * row.position_size)
+        entry_notional = (
+            abs(row.position_value_usd * row.entry_price / row.mark_price)
+            if row.position_value_usd and row.entry_price and row.mark_price
+            else abs(row.entry_price * row.position_size)
+        )
         position_margin = entry_notional / row.leverage if row.leverage else row.margin_used
         row.unrealized_pnl_percent = (
             current_pnl / position_margin * 100

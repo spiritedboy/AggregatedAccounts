@@ -631,7 +631,14 @@ def _position_dict(
     translation: PolymarketTranslation | None = None,
 ) -> dict[str, Any]:
     leverage = _num(row.leverage)
-    entry_notional = abs(_num(row.entry_price) * _num(row.position_size))
+    position_value = abs(_num(row.position_value_usd))
+    mark_price = _num(row.mark_price)
+    entry_price = _num(row.entry_price)
+    entry_notional = (
+        position_value * entry_price / mark_price
+        if position_value > 0 and entry_price > 0 and mark_price > 0
+        else abs(entry_price * _num(row.position_size))
+    )
     margin_used = entry_notional / leverage if leverage > 0 else abs(_num(row.margin_used))
     unrealized_pnl = _num(row.unrealized_pnl)
     return {

@@ -95,6 +95,42 @@ async def test_binance_positions_use_v2_leverage_and_margin_type(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_okx_positions_convert_contract_count_to_underlying_quantity(monkeypatch):
+    adapter = OkxAdapter(api_key="key", api_secret="secret", passphrase="pass")
+
+    async def fake_get(path, params=None):
+        assert path == "/api/v5/account/positions"
+        return [
+            {
+                "posId": "hype-short",
+                "instId": "HYPE-USDT-SWAP",
+                "posSide": "short",
+                "pos": "181",
+                "notionalUsd": "981.581774225",
+                "avgPx": "55.157",
+                "markPx": "54.275",
+                "liqPx": "80",
+                "lever": "20",
+                "mgnMode": "cross",
+                "margin": "",
+                "upl": "15.9642",
+            }
+        ]
+
+    monkeypatch.setattr(adapter, "_get", fake_get)
+    try:
+        positions = await adapter.get_open_positions()
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    position = positions[0]
+    assert position["position_size"] == pytest.approx(18.085339)
+    assert position["position_value_usd"] == pytest.approx(981.581774225)
+    assert position["margin_used"] == pytest.approx(49.87665216115)
+
+
+@pytest.mark.asyncio
 async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch):
     adapter = BitgetAdapter(api_key="key", api_secret="secret", passphrase="pass")
 
