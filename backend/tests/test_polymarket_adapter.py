@@ -56,6 +56,8 @@ async def test_polymarket_maps_accounting_snapshot_and_positions():
                     }
                 ],
             )
+        if request.url.path == "/v1/positions/combos":
+            return httpx.Response(200, json={"combos": [], "pagination": {"has_more": False}})
         raise AssertionError(f"unexpected request: {request.url}")
 
     adapter = PolymarketAdapter(wallet_address="0x" + "1" * 40)
@@ -88,8 +90,79 @@ async def test_polymarket_maps_accounting_snapshot_and_positions():
 
 
 @pytest.mark.asyncio
+async def test_polymarket_maps_combo_positions_and_closed_history():
+    combo_id = "987654321"
+    open_combo = {
+        "combo_position_id": combo_id,
+        "combo_condition_id": "0x" + "e" * 64,
+        "side": "YES",
+        "shares_balance": 10,
+        "entry_avg_price_usdc": 0.48,
+        "gross_entry_cost_usdc": 5,
+        "entry_fees_usdc": 0.2,
+        "status": "OPEN",
+        "first_entry_at": "2026-07-26T10:00:00Z",
+        "legs": [
+            {
+                "status": "RESOLVED_WIN",
+                "leg_current_price": 1,
+                "market": {"title": "Team A wins", "outcome": "Yes"},
+            },
+            {
+                "status": "OPEN",
+                "leg_current_price": 0.8,
+                "market": {"title": "Team B wins", "outcome": "Yes"},
+            },
+        ],
+    }
+    closed_combo = {
+        **open_combo,
+        "shares_balance": 0,
+        "status": "RESOLVED_WIN",
+        "resolved_at": "2026-07-27T10:00:00Z",
+        "realized_payout_usdc": 10,
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/positions":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/closed-positions":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/v1/positions/combos":
+            rows = [closed_combo] if "RESOLVED" in request.url.params["status"] else [open_combo]
+            return httpx.Response(200, json={"combos": rows, "pagination": {"has_more": False}})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    adapter = PolymarketAdapter(wallet_address="0x" + "4" * 40)
+    await adapter.client.aclose()
+    adapter.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        current = await adapter.get_open_positions()
+        closed = await adapter.get_closed_positions(
+            datetime(2026, 7, 25, tzinfo=UTC), datetime(2026, 7, 28, tzinfo=UTC)
+        )
+    finally:
+        await adapter.close()
+
+    assert current[0]["source_record_id"] == combo_id
+    assert current[0]["market_type"] == "PREDICTION_COMBO"
+    assert current[0]["mark_price"] == pytest.approx(0.8)
+    assert current[0]["position_value_usd"] == pytest.approx(8)
+    assert current[0]["unrealized_pnl"] == pytest.approx(3)
+    assert current[0]["translation_source_title"].startswith("Combo:")
+    assert closed[0]["source_record_id"] == f"poly-closed:{combo_id}"
+    assert closed[0]["realized_pnl"] == pytest.approx(5.2)
+    assert closed[0]["trading_fee"] == pytest.approx(0.2)
+    assert closed[0]["net_pnl"] == pytest.approx(5)
+
+
+@pytest.mark.asyncio
 async def test_polymarket_closed_positions_stop_at_tracking_boundary():
     async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/positions/combos":
+            return httpx.Response(
+                200, json={"combos": [], "pagination": {"has_more": False}}
+            )
         assert request.url.path == "/closed-positions"
         return httpx.Response(
             200,
@@ -143,8 +216,12 @@ async def test_polymarket_closed_positions_stop_at_tracking_boundary():
 async def test_polymarket_closed_position_identity_ignores_moving_timestamp():
     requests = 0
 
-    async def handler(_: httpx.Request) -> httpx.Response:
+    async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal requests
+        if request.url.path == "/v1/positions/combos":
+            return httpx.Response(
+                200, json={"combos": [], "pagination": {"has_more": False}}
+            )
         requests += 1
         return httpx.Response(
             200,

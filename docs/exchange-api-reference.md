@@ -106,6 +106,8 @@ Base64 编码。
 - <https://docs.polymarket.com/api-reference/misc/download-an-accounting-snapshot-zip-of-csvs>
 
 Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需要 API Key。
+
+组合单通过 Data API 的 `/v1/positions/combos` 接口同步。开放组合单按各子市场概率计算当前估值；已结算组合单使用官方结算金额、原始成本和买入费用重建已实现收益。组合单与普通仓位一样进入中文翻译缓存，当前仓位转为历史仓位后复用同一译文。
 账户连接时先通过 Public Profile API 将登录钱包地址解析为实际 Proxy Wallet：
 
 - `GET /public-profile`：解析并验证 Profile / Proxy Wallet 地址
