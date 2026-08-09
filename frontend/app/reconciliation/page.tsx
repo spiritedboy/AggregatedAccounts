@@ -92,6 +92,7 @@ function ReconciliationContent() {
           value={formatMoney(totals.variance)}
           detail={totals.status === "MATCHED" ? "处于允许误差内" : "建议检查接口覆盖和数据源"}
           tone={totals.status === "MATCHED" ? "positive" : "warning"}
+          explanation="权益口径收益与对账组成收益超过容差时会产生待解释差额。常见原因包括接口覆盖不完整、同步时间不一致、接入前仓位或交易所数据延迟；可继续查看下方账户明细定位来源。"
         />
         <SummaryCard
           icon={Gauge}
@@ -181,14 +182,18 @@ function ReconciliationContent() {
                     {formatMoney(item.variance)}
                   </td>
                   <td>
-                    <Badge tone={item.data_completeness === "COMPLETE" ? "positive" : "warning"}>
-                      {item.data_completeness === "COMPLETE" ? "完整" : "部分"}
-                    </Badge>
+                    <StatusExplanation
+                      label={item.data_completeness === "COMPLETE" ? "完整" : "部分"}
+                      healthy={item.data_completeness === "COMPLETE"}
+                      explanation="部分完整表示至少一类交易所接口覆盖不足。平台仍会展示已取得的数据，但相关收益或费用需要结合缺失项判断。"
+                    />
                   </td>
                   <td>
-                    <Badge tone={item.status === "MATCHED" ? "positive" : "warning"}>
-                      {item.status === "MATCHED" ? "已对平" : "需复核"}
-                    </Badge>
+                    <StatusExplanation
+                      label={item.status === "MATCHED" ? "已对平" : "需复核"}
+                      healthy={item.status === "MATCHED"}
+                      explanation="需复核表示差额超过 1 USD 或当前权益的 0.1%。建议对照该账户的净资金流、费用和当前持仓收益。"
+                    />
                   </td>
                 </tr>
               ))}
@@ -214,16 +219,21 @@ function ReconciliationContent() {
         ) : (
           <div className="divide-y" style={{ borderColor: "var(--line)" }}>
             {reconciliation.quality.issues.map((issue, index) => (
-              <div key={`${issue.account_id}-${issue.code}-${issue.entity}-${index}`} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-                <div>
-                  <p className="font-semibold">{issue.entity}</p>
-                  <p className="muted mt-1 text-xs">{exchangeDisplayName(issue.exchange)} · {connectionDisplayName(issue.connection_name, issue.exchange)}</p>
-                  <p className="mt-2 text-sm">{issue.message}</p>
+              <details key={`${issue.account_id}-${issue.code}-${issue.entity}-${index}`} className="group px-5 py-4">
+                <summary className="flex cursor-pointer list-none flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{issue.entity}</p>
+                    <p className="muted mt-1 text-xs">{exchangeDisplayName(issue.exchange)} · {connectionDisplayName(issue.connection_name, issue.exchange)}</p>
+                    <p className="mt-2 text-sm">{issue.message}</p>
+                  </div>
+                  <Badge tone={issue.severity === "ERROR" ? "negative" : "warning"}>
+                    {issue.severity === "ERROR" ? "异常 · 查看建议" : "提示 · 查看建议"}
+                  </Badge>
+                </summary>
+                <div className="soft-block mt-3 p-3 text-xs leading-5">
+                  <span className="font-semibold">处理建议：</span>{qualityIssueSuggestion(issue.code)}
                 </div>
-                <Badge tone={issue.severity === "ERROR" ? "negative" : "warning"}>
-                  {issue.severity === "ERROR" ? "异常" : "提示"}
-                </Badge>
-              </div>
+              </details>
             ))}
           </div>
         )}
@@ -267,12 +277,14 @@ function SummaryCard({
   value,
   detail,
   tone = "neutral",
+  explanation,
 }: {
   icon: typeof Scale;
   label: string;
   value: string;
   detail: string;
   tone?: "neutral" | "positive" | "warning" | "negative";
+  explanation?: string;
 }) {
   const colors = {
     neutral: "text-[var(--accent)]",
@@ -288,8 +300,43 @@ function SummaryCard({
       </div>
       <p className={`mono-number mt-3 text-xl font-semibold ${colors[tone]}`}>{value}</p>
       <p className="muted mt-2 text-xs">{detail}</p>
+      {explanation && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer font-semibold text-[var(--accent)]">为什么会出现？</summary>
+          <p className="soft-block mt-2 p-3 leading-5">{explanation}</p>
+        </details>
+      )}
     </article>
   );
+}
+
+function StatusExplanation({
+  label,
+  healthy,
+  explanation,
+}: {
+  label: string;
+  healthy: boolean;
+  explanation: string;
+}) {
+  if (healthy) return <Badge tone="positive">{label}</Badge>;
+  return (
+    <details className="group relative">
+      <summary className="cursor-pointer list-none">
+        <Badge tone="warning">{label} · 说明</Badge>
+      </summary>
+      <p className="mt-2 min-w-52 whitespace-normal text-xs leading-5 text-[var(--text)]">{explanation}</p>
+    </details>
+  );
+}
+
+function qualityIssueSuggestion(code: string) {
+  const normalized = code.toUpperCase();
+  if (normalized.includes("DUPLICATE")) return "核对交易所成交记录，确认同一次平仓是否被不同接口重复返回；系统下一次同步会继续执行去重检查。";
+  if (normalized.includes("MISSING") || normalized.includes("INCOMPLETE") || normalized.includes("COVERAGE")) return "检查只读 API 权限和对应数据接口的时间覆盖范围，并等待下一轮同步后再次确认。";
+  if (normalized.includes("LEVERAGE") || normalized.includes("MARGIN")) return "对照交易所仓位详情中的杠杆与保证金；部分历史接口不返回完整杠杆信息。";
+  if (normalized.includes("POSITION") || normalized.includes("CLOSED")) return "先确认仓位是否刚刚关闭或接口暂时延迟，再在下一轮同步后对照当前仓位与历史仓位。";
+  return "等待下一轮同步后再次确认；若仍存在，请对照交易所原始记录检查金额、时间与数据来源。";
 }
 
 function Breakdown({ label, value, formatMoney }: { label: string; value: number; formatMoney: (value: number) => string }) {

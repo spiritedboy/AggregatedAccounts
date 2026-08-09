@@ -27,6 +27,7 @@ import {
   useState,
 } from "react";
 import { money, type DisplayCurrency } from "@/lib/format";
+import { BackToTop } from "@/components/back-to-top";
 
 const THEME_STORAGE_KEY = "atlas-theme";
 const CURRENCY_STORAGE_KEY = "atlas-currency";
@@ -345,6 +346,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </nav>
 
+        <BackToTop />
         {drawer && (
           <div
             className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm lg:hidden"

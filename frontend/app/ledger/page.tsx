@@ -16,6 +16,7 @@ import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { SortButton, type SortDirection } from "@/components/sort-button";
+import { readPageFilters, useUrlFilterSync } from "@/components/use-url-filter-sync";
 import {
   Badge,
   EmptyState,
@@ -74,6 +75,7 @@ function LedgerContent() {
   const [financialImpactSort, setFinancialImpactSort] =
     useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
   const { formatMoney } = useCurrency();
 
   const params = useCallback(() => {
@@ -101,9 +103,31 @@ function LedgerContent() {
   }, [params]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const query = readPageFilters("/ledger");
+    if (query) {
+      setExchange(query.get("exchange") ?? "");
+      setRecordType(query.get("type") ?? "");
+      setStart(query.get("start") ?? "");
+      setEnd(query.get("end") ?? "");
+      const nextPage = Number(query.get("page"));
+      if (Number.isInteger(nextPage) && nextPage > 0) setPage(nextPage);
+      const sort = query.get("sort");
+      if (sort === "asc" || sort === "desc") setFinancialImpactSort(sort);
+    }
+    setUrlReady(true);
+  }, []);
+  useEffect(() => {
+    if (urlReady) void load();
+  }, [load, urlReady]);
   const autoRefresh = useAutoRefresh(load);
+  useUrlFilterSync("/ledger", urlReady, {
+    exchange,
+    type: recordType,
+    start,
+    end,
+    page,
+    sort: financialImpactSort === "none" ? "" : financialImpactSort,
+  });
   const sortedItems = useMemo(() => {
     const items = [...(records?.items ?? [])];
     if (financialImpactSort === "none") return items;

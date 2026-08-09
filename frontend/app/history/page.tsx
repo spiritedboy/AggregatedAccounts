@@ -9,6 +9,7 @@ import { CalculationHint } from "@/components/calculation-hint";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
+import { readPageFilters, useUrlFilterSync } from "@/components/use-url-filter-sync";
 import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
@@ -39,6 +40,7 @@ function HistoryContent() {
   const [netPnlSort, setNetPnlSort] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
+  const [urlReady, setUrlReady] = useState(false);
   const { formatMoney } = useCurrency();
 
   const params = useCallback(() => {
@@ -65,12 +67,42 @@ function HistoryContent() {
   }, [params]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const query = readPageFilters("/history");
+    if (query) {
+      setExchange(query.get("exchange") ?? "");
+      setAccountId(query.get("account") ?? "");
+      setSide(query.get("side") ?? "");
+      setPnlResult(query.get("result") ?? "");
+      setCompleteness(query.get("completeness") ?? "");
+      setSymbol(query.get("symbol") ?? "");
+      setStart(query.get("start") ?? "");
+      setEnd(query.get("end") ?? "");
+      const nextPage = Number(query.get("page"));
+      if (Number.isInteger(nextPage) && nextPage > 0) setPage(nextPage);
+      const sort = query.get("sort");
+      if (sort === "asc" || sort === "desc") setNetPnlSort(sort);
+    }
+    setUrlReady(true);
+  }, []);
+  useEffect(() => {
+    if (urlReady) void load();
+  }, [load, urlReady]);
   useEffect(() => {
     void apiFetch<ExchangeAccount[]>("/api/exchange-accounts").then(setAccounts);
   }, []);
   const autoRefresh = useAutoRefresh(load);
+  useUrlFilterSync("/history", urlReady, {
+    exchange,
+    account: accountId,
+    side,
+    result: pnlResult,
+    completeness,
+    symbol,
+    start,
+    end,
+    page,
+    sort: netPnlSort === "none" ? "" : netPnlSort,
+  });
   const sortedItems = useMemo(() => {
     const items = [...(result?.items ?? [])];
     if (netPnlSort === "none") return items;
