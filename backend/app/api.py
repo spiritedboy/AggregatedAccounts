@@ -62,18 +62,12 @@ async def _polymarket_translation_map(
     db: AsyncSession,
     rows: list[CurrentPosition] | list[ClosedPosition],
 ) -> dict[str, PolymarketTranslation]:
-    asset_ids = {
-        asset_id
-        for row in rows
-        if (asset_id := _polymarket_asset_id(row))
-    }
+    asset_ids = {asset_id for row in rows if (asset_id := _polymarket_asset_id(row))}
     if not asset_ids:
         return {}
     translations = (
         await db.scalars(
-            select(PolymarketTranslation).where(
-                PolymarketTranslation.asset_id.in_(asset_ids)
-            )
+            select(PolymarketTranslation).where(PolymarketTranslation.asset_id.in_(asset_ids))
         )
     ).all()
     return {row.asset_id: row for row in translations}
@@ -99,9 +93,7 @@ def _translation_fields(
         }
     ready = translation.status == "READY" and bool(translation.translated_display)
     return {
-        "display_symbol": (
-            translation.translated_display if ready else translation.source_display
-        ),
+        "display_symbol": (translation.translated_display if ready else translation.source_display),
         "original_symbol": translation.source_display,
         "translation_status": translation.status,
         "translation_provider": translation.provider,
@@ -234,9 +226,7 @@ async def _latest_balances(
 ) -> list[tuple[AccountBalanceSnapshot, ExchangeAccount]]:
     latest_snapshot_id = (
         select(AccountBalanceSnapshot.id)
-        .where(
-            AccountBalanceSnapshot.exchange_account_id == ExchangeAccount.id
-        )
+        .where(AccountBalanceSnapshot.exchange_account_id == ExchangeAccount.id)
         .order_by(
             AccountBalanceSnapshot.recorded_at.desc(),
             AccountBalanceSnapshot.id.desc(),
@@ -299,11 +289,9 @@ def _daily_pnl_points_from_rows(
         cumulative_return = _num(row.investment_return)
         cumulative_unrealized = _num(row.unrealized_pnl_change)
         point = by_date[row.snapshot_date]
-        point["investment_return"] += cumulative_return - previous_return.get(
+        point["investment_return"] += cumulative_return - previous_return.get(account_id, 0.0)
+        point["unrealized_pnl_change"] += cumulative_unrealized - previous_unrealized.get(
             account_id, 0.0
-        )
-        point["unrealized_pnl_change"] += (
-            cumulative_unrealized - previous_unrealized.get(account_id, 0.0)
         )
         point["realized_pnl"] += _num(row.realized_pnl)
         point["funding_fee"] += _num(row.funding_fee)
@@ -436,9 +424,7 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     cumulative_net_pnl = realized_pnl + funding_fee - trading_fee
     current_position_pnl = sum(_num(row.unrealized_pnl) for row in current_positions)
     today_key = str(datetime.now(UTC).date())
-    today_return = sum(
-        row["investment_return"] for row in daily_rows if row["period"] == today_key
-    )
+    today_return = sum(row["investment_return"] for row in daily_rows if row["period"] == today_key)
     account_by_id = {account.id: account for _, account in latest}
     unvalued_assets = [
         {
@@ -512,9 +498,7 @@ async def dashboard_summary(
 
 @router.get("/analytics/equity-curve")
 async def equity_curve(
-    range_key: Literal["1d", "1w", "1m", "6m", "1y"] = Query(
-        "1d", alias="range"
-    ),
+    range_key: Literal["1d", "1w", "1m", "6m", "1y"] = Query("1d", alias="range"),
     _: AppSession = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -523,9 +507,7 @@ async def equity_curve(
 
 @router.get("/dashboard/bootstrap")
 async def dashboard_bootstrap(
-    range_key: Literal["1d", "1w", "1m", "6m", "1y"] = Query(
-        "1d", alias="range"
-    ),
+    range_key: Literal["1d", "1w", "1m", "6m", "1y"] = Query("1d", alias="range"),
     _: AppSession = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -588,11 +570,7 @@ async def _balances_data(
                     "account_type": asset.account_type,
                     "available": _num(asset.available),
                     "locked": _num(asset.locked),
-                    "value_usd": (
-                        _num(asset.value_usd)
-                        if asset.value_usd is not None
-                        else None
-                    ),
+                    "value_usd": (_num(asset.value_usd) if asset.value_usd is not None else None),
                     "price_source": asset.price_source,
                     "recorded_at": asset.recorded_at,
                 }
@@ -703,11 +681,8 @@ async def current_positions(
                     CurrentPosition.exchange == "POLYMARKET",
                     exists(
                         select(1).where(
-                            PolymarketTranslation.asset_id
-                            == CurrentPosition.source_record_id,
-                            PolymarketTranslation.translated_display.ilike(
-                                f"%{symbol}%"
-                            ),
+                            PolymarketTranslation.asset_id == CurrentPosition.source_record_id,
+                            PolymarketTranslation.translated_display.ilike(f"%{symbol}%"),
                         )
                     ),
                 ),
@@ -748,18 +723,14 @@ async def position_snapshots(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     query = (
-        select(PositionSnapshot)
-        .join(ExchangeAccount)
-        .where(ExchangeAccount.is_active.is_(True))
+        select(PositionSnapshot).join(ExchangeAccount).where(ExchangeAccount.is_active.is_(True))
     )
     if exchange:
         query = query.where(PositionSnapshot.exchange == exchange.upper())
     if account_id:
         query = query.where(PositionSnapshot.exchange_account_id == account_id)
     if symbol:
-        query = query.where(
-            PositionSnapshot.normalized_symbol.ilike(f"%{symbol}%")
-        )
+        query = query.where(PositionSnapshot.normalized_symbol.ilike(f"%{symbol}%"))
     if start_time:
         query = query.where(PositionSnapshot.recorded_at >= start_time)
     if end_time:
@@ -860,9 +831,7 @@ def _history_query(
                                 "poly-closed:",
                                 PolymarketTranslation.asset_id,
                             ),
-                            PolymarketTranslation.translated_display.ilike(
-                                f"%{symbol}%"
-                            ),
+                            PolymarketTranslation.translated_display.ilike(f"%{symbol}%"),
                         )
                     ),
                 ),
@@ -879,9 +848,7 @@ def _history_query(
         elif normalized_result == "BREAKEVEN":
             query = query.where(ClosedPosition.net_pnl == 0)
     if completeness:
-        query = query.where(
-            ClosedPosition.data_completeness == completeness.upper()
-        )
+        query = query.where(ClosedPosition.data_completeness == completeness.upper())
     if start_time:
         query = query.where(ClosedPosition.close_time >= start_time)
     if end_time:
@@ -896,12 +863,8 @@ async def position_history(
     tracking_period_id: uuid.UUID | None = None,
     symbol: str | None = None,
     side: str | None = None,
-    pnl_result: str | None = Query(
-        default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"
-    ),
-    completeness: str | None = Query(
-        default=None, pattern="^(COMPLETE|PARTIAL)$"
-    ),
+    pnl_result: str | None = Query(default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"),
+    completeness: str | None = Query(default=None, pattern="^(COMPLETE|PARTIAL)$"),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     page: int = Query(default=1, ge=1),
@@ -933,8 +896,7 @@ async def position_history(
     return envelope(
         {
             "items": [
-                _closed_dict(row, translations.get(_polymarket_asset_id(row) or ""))
-                for row in rows
+                _closed_dict(row, translations.get(_polymarket_asset_id(row) or "")) for row in rows
             ],
             "total": total,
         }
@@ -953,12 +915,8 @@ async def export_history(
     account_id: uuid.UUID | None = None,
     symbol: str | None = None,
     side: str | None = None,
-    pnl_result: str | None = Query(
-        default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"
-    ),
-    completeness: str | None = Query(
-        default=None, pattern="^(COMPLETE|PARTIAL)$"
-    ),
+    pnl_result: str | None = Query(default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"),
+    completeness: str | None = Query(default=None, pattern="^(COMPLETE|PARTIAL)$"),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     _: AppSession = Depends(require_session),
@@ -1218,49 +1176,86 @@ async def _pnl_by_exchange_data(
                 "realized_pnl": sum(row["realized_pnl"] for row in daily),
                 "funding_fee": sum(row["funding_fee"] for row in daily),
                 "trading_fee": sum(row["trading_fee"] for row in daily),
-                "investment_return": (
-                    daily[-1]["cumulative_return"] if daily else 0
-                ),
+                "investment_return": (daily[-1]["cumulative_return"] if daily else 0),
             }
         )
     return result
 
 
 async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
-    positions = list(
-        await db.scalars(
-            select(ClosedPosition)
-            .join(ExchangeAccount)
-            .join(TrackingPeriod)
-            .where(
-                ExchangeAccount.is_active.is_(True),
-                TrackingPeriod.is_active.is_(True),
-                ClosedPosition.side.in_(("LONG", "SHORT")),
+    filters = (
+        ExchangeAccount.is_active.is_(True),
+        TrackingPeriod.is_active.is_(True),
+        ClosedPosition.side.in_(("LONG", "SHORT")),
+    )
+    rows = (
+        (
+            await db.execute(
+                select(
+                    ClosedPosition.side.label("side"),
+                    func.count(ClosedPosition.id).label("count"),
+                    func.coalesce(func.sum(ClosedPosition.net_pnl), 0).label("net_pnl"),
+                    func.count(ClosedPosition.id)
+                    .filter(ClosedPosition.net_pnl > 0)
+                    .label("win_count"),
+                    func.coalesce(
+                        func.sum(ClosedPosition.net_pnl).filter(ClosedPosition.net_pnl > 0),
+                        0,
+                    ).label("win_sum"),
+                    func.count(ClosedPosition.id)
+                    .filter(ClosedPosition.net_pnl < 0)
+                    .label("loss_count"),
+                    func.coalesce(
+                        func.sum(ClosedPosition.net_pnl).filter(ClosedPosition.net_pnl < 0),
+                        0,
+                    ).label("loss_sum"),
+                )
+                .join(ExchangeAccount)
+                .join(TrackingPeriod)
+                .where(*filters)
+                .group_by(ClosedPosition.side)
             )
         )
+        .mappings()
+        .all()
     )
+    aggregates = {row["side"]: dict(row) for row in rows}
 
-    def metrics(items: list[ClosedPosition]) -> dict[str, Any]:
-        pnls = [_num(item.net_pnl) for item in items]
-        wins = [value for value in pnls if value > 0]
-        losses = [value for value in pnls if value < 0]
+    def metrics(row: dict[str, Any] | None) -> dict[str, Any]:
+        values = row or {}
+        count = int(values.get("count") or 0)
+        net_pnl = _num(values.get("net_pnl"))
+        win_count = int(values.get("win_count") or 0)
+        loss_count = int(values.get("loss_count") or 0)
+        win_sum = _num(values.get("win_sum"))
+        loss_sum = _num(values.get("loss_sum"))
         return {
-            "count": len(items),
-            "net_pnl": sum(pnls),
-            "average_net_pnl": sum(pnls) / len(items) if items else 0,
-            "win_rate": len(wins) / len(items) * 100 if items else 0,
-            "average_win": sum(wins) / len(wins) if wins else 0,
-            "average_loss": sum(losses) / len(losses) if losses else 0,
+            "count": count,
+            "net_pnl": net_pnl,
+            "average_net_pnl": net_pnl / count if count else 0,
+            "win_rate": win_count / count * 100 if count else 0,
+            "average_win": win_sum / win_count if win_count else 0,
+            "average_loss": loss_sum / loss_count if loss_count else 0,
         }
 
-    by_side = {
-        side: metrics([position for position in positions if position.side == side])
-        for side in ("LONG", "SHORT")
+    by_side = {side: metrics(aggregates.get(side)) for side in ("LONG", "SHORT")}
+    totals = {
+        key: sum(_num(row.get(key)) for row in aggregates.values())
+        for key in ("count", "net_pnl", "win_count", "win_sum", "loss_count", "loss_sum")
     }
-    all_metrics = metrics(positions)
-    all_pnls = [_num(position.net_pnl) for position in positions]
-    wins = [value for value in all_pnls if value > 0]
-    losses = [value for value in all_pnls if value < 0]
+    all_metrics = metrics(totals)
+
+    extreme_query = (
+        select(ClosedPosition).join(ExchangeAccount).join(TrackingPeriod).where(*filters)
+    )
+    best = await db.scalar(
+        extreme_query.order_by(desc(ClosedPosition.net_pnl), desc(ClosedPosition.close_time)).limit(
+            1
+        )
+    )
+    worst = await db.scalar(
+        extreme_query.order_by(ClosedPosition.net_pnl, desc(ClosedPosition.close_time)).limit(1)
+    )
 
     def extreme(position: ClosedPosition | None) -> dict[str, Any] | None:
         if position is None:
@@ -1273,11 +1268,11 @@ async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
             "close_time": position.close_time,
         }
 
-    best = max(positions, key=lambda item: _num(item.net_pnl), default=None)
-    worst = min(positions, key=lambda item: _num(item.net_pnl), default=None)
     short_count = by_side["SHORT"]["count"]
     average_win = all_metrics["average_win"]
     average_loss = all_metrics["average_loss"]
+    total_win = _num(totals["win_sum"])
+    total_loss = _num(totals["loss_sum"])
     return {
         "by_side": {
             "long": by_side["LONG"],
@@ -1287,7 +1282,7 @@ async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
         "quality": {
             **all_metrics,
             "payoff_ratio": average_win / abs(average_loss) if average_loss else None,
-            "profit_factor": sum(wins) / abs(sum(losses)) if losses else None,
+            "profit_factor": total_win / abs(total_loss) if total_loss else None,
             "best_trade": extreme(best),
             "worst_trade": extreme(worst),
         },
