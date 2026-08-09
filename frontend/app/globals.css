@@ -242,6 +242,40 @@ select:focus-visible {
     box-shadow: var(--panel-shadow);
   }
 
+  .filter-primary,
+  .filter-secondary {
+    @apply grid gap-3;
+  }
+
+  .filter-secondary {
+    @apply hidden;
+  }
+
+  .filter-disclosure-button {
+    @apply flex min-h-10 cursor-pointer items-center justify-between rounded-xl border px-3 text-sm font-semibold;
+    border-color: var(--line);
+    background: var(--surface-soft);
+  }
+
+  .filter-disclosure:checked ~ .filter-secondary {
+    @apply grid;
+  }
+
+  .filter-disclosure:checked + .filter-disclosure-button svg:last-child {
+    transform: rotate(180deg);
+  }
+
+  @media (min-width: 768px) {
+    .responsive-filter-panel > .filter-primary,
+    .responsive-filter-panel > .filter-secondary {
+      display: contents;
+    }
+
+    .filter-disclosure-button {
+      display: none;
+    }
+  }
+
   .table-shell {
     @apply overflow-x-auto rounded-[22px] border backdrop-blur-xl;
     background: var(--surface);

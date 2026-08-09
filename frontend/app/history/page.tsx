@@ -9,7 +9,7 @@ import { CalculationHint } from "@/components/calculation-hint";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
-import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
+import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type { ClosedPosition, ExchangeAccount } from "@/lib/types";
@@ -104,7 +104,10 @@ function HistoryContent() {
         }
       />
 
-      <section className="filter-panel sm:grid-cols-2 xl:grid-cols-4">
+      <FilterPanel
+        activeCount={[accountId, side, pnlResult, completeness, start, end].filter(Boolean).length}
+        desktopClassName="md:grid-cols-2 xl:grid-cols-4"
+        primary={<>
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input className="input pl-10" value={symbol} onChange={(event) => { setPage(1); setSymbol(event.target.value); }} placeholder="交易对" aria-label="搜索交易对" />
@@ -117,6 +120,8 @@ function HistoryContent() {
           <option value="HYPERLIQUID">Hyperliquid</option>
           <option value="POLYMARKET">Polymarket</option>
         </Select>
+        </>}
+        secondary={<>
         <Select value={accountId} onChange={(value) => { setPage(1); setAccountId(value); }} label="账户">
           <option value="">全部账户</option>
           {accounts
@@ -149,7 +154,8 @@ function HistoryContent() {
           <span className="sr-only">结束日期</span>
           <input className="input" type="date" value={end} onChange={(event) => { setPage(1); setEnd(event.target.value); }} />
         </label>
-      </section>
+        </>}
+      />
 
       {result && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
@@ -285,14 +291,14 @@ function HistoryContent() {
                     <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                       {formatMoney(position.net_pnl)}
                     </p>
-                    <p className="muted mono-number mt-1 text-[10px]">
+                    <p className="muted mono-number mt-1 text-[11px]">
                       {historicalReturnLabel(position)}
                     </p>
                   </div>
                   <div className="soft-block p-3">
                     <p className="metric-label">开仓 / 平仓均价</p>
                     <p className="mono-number mt-1 text-xs">{usd(position.average_entry_price)}</p>
-                    <p className="muted mono-number mt-1 text-[10px]">{usd(position.average_exit_price)}</p>
+                    <p className="muted mono-number mt-1 text-[11px]">{usd(position.average_exit_price)}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">

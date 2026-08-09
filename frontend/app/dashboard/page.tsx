@@ -264,7 +264,7 @@ function DashboardContent() {
           tone="accent"
           featured
         />
-        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+        <div className="grid grid-cols-2 gap-3 [&>*:first-child]:col-span-2 sm:grid-cols-3 sm:[&>*:first-child]:col-span-1 xl:grid-cols-1">
           <MetricCard
             label="今日收益"
             value={formatMoney(data.today_pnl)}
@@ -364,7 +364,22 @@ function DashboardContent() {
         <article className="panel min-w-0 p-5 md:p-6">
           <p className="section-label">资产分布</p>
           <p className="muted mt-1 text-xs">按交易所权益占比</p>
-          <Chart option={allocationOption} height={300} />
+          <Chart option={allocationOption} height={230} />
+          <div className="mt-3 grid gap-2 border-t pt-4" style={{ borderColor: "var(--line)" }}>
+            {data.by_exchange.map((item) => {
+              const percent = data.estimated_total_equity > 0
+                ? (item.equity / data.estimated_total_equity) * 100
+                : 0;
+              return (
+                <div key={`${item.exchange}-${item.connection_name}`} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="min-w-0 truncate font-medium">{item.exchange}</span>
+                  <span className="mono-number whitespace-nowrap text-[var(--muted)]">
+                    {formatMoney(item.equity)} · {number(percent, 1)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </article>
       </section>
 

@@ -275,7 +275,7 @@ function AccountsContent() {
                       <p className="mono-number mt-2 text-sm">
                         {asset.value_usd === null ? "无法估值" : formatMoney(asset.value_usd)}
                       </p>
-                      <p className="muted mono-number mt-1 text-[10px]">
+                      <p className="muted mono-number mt-1 text-[11px]">
                         可用 {number(asset.available)} · 锁定 {number(asset.locked)}
                       </p>
                     </div>

@@ -246,7 +246,7 @@ function PnlContent() {
           tone={summary.period_net_realized_pnl >= 0 ? "positive" : "negative"}
           featured
         />
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3">
           {metrics.map((metric) => (
             <MetricCard
               key={metric.label}
@@ -272,7 +272,7 @@ function PnlContent() {
             <p className="section-label">周期表现</p>
             <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
             </div>
-            <p className="muted text-[10px]">{summary.notice}</p>
+            <p className="muted text-[11px]">{summary.notice}</p>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Stat icon={TrendingUp} label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
@@ -396,7 +396,7 @@ function ExtremeTradeCard({ label, trade, formatMoney, tone }: { label: string; 
         <>
           <p className={`mono-number mt-2 text-lg font-bold ${tone === "positive" ? "text-positive" : "text-negative"}`}>{formatMoney(trade.net_pnl)}</p>
           <p className="mt-2 truncate text-xs font-semibold">{trade.symbol}</p>
-          <p className="muted mt-1 text-[10px]">{trade.exchange} · {trade.side === "LONG" ? "做多" : "做空"}</p>
+          <p className="muted mt-1 text-[11px]">{trade.exchange} · {trade.side === "LONG" ? "做多" : "做空"}</p>
         </>
       ) : <p className="muted mt-3 text-sm">暂无数据</p>}
     </div>
@@ -449,12 +449,12 @@ function SidePerformance({ data, quality, formatMoney }: { data: SidePnl; qualit
           <div className="soft-block p-4">
             <p className="metric-label">盈利因子</p>
             <p className="mono-number mt-2 text-lg font-bold">{quality?.profit_factor == null ? "--" : quality.profit_factor.toFixed(2)}</p>
-            <p className="muted mt-1 text-[10px]">总盈利 ÷ 总亏损绝对值</p>
+            <p className="muted mt-1 text-[11px]">总盈利 ÷ 总亏损绝对值</p>
           </div>
           <div className="soft-block p-4">
             <p className="metric-label">多空次数比</p>
             <p className="mono-number mt-2 text-lg font-bold">{ratio(data.count_ratio)}</p>
-            <p className="muted mt-1 text-[10px]">做多笔数 ÷ 做空笔数</p>
+            <p className="muted mt-1 text-[11px]">做多笔数 ÷ 做空笔数</p>
           </div>
         </div>
       </div>
@@ -465,7 +465,7 @@ function SidePerformance({ data, quality, formatMoney }: { data: SidePnl; qualit
 function SideDetail({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
   return (
     <div className="rounded-lg bg-[var(--surface-soft)] p-2.5">
-      <p className="muted text-[9px]">{label}</p>
+      <p className="muted text-[11px]">{label}</p>
       <p className={`mono-number mt-1 truncate text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );

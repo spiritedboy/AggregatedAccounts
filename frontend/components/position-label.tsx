@@ -32,18 +32,18 @@ export function PositionLabel({
   return (
     <div className="min-w-0">
       <p
-        className={`font-semibold leading-snug ${compact ? "text-sm" : ""}`}
+        className={`line-clamp-2 font-semibold leading-snug ${compact ? "text-sm" : ""}`}
         title={position.display_symbol}
       >
         {position.display_symbol}
       </p>
       {translated && (
         <div className="mt-1 flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0 rounded-full bg-[var(--aqua-soft)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[var(--aqua)]">
+          <span className="shrink-0 rounded-full bg-[var(--aqua-soft)] px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-[var(--aqua)]">
             AI译
           </span>
           <p
-            className="muted truncate text-[10px]"
+            className="muted truncate text-[11px]"
             title={position.original_symbol}
           >
             {position.original_symbol}

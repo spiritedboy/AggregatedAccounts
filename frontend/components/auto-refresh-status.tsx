@@ -87,7 +87,7 @@ export function AutoRefreshStatus({
 
   return (
     <div
-      className={`inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-[10px] border px-3 py-2 text-[11px] font-medium ${
+      className={`inline-flex max-w-full flex-wrap items-center justify-start gap-x-2 gap-y-1 rounded-[10px] border px-3 py-2 text-[11px] font-medium sm:justify-end ${
         stale
           ? "border-amber-500/25 bg-[var(--warning-soft)] text-[var(--warning)]"
           : "border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]"

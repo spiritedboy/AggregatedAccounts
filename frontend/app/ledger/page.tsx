@@ -20,6 +20,7 @@ import {
   Badge,
   EmptyState,
   ErrorState,
+  FilterPanel,
   LoadingState,
   PageHeader,
 } from "@/components/ui";
@@ -176,7 +177,10 @@ function LedgerContent() {
         </section>
       )}
 
-      <section className="filter-panel sm:grid-cols-2 xl:grid-cols-4">
+      <FilterPanel
+        activeCount={[recordType, start, end].filter(Boolean).length}
+        desktopClassName="md:grid-cols-2 xl:grid-cols-4"
+        primary={
         <Select
           label="交易所"
           value={exchange}
@@ -192,6 +196,8 @@ function LedgerContent() {
           <option value="HYPERLIQUID">Hyperliquid</option>
           <option value="POLYMARKET">Polymarket</option>
         </Select>
+        }
+        secondary={<>
         <Select
           label="流水类型"
           value={recordType}
@@ -231,7 +237,8 @@ function LedgerContent() {
             }}
           />
         </label>
-      </section>
+        </>}
+      />
 
       {records && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
@@ -309,7 +316,7 @@ function LedgerContent() {
                     <td>
                       <RecordTypeBadge recordType={record.record_type} />
                       {record.subtype !== record.record_type && (
-                        <p className="muted mt-1 max-w-44 truncate text-[10px]">
+                        <p className="muted mt-1 max-w-44 truncate text-[11px]">
                           {record.subtype}
                         </p>
                       )}
@@ -332,7 +339,7 @@ function LedgerContent() {
                     </td>
                     <td>
                       <p
-                        className="muted max-w-52 truncate font-mono text-[10px]"
+                        className="muted max-w-52 truncate font-mono text-[11px]"
                         title={record.source_record_id}
                       >
                         {record.source_record_id}
@@ -359,14 +366,14 @@ function LedgerContent() {
                   <div>
                     <p className="metric-label">资产 / 交易对</p>
                     <p className="mono-number mt-1 text-sm font-semibold">{record.asset}</p>
-                    <p className="muted mt-1 text-[10px]">{record.symbol || "账户级"}</p>
+                    <p className="muted mt-1 text-[11px]">{record.symbol || "账户级"}</p>
                   </div>
                   <div>
                     <p className="metric-label">发生时间</p>
                     <p className="mt-1 text-xs">{dateTime(record.record_time)}</p>
                   </div>
                 </div>
-                <p className="muted mt-4 truncate border-t pt-3 font-mono text-[10px]" style={{ borderColor: "var(--line)" }} title={record.source_record_id}>
+                <p className="muted mt-4 truncate border-t pt-3 font-mono text-[11px]" style={{ borderColor: "var(--line)" }} title={record.source_record_id}>
                   来源 {record.source_record_id}
                 </p>
               </article>

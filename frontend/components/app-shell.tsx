@@ -298,13 +298,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </header>
 
-          <main className="mx-auto w-full max-w-[1540px] px-4 pb-28 pt-5 md:px-6 md:pb-10 md:pt-7 xl:px-8">
+          <main className="mx-auto w-full max-w-[1540px] px-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] pt-5 md:px-6 md:pb-10 md:pt-7 xl:px-8">
             {children}
           </main>
         </div>
 
         <nav
-          className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-[22px] border p-1.5 lg:hidden"
+          className="fixed inset-x-3 bottom-[calc(.75rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-5 rounded-[22px] border p-1.5 lg:hidden"
           style={{
             background: "color-mix(in srgb, var(--surface) 94%, transparent)",
             borderColor: "var(--line)",

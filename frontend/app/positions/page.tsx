@@ -9,7 +9,7 @@ import { CalculationHint } from "@/components/calculation-hint";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
-import { Badge, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
+import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
 import type { ExchangeAccount, Position } from "@/lib/types";
@@ -124,7 +124,10 @@ function PositionsContent() {
         }
       />
 
-      <section className="filter-panel sm:grid-cols-2 lg:grid-cols-4">
+      <FilterPanel
+        activeCount={[accountId, side, mobileSortValue !== "none" ? mobileSortValue : ""].filter(Boolean).length}
+        desktopClassName="md:grid-cols-2 lg:grid-cols-4"
+        primary={<>
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input
@@ -143,6 +146,8 @@ function PositionsContent() {
           <option value="HYPERLIQUID">Hyperliquid</option>
           <option value="POLYMARKET">Polymarket</option>
         </FilterSelect>
+        </>}
+        secondary={<>
         <FilterSelect value={accountId} onChange={setAccountId} label="账户">
           <option value="">全部账户</option>
           {accounts
@@ -156,7 +161,7 @@ function PositionsContent() {
           <option value="LONG">做多</option>
           <option value="SHORT">做空</option>
         </FilterSelect>
-        <div className="sm:col-span-2 lg:hidden">
+        <div className="md:hidden">
           <FilterSelect value={mobileSortValue} onChange={changeMobileSort} label="排序">
             <option value="none">默认排序</option>
             <option value="value-asc">仓位价值升序</option>
@@ -165,7 +170,8 @@ function PositionsContent() {
             <option value="pnl-desc">未实现盈亏降序</option>
           </FilterSelect>
         </div>
-      </section>
+        </>}
+      />
 
       {result && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">

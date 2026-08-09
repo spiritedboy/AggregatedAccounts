@@ -1,10 +1,12 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  SlidersHorizontal,
   LoaderCircle,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 
 export function Badge({
   children,
@@ -100,17 +102,49 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-5 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-      <div className="min-w-0">
+    <header className="mb-5 flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-end">
+      <div className="min-w-0 max-w-full">
         <p className="eyebrow">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--aqua)]" />
           {eyebrow}
         </p>
         <h1 className="page-title mt-2 text-[30px] font-extrabold tracking-[-0.045em] md:text-[34px]">{title}</h1>
-        <p className="muted mt-1.5 max-w-2xl text-sm leading-6">{description}</p>
+        <p className="muted mt-1.5 max-w-2xl text-sm leading-6 [overflow-wrap:anywhere]">{description}</p>
       </div>
-      {action}
+      {action && <div className="flex w-full min-w-0 max-w-full flex-wrap items-center md:w-auto md:shrink-0 md:justify-end">{action}</div>}
     </header>
+  );
+}
+
+export function FilterPanel({
+  primary,
+  secondary,
+  activeCount = 0,
+  desktopClassName = "sm:grid-cols-2 xl:grid-cols-4",
+}: {
+  primary: ReactNode;
+  secondary?: ReactNode;
+  activeCount?: number;
+  desktopClassName?: string;
+}) {
+  const disclosureId = useId();
+  return (
+    <section className={`filter-panel responsive-filter-panel ${desktopClassName}`}>
+      <div className="filter-primary">{primary}</div>
+      {secondary && (
+        <>
+          <input id={disclosureId} type="checkbox" className="filter-disclosure peer sr-only" />
+          <label htmlFor={disclosureId} className="filter-disclosure-button">
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4 text-[var(--accent)]" />
+              更多筛选{activeCount > 0 ? ` (${activeCount})` : ""}
+            </span>
+            <ChevronDown className="h-4 w-4 transition-transform peer-checked:rotate-180" />
+          </label>
+          <div className="filter-secondary">{secondary}</div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -139,7 +173,7 @@ export function MetricCard({
 
   return (
     <article
-      className={`panel relative overflow-hidden ${featured ? "p-6 md:p-7" : "p-5"}`}
+      className={`panel metric-card relative overflow-hidden ${featured ? "p-5 md:p-7" : "p-4 md:p-5"}`}
       style={
         featured
           ? {
