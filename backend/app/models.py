@@ -399,21 +399,6 @@ class PortfolioEquityPoint(Base):
 
 class SyncJob(Base, TimestampMixin):
     __tablename__ = "sync_jobs"
-    __table_args__ = (
-        Index(
-            "ix_sync_job_account_started",
-            "exchange_account_id",
-            "started_at",
-            "id",
-        ),
-        Index(
-            "ix_sync_job_account_status_started",
-            "exchange_account_id",
-            "status",
-            "started_at",
-            "id",
-        ),
-    )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     exchange_account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exchange_accounts.id"))
     job_type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -422,6 +407,21 @@ class SyncJob(Base, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     records_written: Mapped[int] = mapped_column(Integer, default=0)
+
+
+Index(
+    "ix_sync_job_account_started",
+    SyncJob.exchange_account_id,
+    SyncJob.started_at.desc(),
+    SyncJob.id.desc(),
+)
+Index(
+    "ix_sync_job_account_status_started",
+    SyncJob.exchange_account_id,
+    SyncJob.status,
+    SyncJob.started_at.desc(),
+    SyncJob.id.desc(),
+)
 
 
 class SyncError(Base, TimestampMixin):
