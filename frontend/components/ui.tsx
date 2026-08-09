@@ -102,7 +102,7 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-5 flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-end">
+    <header className="page-hero mb-5 flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-end">
       <div className="min-w-0 max-w-full">
         <p className="eyebrow">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--aqua)]" />

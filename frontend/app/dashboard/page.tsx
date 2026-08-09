@@ -244,7 +244,7 @@ function DashboardContent() {
         }
       />
 
-      <section className="grid gap-3 xl:grid-cols-[1.15fr_.85fr]">
+      <section className="grid gap-3 xl:grid-cols-[1fr_1.18fr]">
         <MetricCard
           label="估算总权益"
           value={formatMoney(data.estimated_total_equity)}
@@ -264,7 +264,7 @@ function DashboardContent() {
           tone="accent"
           featured
         />
-        <div className="grid grid-cols-2 gap-3 [&>*:first-child]:col-span-2 sm:grid-cols-3 sm:[&>*:first-child]:col-span-1 xl:grid-cols-1">
+        <div className="grid grid-cols-2 gap-3 [&>*:first-child]:col-span-2 sm:grid-cols-3 sm:[&>*:first-child]:col-span-1 xl:grid-cols-2 xl:[&>*:first-child]:col-span-2">
           <MetricCard
             label="今日收益"
             value={formatMoney(data.today_pnl)}

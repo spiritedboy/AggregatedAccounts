@@ -24,6 +24,8 @@
   --negative-soft: #fff0f4;
   --warning: #d58a20;
   --warning-soft: #fff5df;
+  --hero-start: rgba(255, 255, 255, 0.98);
+  --hero-end: rgba(239, 233, 255, 0.96);
   --panel-shadow: 0 14px 34px -24px rgba(67, 48, 119, 0.4), 0 2px 8px rgba(67, 48, 119, 0.06);
   --panel-shadow-hover: 0 20px 44px -24px rgba(77, 53, 150, 0.48), 0 3px 10px rgba(67, 48, 119, 0.08);
 }
@@ -50,6 +52,8 @@
   --negative-soft: rgba(238, 88, 119, 0.14);
   --warning: #ffc463;
   --warning-soft: rgba(227, 156, 49, 0.15);
+  --hero-start: rgba(42, 35, 64, 0.98);
+  --hero-end: rgba(52, 40, 80, 0.96);
   --panel-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.88), 0 2px 10px rgba(0, 0, 0, 0.3);
   --panel-shadow-hover: 0 24px 52px -24px rgba(0, 0, 0, 0.94), 0 3px 12px rgba(0, 0, 0, 0.38);
 }
@@ -120,6 +124,32 @@ select:focus-visible {
 }
 
 @layer components {
+  .page-hero {
+    @apply relative isolate overflow-hidden rounded-[26px] border px-5 py-5 md:px-7 md:py-6;
+    background:
+      linear-gradient(112deg, var(--hero-start) 0%, var(--hero-end) 68%, color-mix(in srgb, var(--aqua-soft) 84%, var(--surface)) 100%);
+    border-color: var(--line-strong);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
+  }
+
+  .page-hero::before {
+    content: "";
+    @apply pointer-events-none absolute -right-10 -top-20 -z-10 h-52 w-52 rounded-full;
+    border: 26px solid color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+
+  .page-hero::after {
+    content: "";
+    @apply pointer-events-none absolute bottom-5 right-[28%] -z-10 h-3 w-3 rounded-full;
+    background: var(--aqua);
+    box-shadow: 34px -27px 0 color-mix(in srgb, #ec6ea9 64%, transparent), 68px 8px 0 color-mix(in srgb, var(--accent) 52%, transparent);
+    opacity: 0.5;
+  }
+
+  .dark .page-hero {
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
   .panel {
     @apply rounded-[22px] border backdrop-blur-xl transition duration-200;
     background: var(--surface);
@@ -236,10 +266,16 @@ select:focus-visible {
   }
 
   .filter-panel {
-    @apply mb-4 grid gap-3 rounded-[22px] border p-3 backdrop-blur-xl;
-    background: var(--surface);
-    border-color: var(--line);
+    @apply relative mb-4 grid gap-3 overflow-hidden rounded-[22px] border p-3 pl-4 backdrop-blur-xl;
+    background: color-mix(in srgb, var(--surface) 91%, var(--accent-soft));
+    border-color: var(--line-strong);
     box-shadow: var(--panel-shadow);
+  }
+
+  .filter-panel::before {
+    content: "";
+    @apply absolute inset-y-3 left-0 w-1 rounded-r-full;
+    background: linear-gradient(180deg, var(--accent), #ec6ea9 52%, var(--aqua));
   }
 
   .filter-primary,
@@ -295,14 +331,14 @@ select:focus-visible {
   }
 
   .data-table thead {
-    color: var(--muted);
-    background: color-mix(in srgb, var(--surface-soft) 82%, var(--surface));
+    color: color-mix(in srgb, var(--text) 74%, var(--muted));
+    background: color-mix(in srgb, var(--accent-soft) 65%, var(--surface));
   }
 
   .data-table th {
     @apply sticky top-0 z-20 whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold tracking-wide;
-    background: color-mix(in srgb, var(--surface-soft) 82%, var(--surface));
-    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--accent-soft) 65%, var(--surface));
+    border-bottom: 1px solid var(--line-strong);
   }
 
   .data-table th:hover,
@@ -324,7 +360,15 @@ select:focus-visible {
   }
 
   .data-table tbody tr:hover {
-    background: color-mix(in srgb, var(--accent-soft) 48%, transparent);
+    background: color-mix(in srgb, var(--accent-soft) 68%, transparent);
+  }
+
+  .data-table tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--surface-soft) 34%, transparent);
+  }
+
+  .data-table tbody tr:nth-child(even):hover {
+    background: color-mix(in srgb, var(--accent-soft) 68%, transparent);
   }
 
   .section-label {
@@ -338,7 +382,7 @@ select:focus-visible {
   }
 
   .metric-value {
-    @apply mt-2 text-xl font-semibold;
+    @apply mt-2 text-[22px] font-bold;
     font-family: var(--font-data), "IBM Plex Mono", monospace;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.04em;
@@ -361,6 +405,17 @@ select:focus-visible {
   .text-warning {
     color: var(--warning);
   }
+
+  .metric-card::after {
+    content: "";
+    @apply absolute inset-x-5 top-0 h-[3px] rounded-b-full;
+    background: linear-gradient(90deg, var(--accent), #ec6ea9 52%, var(--aqua));
+    opacity: 0.78;
+  }
+
+  .metric-card:hover::after {
+    opacity: 1;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -373,6 +428,18 @@ select:focus-visible {
 @media (max-width: 767px) {
   body {
     background-size: auto, auto, auto, 24px 24px, auto;
+  }
+
+  .page-hero {
+    border-radius: 22px;
+  }
+
+  .page-hero::after {
+    display: none;
+  }
+
+  .metric-value {
+    font-size: 1.125rem;
   }
 }
 
