@@ -28,7 +28,7 @@ import {
 } from "@/components/ui";
 import { useCurrency } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
+import { connectionDisplayName, dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
 import type {
   DashboardBootstrapData,
   DashboardData,
@@ -372,7 +372,7 @@ function DashboardContent() {
                 : 0;
               return (
                 <div key={`${item.exchange}-${item.connection_name}`} className="flex items-center justify-between gap-3 text-xs">
-                  <span className="min-w-0 truncate font-medium">{item.exchange}</span>
+                  <span className="min-w-0 truncate font-medium">{exchangeDisplayName(item.exchange)}</span>
                   <span className="mono-number whitespace-nowrap text-[var(--muted)]">
                     {formatMoney(item.equity)} · {number(percent, 1)}%
                   </span>
@@ -404,7 +404,7 @@ function DashboardContent() {
                       {positionSideLabel(position.side, position.exchange)}
                     </Badge>
                   </div>
-                  <p className="muted mt-1 text-xs">{position.exchange} · {position.margin_mode}</p>
+                  <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)} · {position.margin_mode}</p>
                 </div>
                 <div className="hidden sm:block">
                   <p className="metric-label">仓位价值</p>
@@ -435,7 +435,7 @@ function DashboardContent() {
                 <div className="flex min-w-0 items-center gap-3">
                   <ExchangeMark exchange={item.exchange} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{item.connection_name}</p>
+                    <p className="truncate text-sm font-medium">{connectionDisplayName(item.connection_name, item.exchange)}</p>
                     <p className="muted mt-0.5 text-xs">{formatMoney(item.equity)}</p>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -41,10 +41,25 @@ describe("automatic data refresh", () => {
 
     render(
       <AutoRefreshStatus
-        state={{ nextRefreshAt: now + 30_000, now, refreshing: false }}
+        state={{ nextRefreshAt: now + 30_000, now, refreshing: false, refreshNow: vi.fn() }}
         lastUpdatedAt={updatedAt}
       />,
     );
     expect(screen.getByText("数据已过期，正在自动重试")).toBeInTheDocument();
+  });
+
+  it("refreshes immediately when the status is clicked", async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+
+    function Probe() {
+      const state = useAutoRefresh(refresh);
+      return <AutoRefreshStatus state={state} />;
+    }
+
+    render(<Probe />);
+    fireEvent.click(screen.getByRole("button", { name: "立即刷新数据" }));
+
+    await act(async () => undefined);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });

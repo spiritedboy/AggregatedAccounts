@@ -15,7 +15,7 @@ import { useCurrency } from "@/components/app-shell";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, usd } from "@/lib/format";
+import { connectionDisplayName, dateTime, exchangeDisplayName, number, usd } from "@/lib/format";
 import type {
   AnalyticsBootstrapData,
   ReconciliationData,
@@ -126,7 +126,9 @@ function ReconciliationContent() {
               <p className="section-label">风险指标</p>
               <p className="muted mt-1 text-xs">按当前权益与持仓计算</p>
             </div>
-            <Badge tone={riskTone}>{risk.summary.risk_level}</Badge>
+            <Badge tone={riskTone}>
+              {{ LOW: "低风险", MEDIUM: "中风险", HIGH: "高风险" }[risk.summary.risk_level]}
+            </Badge>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3">
             <RiskMetric label="最大回撤" value={risk.summary.max_drawdown_percent} />
@@ -163,8 +165,8 @@ function ReconciliationContent() {
               {reconciliation.accounts.map((item) => (
                 <tr key={item.account_id}>
                   <td>
-                    <p className="font-semibold">{item.connection_name}</p>
-                    <p className="muted mt-1 text-xs">{item.exchange} · {dateTime(item.last_synced_at)}</p>
+                    <p className="font-semibold">{connectionDisplayName(item.connection_name, item.exchange)}</p>
+                    <p className="muted mt-1 text-xs">{exchangeDisplayName(item.exchange)} · {dateTime(item.last_synced_at)}</p>
                   </td>
                   <td className="mono-number" data-numeric="true">
                     <p>{formatMoney(item.initial_equity)}</p>
@@ -215,7 +217,7 @@ function ReconciliationContent() {
               <div key={`${issue.account_id}-${issue.code}-${issue.entity}-${index}`} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
                 <div>
                   <p className="font-semibold">{issue.entity}</p>
-                  <p className="muted mt-1 text-xs">{issue.exchange} · {issue.connection_name}</p>
+                  <p className="muted mt-1 text-xs">{exchangeDisplayName(issue.exchange)} · {connectionDisplayName(issue.connection_name, issue.exchange)}</p>
                   <p className="mt-2 text-sm">{issue.message}</p>
                 </div>
                 <Badge tone={issue.severity === "ERROR" ? "negative" : "warning"}>
@@ -234,7 +236,7 @@ function ReconciliationContent() {
             {risk.exchange_concentration.map((item) => (
               <ProgressRow
                 key={item.exchange}
-                label={item.exchange}
+                label={exchangeDisplayName(item.exchange)}
                 value={`${formatMoney(item.equity)} · ${number(item.percent, 1)}%`}
                 percent={item.percent}
               />

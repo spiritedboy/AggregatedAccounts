@@ -11,7 +11,7 @@ import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
+import { dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
 import type { ExchangeAccount, Position } from "@/lib/types";
 
 type PositionResult = { items: Position[]; total: number };
@@ -256,7 +256,7 @@ function PositionsContent() {
                       <div className="max-w-md">
                         <PositionLabel position={position} />
                       </div>
-                      <p className="muted mt-1 text-xs">{position.exchange} · {position.market_type}</p>
+                      <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)} · {position.market_type}</p>
                     </td>
                     <td>
                       <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
@@ -299,7 +299,7 @@ function PositionsContent() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <PositionLabel position={position} />
-                    <p className="muted mt-1 text-xs">{position.exchange}</p>
+                    <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)}</p>
                   </div>
                   <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
                     {positionSideLabel(position.side, position.exchange)}

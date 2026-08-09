@@ -17,7 +17,7 @@ import { Chart } from "@/components/chart";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, ErrorState, LoadingState, MetricCard, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { compactDate } from "@/lib/format";
+import { compactDate, exchangeDisplayName } from "@/lib/format";
 import type { PnlPoint } from "@/lib/types";
 
 type PnlSummary = {
@@ -327,7 +327,7 @@ function PnlContent() {
           <div className="divide-y" style={{ borderColor: "var(--line)" }}>
             {byExchange.map((row) => (
               <div key={row.exchange} className="grid gap-4 px-5 py-4 lg:grid-cols-[140px_1fr_100px_100px_100px] lg:items-center">
-                <p className="mono-number text-sm font-semibold">{row.exchange}</p>
+                <p className="text-sm font-semibold">{exchangeDisplayName(row.exchange)}</p>
                 <div>
                   <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
                     <span className="muted">投资收益</span>
@@ -396,7 +396,7 @@ function ExtremeTradeCard({ label, trade, formatMoney, tone }: { label: string; 
         <>
           <p className={`mono-number mt-2 text-lg font-bold ${tone === "positive" ? "text-positive" : "text-negative"}`}>{formatMoney(trade.net_pnl)}</p>
           <p className="mt-2 truncate text-xs font-semibold">{trade.symbol}</p>
-          <p className="muted mt-1 text-[11px]">{trade.exchange} · {trade.side === "LONG" ? "做多" : "做空"}</p>
+          <p className="muted mt-1 text-[11px]">{exchangeDisplayName(trade.exchange)} · {trade.side === "LONG" ? "做多" : "做空"}</p>
         </>
       ) : <p className="muted mt-3 text-sm">暂无数据</p>}
     </div>

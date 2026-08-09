@@ -723,7 +723,7 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("累计净收益")).not.toHaveLength(0);
     expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
     expect(screen.getAllByText("当前持仓收益")).not.toHaveLength(0);
-    expect(screen.getByText("LOW")).toBeInTheDocument();
+    expect(screen.getByText("低风险")).toBeInTheDocument();
     expect(screen.getAllByText(/BTCUSDT/)).not.toHaveLength(0);
     expect(screen.getByText("数据异常检查")).toBeInTheDocument();
     expect(screen.getByText("最近一次同步检查通过。")).toBeInTheDocument();

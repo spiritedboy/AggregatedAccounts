@@ -47,3 +47,21 @@ export function positionSideLabel(
   if (exchange === "POLYMARKET") return "持有";
   return side === "LONG" ? "做多" : "做空";
 }
+
+const exchangeDisplayNames: Record<string, string> = {
+  BINANCE: "Binance",
+  OKX: "OKX",
+  BITGET: "Bitget",
+  HYPERLIQUID: "Hyperliquid",
+  POLYMARKET: "Polymarket",
+};
+
+export function exchangeDisplayName(exchange: string): string {
+  return exchangeDisplayNames[exchange.toUpperCase()] ?? exchange;
+}
+
+export function connectionDisplayName(name: string, exchange: string): string {
+  return name.trim().toLowerCase() === exchange.trim().toLowerCase()
+    ? exchangeDisplayName(exchange)
+    : name;
+}

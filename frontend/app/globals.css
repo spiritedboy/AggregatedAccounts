@@ -484,9 +484,39 @@ select:focus-visible {
 
   .page-hero {
     border-radius: 22px;
+    padding: 1rem;
+    margin-bottom: 1rem;
   }
 
   .page-hero::after {
+    display: none;
+  }
+
+  .page-hero .page-title {
+    margin-top: 0.45rem;
+    font-size: 1.65rem;
+    line-height: 1.18;
+  }
+
+  .page-hero .eyebrow {
+    padding: 0.3rem 0.65rem;
+    font-size: 0.625rem;
+  }
+
+  .page-hero .muted {
+    margin-top: 0.45rem;
+    line-height: 1.55;
+  }
+
+  .page-hero > :last-child {
+    gap: 0.5rem;
+  }
+
+  .auto-refresh-status {
+    padding: 0.4rem 0.65rem;
+  }
+
+  .auto-refresh-updated {
     display: none;
   }
 

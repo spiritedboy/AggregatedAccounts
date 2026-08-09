@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Filter, Search } from "lucide-react";
+import { ChevronDown, Download, Filter, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
@@ -11,7 +11,7 @@ import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
 import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number, positionSideLabel, usd } from "@/lib/format";
+import { dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
 import type { ClosedPosition, ExchangeAccount } from "@/lib/types";
 
 type HistoryResult = { items: ClosedPosition[]; total: number };
@@ -226,7 +226,7 @@ function HistoryContent() {
                       <div className="max-w-md">
                         <PositionLabel position={position} />
                       </div>
-                      <p className="muted mt-1 text-xs">{position.exchange}</p>
+                      <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)}</p>
                     </td>
                     <td><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></td>
                     <td>
@@ -273,7 +273,7 @@ function HistoryContent() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <PositionLabel position={position} />
-                    <p className="muted mt-1 truncate text-xs">{position.exchange} · 平仓于 {dateTime(position.close_time)}</p>
+                    <p className="muted mt-1 truncate text-xs">{exchangeDisplayName(position.exchange)} · 平仓于 {dateTime(position.close_time)}</p>
                   </div>
                   <span className="shrink-0">
                     <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
@@ -309,18 +309,32 @@ function HistoryContent() {
                     {formatMoney(position.funding_fee - position.trading_fee)}
                   </span>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
-                    {position.data_source === "EXCHANGE_API"
-                      ? "交易所 API"
-                      : position.data_source === "EXCHANGE_FILLS"
-                        ? "交易所成交 API"
-                        : "本地重建"}
-                  </Badge>
-                  <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>
-                    {position.data_completeness === "COMPLETE" ? "完整" : "部分完整"}
-                  </Badge>
-                </div>
+                <details className="group mt-3 rounded-xl border" style={{ borderColor: "var(--line)" }}>
+                  <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold [&::-webkit-details-marker]:hidden">
+                    查看完整明细
+                    <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-3 border-t p-3 text-xs" style={{ borderColor: "var(--line)" }}>
+                    <HistoryDetail label="开仓时间" value={dateTime(position.open_time)} />
+                    <HistoryDetail label="平仓时间" value={dateTime(position.close_time)} />
+                    <HistoryDetail label="最大数量" value={number(position.max_position_size)} mono />
+                    <HistoryDetail label="已实现毛收益" value={formatMoney(position.realized_pnl)} mono />
+                    <HistoryDetail label="资金费" value={formatMoney(position.funding_fee)} mono />
+                    <HistoryDetail label="手续费" value={formatMoney(position.trading_fee)} mono />
+                    <div className="col-span-2 flex flex-wrap gap-1.5 pt-1">
+                      <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
+                        {position.data_source === "EXCHANGE_API"
+                          ? "交易所 API"
+                          : position.data_source === "EXCHANGE_FILLS"
+                            ? "交易所成交 API"
+                            : "本地重建"}
+                      </Badge>
+                      <Badge tone={position.data_completeness === "COMPLETE" ? "positive" : "warning"}>
+                        {position.data_completeness === "COMPLETE" ? "数据完整" : "部分完整"}
+                      </Badge>
+                    </div>
+                  </div>
+                </details>
               </article>
             ))}
           </div>
@@ -347,6 +361,15 @@ function historicalReturnLabel(position: ClosedPosition) {
     100 *
     direction;
   return `价格变动 ${priceChange >= 0 ? "+" : ""}${number(priceChange, 2)}%`;
+}
+
+function HistoryDetail({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="metric-label">{label}</p>
+      <p className={`mt-1 break-words ${mono ? "mono-number" : ""}`}>{value}</p>
+    </div>
+  );
 }
 
 function Select({ value, onChange, label, children }: { value: string; onChange: (value: string) => void; label: string; children: React.ReactNode }) {

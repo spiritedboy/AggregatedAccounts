@@ -25,7 +25,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime } from "@/lib/format";
+import { connectionDisplayName, dateTime, exchangeDisplayName } from "@/lib/format";
 import type {
   AccountingBootstrapData,
   AccountingRecordsData,
@@ -310,8 +310,8 @@ function LedgerContent() {
                       {dateTime(record.record_time)}
                     </td>
                     <td>
-                      <p className="font-semibold">{record.connection_name}</p>
-                      <p className="muted mt-1 text-xs">{record.exchange}</p>
+                      <p className="font-semibold">{connectionDisplayName(record.connection_name, record.exchange)}</p>
+                      <p className="muted mt-1 text-xs">{exchangeDisplayName(record.exchange)}</p>
                     </td>
                     <td>
                       <RecordTypeBadge recordType={record.record_type} />
@@ -356,7 +356,7 @@ function LedgerContent() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <RecordTypeBadge recordType={record.record_type} />
-                    <p className="muted mt-2 text-xs">{record.connection_name} · {record.exchange}</p>
+                    <p className="muted mt-2 text-xs">{connectionDisplayName(record.connection_name, record.exchange)} · {exchangeDisplayName(record.exchange)}</p>
                   </div>
                   <p className={`mono-number text-sm font-semibold ${record.signed_amount_usd > 0 ? "text-positive" : record.signed_amount_usd < 0 ? "text-negative" : ""}`}>
                     {formatMoney(record.signed_amount_usd)}
@@ -436,8 +436,8 @@ function CompletenessPanel({ data }: { data: DataCompletenessData }) {
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="font-semibold">{account.connection_name}</p>
-                <p className="muted mt-1 text-xs">{account.exchange}</p>
+                <p className="font-semibold">{connectionDisplayName(account.connection_name, account.exchange)}</p>
+                <p className="muted mt-1 text-xs">{exchangeDisplayName(account.exchange)}</p>
               </div>
               <Badge
                 tone={account.overall_status === "COMPLETE" ? "positive" : "warning"}

@@ -23,7 +23,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { dateTime, number } from "@/lib/format";
+import { connectionDisplayName, dateTime, exchangeDisplayName, number } from "@/lib/format";
 import type {
   AccountBalance,
   AccountsBootstrapData,
@@ -147,7 +147,7 @@ function AccountsContent() {
               >
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold">{item.connection_name}</p>
+                    <p className="font-semibold">{connectionDisplayName(item.connection_name, item.exchange)}</p>
                     <Badge
                       tone={
                         item.consecutive_failures
@@ -164,7 +164,7 @@ function AccountsContent() {
                           : "同步正常"}
                     </Badge>
                   </div>
-                  <p className="muted mt-1 text-xs">{item.exchange}</p>
+                  <p className="muted mt-1 text-xs">{exchangeDisplayName(item.exchange)}</p>
                 </div>
                 <Info
                   label="最后成功"
@@ -212,7 +212,7 @@ function AccountsContent() {
                   <ExchangeMark exchange={account.exchange} size="lg" />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="truncate font-semibold">{account.connection_name}</h2>
+                      <h2 className="truncate font-semibold">{connectionDisplayName(account.connection_name, account.exchange)}</h2>
                       {account.is_demo && <Badge tone="mint">演示</Badge>}
                     </div>
                     <p className="muted mt-1 font-mono text-xs">
