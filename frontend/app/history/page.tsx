@@ -94,7 +94,7 @@ function HistoryContent() {
         title="历史仓位"
         description="只展示当前统计周期开始之后关闭的仓位；重建记录会明确标注来源。"
         action={
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto md:justify-end">
             <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
             <button type="button" className="button-secondary" onClick={exportCsv}>
               <Download className="h-4 w-4" />
@@ -269,18 +269,20 @@ function HistoryContent() {
           </div>
           <div className="grid gap-3 lg:hidden">
             {sortedItems.map((position) => (
-              <article key={position.id} className="panel p-4">
+              <article key={position.id} className="panel min-w-0 overflow-hidden p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <PositionLabel position={position} />
-                    <p className="muted mt-1 text-xs">{position.exchange} · 平仓于 {dateTime(position.close_time)}</p>
+                    <p className="muted mt-1 truncate text-xs">{position.exchange} · 平仓于 {dateTime(position.close_time)}</p>
                   </div>
-                  <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
-                    {positionSideLabel(position.side, position.exchange)}
-                  </Badge>
+                  <span className="shrink-0">
+                    <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
+                      {positionSideLabel(position.side, position.exchange)}
+                    </Badge>
+                  </span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="soft-block p-3">
+                <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                  <div className="soft-block min-w-0 overflow-hidden p-3">
                     <p className="metric-label">
                       净收益
                       <CalculationHint
@@ -288,17 +290,17 @@ function HistoryContent() {
                         text="有可靠本金时显示杠杆收益率；缺少历史杠杆时显示开仓价到平仓价的价格变动，做空仓位按反方向计算。"
                       />
                     </p>
-                    <p className={`mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
+                    <p className={`mono-number mt-1 break-words text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                       {formatMoney(position.net_pnl)}
                     </p>
                     <p className="muted mono-number mt-1 text-[11px]">
                       {historicalReturnLabel(position)}
                     </p>
                   </div>
-                  <div className="soft-block p-3">
+                  <div className="soft-block min-w-0 overflow-hidden p-3">
                     <p className="metric-label">开仓 / 平仓均价</p>
-                    <p className="mono-number mt-1 text-xs">{usd(position.average_entry_price)}</p>
-                    <p className="muted mono-number mt-1 text-[11px]">{usd(position.average_exit_price)}</p>
+                    <p className="mono-number mt-1 truncate text-xs" title={usd(position.average_entry_price)}>{usd(position.average_entry_price)}</p>
+                    <p className="muted mono-number mt-1 truncate text-[11px]" title={usd(position.average_exit_price)}>{usd(position.average_exit_price)}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
@@ -316,7 +318,7 @@ function HistoryContent() {
               </article>
             ))}
           </div>
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <p className="muted text-xs">第 {page} 页 · 每页 20 条</p>
             <div className="flex gap-2">
               <button type="button" className="button-secondary" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>上一页</button>

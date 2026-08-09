@@ -237,7 +237,7 @@ select:focus-visible {
   }
 
   .input {
-    @apply h-10 w-full rounded-xl border px-3 text-sm outline-none transition;
+    @apply h-10 min-w-0 w-full rounded-xl border px-3 text-sm outline-none transition;
     background: var(--surface-raised);
     border-color: var(--line);
   }
