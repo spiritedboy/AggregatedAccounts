@@ -8,6 +8,8 @@ from app.adapters.bitget import BitgetAdapter
 from app.adapters.hyperliquid import HyperliquidAdapter
 from app.adapters.okx import OkxAdapter
 
+pytestmark = [pytest.mark.no_db, pytest.mark.exchange]
+
 START = datetime(2026, 7, 26, 12, 0, tzinfo=UTC)
 END = datetime(2026, 7, 26, 13, 0, tzinfo=UTC)
 TIME_MS = int((START.timestamp() + 60) * 1000)

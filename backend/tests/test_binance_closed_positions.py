@@ -4,6 +4,8 @@ import pytest
 
 from app.adapters.binance import BinanceAdapter
 
+pytestmark = [pytest.mark.no_db, pytest.mark.exchange]
+
 
 def _trade(
     trade_id,

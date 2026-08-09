@@ -7,6 +7,8 @@ import pytest
 
 from app.adapters.polymarket import PolymarketAdapter
 
+pytestmark = [pytest.mark.no_db, pytest.mark.exchange]
+
 
 def _snapshot_zip() -> bytes:
     output = io.BytesIO()

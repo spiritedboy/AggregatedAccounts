@@ -245,6 +245,17 @@ BAIDU_TRANSLATION_ENDPOINT=https://fanyi-api.baidu.com/ait/api/aiTextTranslate
 
 ## 10. 首次构建和启动
 
+建议在有测试数据库的构建机执行验证：
+
+```bash
+make test-fast       # 无需 PostgreSQL：适配器、公式和前端测试
+make test-exchanges  # 五个交易所专项测试
+make test            # 发布前完整回归，需要 TEST_DATABASE_URL 可连接
+```
+
+生产 Compose 固定构建 backend 的 `runtime` 阶段，不会把测试源码、pytest、Ruff
+或覆盖率工具打入运行镜像。
+
 ```bash
 cd /opt/atlas-ledger/app
 sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml config >/tmp/atlas-ledger-compose.yml

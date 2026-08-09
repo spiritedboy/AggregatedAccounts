@@ -142,7 +142,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps 
 ```bash
 make prod-up          # 生产构建、迁移和启动
 make dev-up           # 本地构建、迁移和启动
-make test             # 后端和前端测试
+make test-fast        # 无需数据库的后端快速测试 + 前端测试
+make test-exchanges   # 五个交易所适配器专项测试
+make test             # 完整回归测试（需要测试数据库）
 make lint             # Ruff 和 ESLint
 make security-check   # 密钥、SQLite 和交易写操作检查
 
@@ -150,6 +152,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 curl -fsS http://127.0.0.1:8000/api/health
 ./scripts/backup-postgres.sh
 ```
+
+生产后端镜像使用独立的 `runtime` 构建阶段，不包含 `tests/`、pytest、Ruff 或覆盖率工具；
+测试源码仍保留在仓库中，用于快速检查、交易所专项测试和发布前完整回归。
 
 ## 数据安全
 

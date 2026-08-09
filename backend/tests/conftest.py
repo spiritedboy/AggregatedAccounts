@@ -13,7 +13,10 @@ from app.models import Base  # noqa: E402
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def reset_database():
+async def reset_database(request):
+    if request.node.get_closest_marker("no_db"):
+        yield
+        return
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.drop_all)
         await connection.run_sync(Base.metadata.create_all)

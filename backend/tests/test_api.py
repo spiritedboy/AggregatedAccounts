@@ -36,9 +36,16 @@ def test_other_page_bootstraps_return_complete_payloads(client):
     pnl = client.get("/api/pnl/bootstrap")
     assert pnl.status_code == 200
     pnl_data = pnl.json()["data"]
-    assert {"summary", "daily", "weekly", "monthly", "by_exchange", "by_side", "trade_quality"} == set(
-        pnl_data
-    )
+    expected_sections = {
+        "summary",
+        "daily",
+        "weekly",
+        "monthly",
+        "by_exchange",
+        "by_side",
+        "trade_quality",
+    }
+    assert expected_sections == set(pnl_data)
     assert {"long", "short", "count_ratio"} == set(
         pnl_data["by_side"]
     )

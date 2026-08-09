@@ -4,6 +4,8 @@ import pytest
 
 from app.adapters.okx import OkxAdapter
 
+pytestmark = [pytest.mark.no_db, pytest.mark.exchange]
+
 
 @pytest.mark.asyncio
 async def test_okx_closed_positions_normalize_exchange_history(monkeypatch):

@@ -27,6 +27,10 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+  "no_db: fast tests that do not require PostgreSQL",
+  "exchange: exchange adapter and normalization tests",
+]
 
 [tool.ruff]
 line-length = 100

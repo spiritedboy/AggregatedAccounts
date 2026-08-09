@@ -1,4 +1,7 @@
 services:
+  backend:
+    build:
+      target: development
   gateway:
     ports:
       - "0.0.0.0:8000:80"

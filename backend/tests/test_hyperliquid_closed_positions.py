@@ -4,6 +4,8 @@ import pytest
 
 from app.adapters.hyperliquid import HyperliquidAdapter
 
+pytestmark = [pytest.mark.no_db, pytest.mark.exchange]
+
 
 def _fill(
     trade_id,

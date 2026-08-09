@@ -4,6 +4,8 @@ import pytest
 
 from app.adapters.bitget import BitgetAdapter
 
+pytestmark = [pytest.mark.no_db, pytest.mark.exchange]
+
 
 @pytest.mark.asyncio
 async def test_bitget_closed_positions_normalize_native_history(monkeypatch):
