@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +44,7 @@ from app.services.polymarket_translation import (
 from app.services.position_math import position_margin_used
 
 cipher = CredentialCipher(settings.app_encryption_key)
+DAILY_SNAPSHOT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
 PUBLIC_ADDRESS_EXCHANGES = {"HYPERLIQUID", "POLYMARKET"}
 HISTORY_STREAMS = frozenset({"income", "funding", "fees", "cash_flows"})
@@ -237,7 +239,10 @@ async def _write_summary(
         for key, value in values.items():
             setattr(latest, key, value)
 
-    source_id = f"balance-daily-{recorded_at.astimezone(UTC):%Y%m%d}"
+    daily_boundary = recorded_at.astimezone(DAILY_SNAPSHOT_TIMEZONE).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    source_id = f"balance-daily-{daily_boundary:%Y%m%d}"
     daily_exists = await db.scalar(
         select(AccountBalanceSnapshot.id).where(
             AccountBalanceSnapshot.exchange_account_id == account.id,
@@ -316,7 +321,9 @@ async def _write_asset_balances(
                     tracking_period_id=period.id,
                     source_record_id=_snapshot_source(
                         "asset-daily",
-                        recorded_at.replace(hour=0, minute=0, second=0, microsecond=0),
+                        recorded_at.astimezone(DAILY_SNAPSHOT_TIMEZONE).replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        ),
                         f"{account_type}:{asset}",
                     ),
                     asset=asset,
@@ -352,7 +359,9 @@ async def _write_position_snapshots(
                 tracking_period_id=period.id,
                 source_record_id=_snapshot_source(
                     "position-daily",
-                    recorded_at.replace(hour=0, minute=0, second=0, microsecond=0),
+                    recorded_at.astimezone(DAILY_SNAPSHOT_TIMEZONE).replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    ),
                     str(item["source_record_id"]),
                 ),
                 normalized_symbol=item["normalized_symbol"],

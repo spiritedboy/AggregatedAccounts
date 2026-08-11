@@ -301,7 +301,8 @@ sudo -u postgres psql -d exchange_aggregator -c \
 
 `latest_account_balances` 每个账户最多一行，`latest_asset_balances` 每个账户、账户类型和
 资产最多一行，均在余额同步时覆盖更新。`account_balance_snapshots`、
-`asset_balance_snapshots` 和 `position_snapshots` 每天首次成功同步时写入一批；
+`asset_balance_snapshots` 和 `position_snapshots` 在北京时间（Asia/Shanghai）每天
+00:00 后的首次成功同步时写入一批；
 `portfolio_equity_points` 仍按 5 分钟生成曲线采样点。
 
 ```bash

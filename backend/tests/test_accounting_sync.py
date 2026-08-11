@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.services.accounts import (
     _upsert_amount_records,
+    _write_summary,
     sync_account,
     update_completeness,
 )
@@ -230,6 +231,37 @@ async def test_full_sync_idempotently_persists_accounting_records(monkeypatch):
             CashFlowRecord,
         ):
             assert await db.scalar(select(func.count()).select_from(model)) == 1
+        daily = await db.scalar(select(DailyPnlSnapshot))
+        assert daily.realized_pnl == Decimal("7")
+        assert daily.funding_fee == Decimal("-1")
+        assert daily.trading_fee == Decimal("2")
+        assert daily.net_cash_flow == Decimal("5")
+
+        period = await db.scalar(
+            select(TrackingPeriod).where(
+                TrackingPeriod.exchange_account_id == stored.id
+            )
+        )
+        bundle = await FakeAccountingAdapter().get_history_bundle(
+            stored.tracking_started_at, datetime.now(UTC)
+        )
+        for model, stream in (
+            (IncomeRecord, "income"),
+            (FundingRecord, "funding"),
+            (TradingFeeRecord, "fees"),
+            (CashFlowRecord, "cash_flows"),
+        ):
+            await _upsert_amount_records(
+                db, stored, period, model, bundle[stream]
+            )
+        await db.commit()
+        for model in (
+            IncomeRecord,
+            FundingRecord,
+            TradingFeeRecord,
+            CashFlowRecord,
+        ):
+            assert await db.scalar(select(func.count()).select_from(model)) == 1
 
 
 @pytest.mark.asyncio
@@ -265,37 +297,38 @@ async def test_repeated_sync_updates_latest_state_without_duplicate_daily_snapsh
             await db.scalar(select(func.count()).select_from(PositionSnapshot))
             == 1
         )
-        daily = await db.scalar(select(DailyPnlSnapshot))
-        assert daily.realized_pnl == Decimal("7")
-        assert daily.funding_fee == Decimal("-1")
-        assert daily.trading_fee == Decimal("2")
-        assert daily.net_cash_flow == Decimal("5")
 
+
+@pytest.mark.asyncio
+async def test_daily_snapshot_rolls_over_at_shanghai_midnight():
+    account = await _create_account()
+    summary = await FakeAccountingAdapter().get_account_summary()
+    before_midnight = datetime(2026, 8, 10, 15, 59, tzinfo=UTC)
+    after_midnight = datetime(2026, 8, 10, 16, 1, tzinfo=UTC)
+
+    async with SessionLocal() as db:
+        stored = await db.get(ExchangeAccount, account.id)
         period = await db.scalar(
             select(TrackingPeriod).where(
                 TrackingPeriod.exchange_account_id == stored.id
             )
         )
-        bundle = await FakeAccountingAdapter().get_history_bundle(
-            stored.tracking_started_at, datetime.now(UTC)
+        assert await _write_summary(
+            db, stored, period, summary, before_midnight
+        ) is True
+        await db.flush()
+        assert await _write_summary(
+            db, stored, period, summary, after_midnight
+        ) is True
+        await db.flush()
+
+        source_ids = set(
+            await db.scalars(select(AccountBalanceSnapshot.source_record_id))
         )
-        for model, stream in (
-            (IncomeRecord, "income"),
-            (FundingRecord, "funding"),
-            (TradingFeeRecord, "fees"),
-            (CashFlowRecord, "cash_flows"),
-        ):
-            await _upsert_amount_records(
-                db, stored, period, model, bundle[stream]
-            )
-        await db.commit()
-        for model in (
-            IncomeRecord,
-            FundingRecord,
-            TradingFeeRecord,
-            CashFlowRecord,
-        ):
-            assert await db.scalar(select(func.count()).select_from(model)) == 1
+        assert source_ids == {
+            "balance-daily-20260810",
+            "balance-daily-20260811",
+        }
 
 
 @pytest.mark.asyncio
