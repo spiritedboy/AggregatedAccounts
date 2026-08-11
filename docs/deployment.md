@@ -173,7 +173,7 @@ SYNC_POSITION_SECONDS=15
 SYNC_HISTORY_SECONDS=300
 SYNC_CLOSED_POSITION_SECONDS=600
 SYNC_HEALTH_SECONDS=60
-SYNC_JOB_RETENTION_DAYS=0
+SYNC_JOB_RETENTION_DAYS=7
 BALANCE_SNAPSHOT_RETENTION_DAYS=0
 EQUITY_CURVE_CACHE_SECONDS=30
 MAINTENANCE_HOUR_UTC=4
@@ -191,7 +191,8 @@ python3 -c 'import urllib.parse; print(urllib.parse.quote(input("Password: "), s
 注意：
 
 - `DEMO_MODE=false` 确保生产环境不生成测试数据
-- 两个 retention 值为 `0` 时业务数据永久保留
+- 同步任务是运行记录，建议 `SYNC_JOB_RETENTION_DAYS=7`
+- `BALANCE_SNAPSHOT_RETENTION_DAYS=0` 时业务快照永久保留
 - `APP_ENCRYPTION_KEY` 必须离线备份，并与数据库备份分开保存
 - 丢失加密密钥会导致已保存的交易所凭证无法解密
 - `.env` 不得提交 Git、复制到工单或输出到日志

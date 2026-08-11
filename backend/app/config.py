@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     sync_history_seconds: int = 300
     sync_closed_position_seconds: int = 600
     sync_health_seconds: int = 60
-    sync_job_retention_days: int = 30
+    sync_job_retention_days: int = 7
     balance_snapshot_retention_days: int = 90
     equity_curve_cache_seconds: int = 30
     baidu_translation_enabled: bool = False
