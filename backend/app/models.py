@@ -180,6 +180,59 @@ class AssetBalanceSnapshot(Base, BusinessMixin):
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class LatestAccountBalance(Base, TimestampMixin):
+    __tablename__ = "latest_account_balances"
+    __table_args__ = (
+        Index("ix_latest_account_balance_recorded", "recorded_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
+    exchange: Mapped[str] = mapped_column(String(24), nullable=False)
+    exchange_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("exchange_accounts.id"), unique=True, nullable=False
+    )
+    tracking_period_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tracking_periods.id"), nullable=False
+    )
+    total_equity_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    available_balance_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    margin_balance_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    unrealized_pnl_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    unvalued_asset_count: Mapped[int] = mapped_column(Integer, default=0)
+    price_source: Mapped[str] = mapped_column(String(80), default="EXCHANGE_API")
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LatestAssetBalance(Base, TimestampMixin):
+    __tablename__ = "latest_asset_balances"
+    __table_args__ = (
+        UniqueConstraint(
+            "exchange_account_id",
+            "account_type",
+            "asset",
+            name="uq_latest_asset_balance",
+        ),
+        Index("ix_latest_asset_balance_account", "exchange_account_id"),
+        Index("ix_latest_asset_balance_recorded", "recorded_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
+    exchange: Mapped[str] = mapped_column(String(24), nullable=False)
+    exchange_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("exchange_accounts.id"), nullable=False
+    )
+    tracking_period_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tracking_periods.id"), nullable=False
+    )
+    asset: Mapped[str] = mapped_column(String(40), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(24), default="SPOT", nullable=False)
+    available: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    locked: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    value_usd: Mapped[Decimal | None] = mapped_column(Numeric(30, 10))
+    price_source: Mapped[str] = mapped_column(String(80), default="EXCHANGE_API")
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CurrentPosition(Base, BusinessMixin):
     __tablename__ = "current_positions"
     __table_args__ = (

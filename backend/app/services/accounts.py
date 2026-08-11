@@ -25,6 +25,8 @@ from app.models import (
     FundingRecord,
     IncomeRecord,
     InitialAccountSnapshot,
+    LatestAccountBalance,
+    LatestAssetBalance,
     PositionSnapshot,
     SecurityAuditLog,
     SyncError,
@@ -166,10 +168,14 @@ async def create_account(
             tracking_started_at=started_at,
         )
     )
-    await _write_summary(db, account, period, summary, started_at)
-    await _write_asset_balances(db, account, period, balances, started_at)
+    capture_daily = await _write_summary(db, account, period, summary, started_at)
+    await _write_asset_balances(
+        db, account, period, balances, started_at, capture_daily=capture_daily
+    )
     await _replace_positions(db, account, period, positions, started_at, initial=True)
-    await _write_position_snapshots(db, account, period, positions, started_at)
+    await _write_position_snapshots(
+        db, account, period, positions, started_at, capture_daily=capture_daily
+    )
     db.add(
         SecurityAuditLog(
             action="EXCHANGE_ACCOUNT_CREATED",
@@ -207,23 +213,48 @@ async def _write_summary(
     period: TrackingPeriod,
     summary: dict[str, Any],
     recorded_at: datetime,
-) -> None:
-    source_id = f"balance-{recorded_at:%Y%m%d%H%M%S}"
-    db.add(
-        AccountBalanceSnapshot(
-            exchange=account.exchange,
-            exchange_account_id=account.id,
-            tracking_period_id=period.id,
-            source_record_id=source_id,
-            total_equity_usd=Decimal(str(summary.get("total_equity_usd", 0))),
-            available_balance_usd=Decimal(str(summary.get("available_balance_usd", 0))),
-            margin_balance_usd=Decimal(str(summary.get("margin_balance_usd", 0))),
-            unrealized_pnl_usd=Decimal(str(summary.get("unrealized_pnl_usd", 0))),
-            unvalued_asset_count=int(summary.get("unvalued_asset_count", 0)),
-            price_source=summary.get("price_source", "EXCHANGE_API"),
-            recorded_at=recorded_at,
+) -> bool:
+    values = {
+        "exchange": account.exchange,
+        "tracking_period_id": period.id,
+        "total_equity_usd": Decimal(str(summary.get("total_equity_usd", 0))),
+        "available_balance_usd": Decimal(str(summary.get("available_balance_usd", 0))),
+        "margin_balance_usd": Decimal(str(summary.get("margin_balance_usd", 0))),
+        "unrealized_pnl_usd": Decimal(str(summary.get("unrealized_pnl_usd", 0))),
+        "unvalued_asset_count": int(summary.get("unvalued_asset_count", 0)),
+        "price_source": summary.get("price_source", "EXCHANGE_API"),
+        "recorded_at": recorded_at,
+    }
+    latest = await db.scalar(
+        select(LatestAccountBalance).where(
+            LatestAccountBalance.exchange_account_id == account.id
         )
     )
+    if latest is None:
+        latest = LatestAccountBalance(exchange_account_id=account.id, **values)
+        db.add(latest)
+    else:
+        for key, value in values.items():
+            setattr(latest, key, value)
+
+    source_id = f"balance-daily-{recorded_at.astimezone(UTC):%Y%m%d}"
+    daily_exists = await db.scalar(
+        select(AccountBalanceSnapshot.id).where(
+            AccountBalanceSnapshot.exchange_account_id == account.id,
+            AccountBalanceSnapshot.tracking_period_id == period.id,
+            AccountBalanceSnapshot.source_record_id == source_id,
+        )
+    )
+    if daily_exists is not None:
+        return False
+    db.add(
+        AccountBalanceSnapshot(
+            exchange_account_id=account.id,
+            source_record_id=source_id,
+            **values,
+        )
+    )
+    return True
 
 
 def _snapshot_source(prefix: str, recorded_at: datetime, key: str) -> str:
@@ -237,28 +268,69 @@ async def _write_asset_balances(
     period: TrackingPeriod,
     balances: list[dict[str, Any]],
     recorded_at: datetime,
+    *,
+    capture_daily: bool,
 ) -> None:
+    existing = (
+        await db.scalars(
+            select(LatestAssetBalance).where(
+                LatestAssetBalance.exchange_account_id == account.id
+            )
+        )
+    ).all()
+    existing_by_key = {(row.account_type, row.asset): row for row in existing}
+    current_keys: set[tuple[str, str]] = set()
     for item in balances:
         asset = str(item.get("asset") or "UNKNOWN").upper()
         account_type = str(item.get("account_type") or "SPOT").upper()
+        key = (account_type, asset)
+        current_keys.add(key)
         value = item.get("value_usd")
-        db.add(
-            AssetBalanceSnapshot(
-                exchange=account.exchange,
-                exchange_account_id=account.id,
-                tracking_period_id=period.id,
-                source_record_id=_snapshot_source(
-                    "asset", recorded_at, f"{account_type}:{asset}"
-                ),
-                asset=asset,
-                account_type=account_type,
-                available=Decimal(str(item.get("available", 0))),
-                locked=Decimal(str(item.get("locked", 0))),
-                value_usd=Decimal(str(value)) if value is not None else None,
-                price_source=str(item.get("price_source") or "EXCHANGE_API"),
-                recorded_at=recorded_at,
+        values = {
+            "exchange": account.exchange,
+            "tracking_period_id": period.id,
+            "available": Decimal(str(item.get("available", 0))),
+            "locked": Decimal(str(item.get("locked", 0))),
+            "value_usd": Decimal(str(value)) if value is not None else None,
+            "price_source": str(item.get("price_source") or "EXCHANGE_API"),
+            "recorded_at": recorded_at,
+        }
+        latest = existing_by_key.get(key)
+        if latest is None:
+            db.add(
+                LatestAssetBalance(
+                    exchange_account_id=account.id,
+                    asset=asset,
+                    account_type=account_type,
+                    **values,
+                )
             )
-        )
+        else:
+            for field, field_value in values.items():
+                setattr(latest, field, field_value)
+        if capture_daily:
+            db.add(
+                AssetBalanceSnapshot(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id=_snapshot_source(
+                        "asset-daily",
+                        recorded_at.replace(hour=0, minute=0, second=0, microsecond=0),
+                        f"{account_type}:{asset}",
+                    ),
+                    asset=asset,
+                    account_type=account_type,
+                    available=values["available"],
+                    locked=values["locked"],
+                    value_usd=values["value_usd"],
+                    price_source=values["price_source"],
+                    recorded_at=recorded_at,
+                )
+            )
+    for key, stale in existing_by_key.items():
+        if key not in current_keys:
+            await db.delete(stale)
 
 
 async def _write_position_snapshots(
@@ -267,7 +339,11 @@ async def _write_position_snapshots(
     period: TrackingPeriod,
     positions: list[dict[str, Any]],
     recorded_at: datetime,
+    *,
+    capture_daily: bool,
 ) -> None:
+    if not capture_daily:
+        return
     for item in positions:
         db.add(
             PositionSnapshot(
@@ -275,7 +351,9 @@ async def _write_position_snapshots(
                 exchange_account_id=account.id,
                 tracking_period_id=period.id,
                 source_record_id=_snapshot_source(
-                    "position", recorded_at, str(item["source_record_id"])
+                    "position-daily",
+                    recorded_at.replace(hour=0, minute=0, second=0, microsecond=0),
+                    str(item["source_record_id"]),
                 ),
                 normalized_symbol=item["normalized_symbol"],
                 side=item["side"],
@@ -989,8 +1067,17 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                         db,
                         [*positions, *closed_positions],
                     )
-                await _write_summary(db, account, period, summary, started)
-                await _write_asset_balances(db, account, period, balances, started)
+                capture_daily = await _write_summary(
+                    db, account, period, summary, started
+                )
+                await _write_asset_balances(
+                    db,
+                    account,
+                    period,
+                    balances,
+                    started,
+                    capture_daily=capture_daily,
+                )
                 previous_positions = (
                     await db.scalars(
                         select(CurrentPosition).where(
@@ -1023,7 +1110,12 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                         closed.setdefault("margin_used", previous.margin_used)
                 await _replace_positions(db, account, period, positions, started)
                 await _write_position_snapshots(
-                    db, account, period, positions, started
+                    db,
+                    account,
+                    period,
+                    positions,
+                    started,
+                    capture_daily=capture_daily,
                 )
                 closed_count = await _upsert_closed_positions(
                     db, account, period, closed_positions

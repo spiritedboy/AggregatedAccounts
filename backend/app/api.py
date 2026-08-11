@@ -22,6 +22,8 @@ from app.models import (
     DailyPnlSnapshot,
     ExchangeAccount,
     InitialAccountSnapshot,
+    LatestAccountBalance,
+    LatestAssetBalance,
     PolymarketTranslation,
     PositionSnapshot,
     TrackingPeriod,
@@ -223,7 +225,24 @@ async def remove_account(
 
 async def _latest_balances(
     db: AsyncSession, exchange: str | None = None
-) -> list[tuple[AccountBalanceSnapshot, ExchangeAccount]]:
+) -> list[tuple[LatestAccountBalance | AccountBalanceSnapshot, ExchangeAccount]]:
+    latest_query = (
+        select(LatestAccountBalance, ExchangeAccount)
+        .join(
+            ExchangeAccount,
+            ExchangeAccount.id == LatestAccountBalance.exchange_account_id,
+        )
+        .where(ExchangeAccount.is_active.is_(True))
+        .order_by(ExchangeAccount.created_at, ExchangeAccount.id)
+    )
+    if exchange:
+        latest_query = latest_query.where(
+            ExchangeAccount.exchange == exchange.upper()
+        )
+    latest_rows = list((await db.execute(latest_query)).all())
+    if latest_rows:
+        return latest_rows
+
     latest_snapshot_id = (
         select(AccountBalanceSnapshot.id)
         .where(AccountBalanceSnapshot.exchange_account_id == ExchangeAccount.id)
@@ -372,9 +391,22 @@ def _bucket_pnl_points(
 
 async def _latest_asset_rows(
     db: AsyncSession, account_ids: list[uuid.UUID]
-) -> list[AssetBalanceSnapshot]:
+) -> list[LatestAssetBalance | AssetBalanceSnapshot]:
     if not account_ids:
         return []
+    latest_rows = (
+        await db.scalars(
+            select(LatestAssetBalance)
+            .where(LatestAssetBalance.exchange_account_id.in_(account_ids))
+            .order_by(
+                LatestAssetBalance.exchange_account_id,
+                LatestAssetBalance.account_type,
+                LatestAssetBalance.asset,
+            )
+        )
+    ).all()
+    if latest_rows:
+        return list(latest_rows)
     latest_asset_time = (
         select(AssetBalanceSnapshot.recorded_at.label("recorded_at"))
         .where(AssetBalanceSnapshot.exchange_account_id == ExchangeAccount.id)

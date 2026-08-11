@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from app.adapters import ADAPTERS
 from app.database import SessionLocal
 from app.models import (
+    AccountBalanceSnapshot,
     AssetBalanceSnapshot,
     CashFlowRecord,
     DailyPnlSnapshot,
@@ -14,6 +15,8 @@ from app.models import (
     FundingRecord,
     IncomeRecord,
     InitialAccountSnapshot,
+    LatestAccountBalance,
+    LatestAssetBalance,
     PositionSnapshot,
     SyncError,
     SyncJob,
@@ -212,6 +215,14 @@ async def test_full_sync_idempotently_persists_accounting_records(monkeypatch):
             await db.scalar(select(func.count()).select_from(PositionSnapshot))
             == 1
         )
+        assert (
+            await db.scalar(select(func.count()).select_from(LatestAccountBalance))
+            == 1
+        )
+        assert (
+            await db.scalar(select(func.count()).select_from(LatestAssetBalance))
+            == 1
+        )
         for model in (
             IncomeRecord,
             FundingRecord,
@@ -219,6 +230,41 @@ async def test_full_sync_idempotently_persists_accounting_records(monkeypatch):
             CashFlowRecord,
         ):
             assert await db.scalar(select(func.count()).select_from(model)) == 1
+
+
+@pytest.mark.asyncio
+async def test_repeated_sync_updates_latest_state_without_duplicate_daily_snapshots(
+    monkeypatch,
+):
+    account = await _create_account()
+    monkeypatch.setitem(ADAPTERS, "HYPERLIQUID", FakeAccountingAdapter)
+
+    async with SessionLocal() as db:
+        stored = await db.get(ExchangeAccount, account.id)
+        assert (await sync_account(db, stored))["status"] == "SUCCESS"
+        first_latest = await db.scalar(
+            select(LatestAccountBalance).where(
+                LatestAccountBalance.exchange_account_id == stored.id
+            )
+        )
+        first_recorded_at = first_latest.recorded_at
+
+        assert (await sync_account(db, stored))["status"] == "SUCCESS"
+        await db.refresh(first_latest)
+
+        assert first_latest.recorded_at >= first_recorded_at
+        assert (
+            await db.scalar(select(func.count()).select_from(AccountBalanceSnapshot))
+            == 1
+        )
+        assert (
+            await db.scalar(select(func.count()).select_from(AssetBalanceSnapshot))
+            == 1
+        )
+        assert (
+            await db.scalar(select(func.count()).select_from(PositionSnapshot))
+            == 1
+        )
         daily = await db.scalar(select(DailyPnlSnapshot))
         assert daily.realized_pnl == Decimal("7")
         assert daily.funding_fee == Decimal("-1")

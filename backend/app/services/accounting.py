@@ -15,6 +15,8 @@ from app.models import (
     ExchangeAccount,
     FundingRecord,
     IncomeRecord,
+    LatestAccountBalance,
+    LatestAssetBalance,
     SyncJob,
     TradingFeeRecord,
 )
@@ -333,11 +335,19 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
     )
     account_ids = [account.id for account in accounts]
     balance_stats = await _record_stats(
-        db, AccountBalanceSnapshot, account_ids, AccountBalanceSnapshot.recorded_at
+        db, LatestAccountBalance, account_ids, LatestAccountBalance.recorded_at
     )
+    if not balance_stats:
+        balance_stats = await _record_stats(
+            db, AccountBalanceSnapshot, account_ids, AccountBalanceSnapshot.recorded_at
+        )
     asset_balance_stats = await _record_stats(
-        db, AssetBalanceSnapshot, account_ids, AssetBalanceSnapshot.recorded_at
+        db, LatestAssetBalance, account_ids, LatestAssetBalance.recorded_at
     )
+    if not asset_balance_stats:
+        asset_balance_stats = await _record_stats(
+            db, AssetBalanceSnapshot, account_ids, AssetBalanceSnapshot.recorded_at
+        )
     position_stats = await _record_stats(
         db, CurrentPosition, account_ids, CurrentPosition.updated_at
     )

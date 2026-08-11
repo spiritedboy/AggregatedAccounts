@@ -10,7 +10,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import AccountBalanceSnapshot, ExchangeAccount, PortfolioEquityPoint
+from app.models import (
+    AccountBalanceSnapshot,
+    ExchangeAccount,
+    LatestAccountBalance,
+    PortfolioEquityPoint,
+)
 
 EquityRange = Literal["1d", "1w", "1m", "6m", "1y"]
 
@@ -87,28 +92,32 @@ async def capture_portfolio_equity_point(
     now: datetime | None = None,
 ) -> PortfolioEquityPoint | None:
     captured_at = now or datetime.now(UTC)
+    has_latest_state = bool(
+        await db.scalar(select(func.count()).select_from(LatestAccountBalance))
+    )
+    balance_model = LatestAccountBalance if has_latest_state else AccountBalanceSnapshot
     ranked = (
         select(
-            AccountBalanceSnapshot.total_equity_usd.label("total_equity_usd"),
-            AccountBalanceSnapshot.available_balance_usd.label("available_balance_usd"),
-            AccountBalanceSnapshot.margin_balance_usd.label("margin_balance_usd"),
-            AccountBalanceSnapshot.unrealized_pnl_usd.label("unrealized_pnl_usd"),
-            AccountBalanceSnapshot.unvalued_asset_count.label("unvalued_asset_count"),
-            AccountBalanceSnapshot.recorded_at.label("recorded_at"),
+            balance_model.total_equity_usd.label("total_equity_usd"),
+            balance_model.available_balance_usd.label("available_balance_usd"),
+            balance_model.margin_balance_usd.label("margin_balance_usd"),
+            balance_model.unrealized_pnl_usd.label("unrealized_pnl_usd"),
+            balance_model.unvalued_asset_count.label("unvalued_asset_count"),
+            balance_model.recorded_at.label("recorded_at"),
             func.row_number()
             .over(
-                partition_by=AccountBalanceSnapshot.exchange_account_id,
-                order_by=AccountBalanceSnapshot.recorded_at.desc(),
+                partition_by=balance_model.exchange_account_id,
+                order_by=balance_model.recorded_at.desc(),
             )
             .label("row_number"),
         )
         .join(
             ExchangeAccount,
-            ExchangeAccount.id == AccountBalanceSnapshot.exchange_account_id,
+            ExchangeAccount.id == balance_model.exchange_account_id,
         )
         .where(
             ExchangeAccount.is_active.is_(True),
-            AccountBalanceSnapshot.recorded_at <= captured_at,
+            balance_model.recorded_at <= captured_at,
         )
         .subquery()
     )

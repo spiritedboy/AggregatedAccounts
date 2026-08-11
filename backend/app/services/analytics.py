@@ -17,6 +17,7 @@ from app.models import (
     ExchangeAccount,
     FundingRecord,
     InitialAccountSnapshot,
+    LatestAccountBalance,
     SyncError,
     SyncJob,
     TrackingPeriod,
@@ -84,9 +85,18 @@ async def _active_accounts(db: AsyncSession) -> list[ExchangeAccount]:
 async def _latest_balances(
     db: AsyncSession,
     account_ids: list[uuid.UUID],
-) -> dict[uuid.UUID, AccountBalanceSnapshot]:
+) -> dict[uuid.UUID, LatestAccountBalance | AccountBalanceSnapshot]:
     if not account_ids:
         return {}
+    current_rows = (
+        await db.scalars(
+            select(LatestAccountBalance).where(
+                LatestAccountBalance.exchange_account_id.in_(account_ids)
+            )
+        )
+    ).all()
+    if current_rows:
+        return {row.exchange_account_id: row for row in current_rows}
     latest_snapshot_id = (
         select(AccountBalanceSnapshot.id)
         .where(

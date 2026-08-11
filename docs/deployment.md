@@ -290,6 +290,20 @@ sudo -u postgres psql -d exchange_aggregator -c \
 
 应存在 `portfolio_equity_points` hypertable 和四个组合净值连续聚合。
 
+实时余额与每日快照可通过以下命令核对：
+
+```bash
+sudo -u postgres psql -d exchange_aggregator -c \
+  "SELECT count(*), max(recorded_at) FROM latest_account_balances;"
+sudo -u postgres psql -d exchange_aggregator -c \
+  "SELECT count(*), max(recorded_at) FROM latest_asset_balances;"
+```
+
+`latest_account_balances` 每个账户最多一行，`latest_asset_balances` 每个账户、账户类型和
+资产最多一行，均在余额同步时覆盖更新。`account_balance_snapshots`、
+`asset_balance_snapshots` 和 `position_snapshots` 每天首次成功同步时写入一批；
+`portfolio_equity_points` 仍按 5 分钟生成曲线采样点。
+
 ```bash
 curl -fsS http://127.0.0.1:8000/api/accounts/bootstrap | jq .
 ```
