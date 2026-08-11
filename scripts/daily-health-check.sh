@@ -31,7 +31,11 @@ critical_disk_percent="${HEALTH_CHECK_CRITICAL_DISK_PERCENT:-90}"
 
 warnings=()
 criticals=()
-details=()
+system_details=()
+service_details=()
+account_details=()
+data_details=()
+backup_details=()
 
 warn() { warnings+=("$1"); }
 critical() { criticals+=("$1"); }
@@ -45,9 +49,15 @@ done
 health_body="$(curl -fsS --max-time 10 http://127.0.0.1:8000/api/health 2>/dev/null || true)"
 if [[ "$health_body" != *'"status":"healthy"'* ]]; then
   critical "本机健康接口异常"
+  service_details+=("本机接口：异常")
+else
+  service_details+=("本机接口：正常，数据库已连接")
 fi
 if ! curl -fsS --max-time 15 "$public_url" >/dev/null 2>&1; then
   critical "公网网站无法访问：$public_url"
+  service_details+=("公网访问：异常（$public_url）")
+else
+  service_details+=("公网访问：正常（$public_url）")
 fi
 
 public_host="$(PUBLIC_URL="$public_url" python3 -c \
@@ -59,7 +69,8 @@ if [[ -n "$public_host" ]]; then
     critical "无法读取 HTTPS 证书"
   else
     certificate_days=$(( ($(date -d "$certificate_end" +%s) - $(date +%s)) / 86400 ))
-    details+=("HTTPS证书：剩余 ${certificate_days} 天")
+    certificate_date="$(TZ=Asia/Shanghai date -d "$certificate_end" '+%F')"
+    service_details+=("HTTPS证书：${certificate_date} 到期，剩余 ${certificate_days} 天")
     if (( certificate_days < 7 )); then
       critical "HTTPS证书仅剩 ${certificate_days} 天"
     elif (( certificate_days < 30 )); then
@@ -84,20 +95,29 @@ for service in backend frontend gateway; do
     critical "$service 状态异常：${state:-unknown}"
   fi
   restart_count="$(docker inspect --format '{{.RestartCount}}' "$container_id" 2>/dev/null || echo 0)"
+  container_status="$(docker ps --filter "id=$container_id" --format '{{.Status}}' 2>/dev/null || true)"
+  service_details+=("$service：${state:-unknown}，${container_status:-状态未知}，重启 ${restart_count} 次")
   if (( restart_count > 0 )); then
     warn "$service 累计重启 $restart_count 次"
   fi
 done
-details+=("服务：$healthy_services/$expected_services 健康")
+service_details+=("服务汇总：$healthy_services/$expected_services 健康")
 
 disk_percent="$(df -P / | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
 disk_available="$(df -hP / | awk 'NR==2 {print $4}')"
+memory_line="$(free -m | awk '/^Mem:/ {printf "内存：已用 %dMB/%dMB，可用 %dMB", $3, $2, $7}')"
+swap_line="$(free -m | awk '/^Swap:/ {printf "Swap：已用 %dMB/%dMB", $3, $2}')"
+load_line="$(awk '{printf "负载：1分钟 %s，5分钟 %s，15分钟 %s", $1, $2, $3}' /proc/loadavg)"
+uptime_line="$(uptime -p 2>/dev/null || true)"
 if (( disk_percent >= critical_disk_percent )); then
   critical "磁盘使用率 ${disk_percent}%"
 elif (( disk_percent >= warning_disk_percent )); then
   warn "磁盘使用率 ${disk_percent}%"
 fi
-details+=("磁盘：${disk_percent}%（可用 $disk_available）")
+system_details+=("运行时间：${uptime_line#up }")
+system_details+=("$load_line")
+system_details+=("$memory_line；$swap_line")
+system_details+=("磁盘：已用 ${disk_percent}%，可用 $disk_available")
 
 db_result=""
 if [[ -z "$database_url" ]]; then
@@ -112,6 +132,11 @@ else
         WHERE recorded_at < now() - interval '5 minutes'),
       (SELECT count(*) FROM sync_jobs
         WHERE status = 'FAILED' AND started_at >= now() - interval '24 hours'),
+      (SELECT count(*) FROM sync_jobs WHERE started_at >= now() - interval '24 hours'),
+      (SELECT count(*) FROM sync_jobs
+        WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'),
+      (SELECT coalesce(avg(duration_ms), 0)::bigint FROM sync_jobs
+        WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'),
       (SELECT count(*) FROM sync_errors
         WHERE occurred_at >= now() - interval '24 hours'),
       (SELECT count(*) FROM polymarket_translations WHERE status IN ('PENDING', 'FAILED')),
@@ -122,7 +147,13 @@ else
       (SELECT count(*) FROM position_snapshots
         WHERE source_record_id LIKE 'position-daily-' || to_char(now() AT TIME ZONE 'Asia/Shanghai', 'YYYYMMDD') || '%'),
       (SELECT count(*) FROM current_positions),
+      (SELECT count(*) FROM closed_positions),
+      (SELECT count(*) FROM income_records),
+      (SELECT count(*) FROM funding_records),
+      (SELECT count(*) FROM trading_fee_records),
+      (SELECT count(*) FROM cash_flow_records),
       (SELECT extract(epoch FROM (now() - max(bucket_time)))::bigint FROM portfolio_equity_points),
+      (SELECT count(*) FROM portfolio_equity_points),
       (SELECT count(*) FROM sync_jobs),
       (SELECT coalesce(max(recorded_at)::text, 'none') FROM latest_account_balances);
   " 2>/dev/null || true)"
@@ -132,13 +163,41 @@ if [[ -z "$db_result" ]]; then
   critical "PostgreSQL 查询失败"
 else
   IFS='|' read -r db_bytes active_accounts latest_accounts stale_accounts failed_jobs \
-    recent_errors translation_queue daily_accounts daily_assets daily_positions \
-    current_positions equity_lag_seconds sync_job_count latest_at <<< "$db_result"
+    jobs_24h successful_jobs average_duration recent_errors translation_queue daily_accounts \
+    daily_assets daily_positions current_positions closed_positions income_records \
+    funding_records fee_records cash_flow_records equity_lag_seconds equity_point_count \
+    sync_job_count latest_at <<< "$db_result"
   db_megabytes=$((db_bytes / 1024 / 1024))
-  details+=("数据库：${db_megabytes}MB；同步任务 ${sync_job_count} 条")
-  details+=("账户：${latest_accounts}/${active_accounts}；当前仓位 ${current_positions}")
-  details+=("今日快照：账户 ${daily_accounts}、资产 ${daily_assets}、持仓 ${daily_positions}")
-  details+=("最近更新：$latest_at")
+  if (( jobs_24h > 0 )); then
+    success_rate="$(awk -v success="$successful_jobs" -v total="$jobs_24h" 'BEGIN {printf "%.2f", success * 100 / total}')"
+  else
+    success_rate="0.00"
+  fi
+  data_details+=("数据库：${db_megabytes}MB；同步任务累计 ${sync_job_count} 条")
+  data_details+=("24小时同步：${successful_jobs}/${jobs_24h} 成功（${success_rate}%），平均 ${average_duration}ms")
+  data_details+=("实时账户：${latest_accounts}/${active_accounts}；当前仓位 ${current_positions}；历史仓位 ${closed_positions}")
+  data_details+=("财务明细：收益 ${income_records}、资金费 ${funding_records}、手续费 ${fee_records}、流水 ${cash_flow_records}")
+  data_details+=("今日快照：账户 ${daily_accounts}、资产 ${daily_assets}、持仓 ${daily_positions}")
+  if [[ "$equity_lag_seconds" =~ ^[0-9]+$ ]]; then
+    data_details+=("净值曲线：${equity_point_count} 点，延迟 $((equity_lag_seconds / 60)) 分钟")
+  else
+    data_details+=("净值曲线：${equity_point_count} 点，无法确定最新采样时间")
+    critical "无法确定净值曲线最新采样时间"
+  fi
+  data_details+=("最近账户更新：$latest_at")
+  while IFS='|' read -r exchange connection status age_seconds; do
+    [[ -z "$exchange" ]] && continue
+    if [[ "$age_seconds" =~ ^[0-9]+$ ]]; then
+      age_text="$((age_seconds / 60))分$((age_seconds % 60))秒前"
+    else
+      age_text="从未同步"
+    fi
+    account_details+=("$exchange｜$connection｜$status｜$age_text")
+  done < <(psql "$database_url" -AtF '|' -v ON_ERROR_STOP=1 -c "
+    SELECT exchange, replace(connection_name, '|', '/'), connection_status,
+      coalesce(extract(epoch FROM (now() - last_synced_at))::bigint, -1)
+    FROM exchange_accounts WHERE is_active = true ORDER BY exchange, connection_name;
+  " 2>/dev/null || true)
   if (( latest_accounts != active_accounts )); then
     critical "实时账户数 ${latest_accounts} 与启用账户数 ${active_accounts} 不一致"
   fi
@@ -169,7 +228,9 @@ if [[ -z "$latest_backup" ]]; then
 else
   backup_age_hours=$(( ($(date +%s) - $(stat -c %Y "$latest_backup")) / 3600 ))
   backup_size="$(du -h "$latest_backup" | awk '{print $1}')"
-  details+=("备份：${backup_size}，${backup_age_hours}小时前")
+  backup_time="$(TZ=Asia/Shanghai date -d "@$(stat -c %Y "$latest_backup")" '+%F %T')"
+  backup_details+=("最新备份：$(basename "$latest_backup")")
+  backup_details+=("生成时间：$backup_time，距今 ${backup_age_hours} 小时，大小 $backup_size")
   if (( backup_age_hours > 30 )); then
     critical "最新备份已超过30小时"
   fi
@@ -177,10 +238,16 @@ else
     cd "$(dirname "$latest_backup")" && sha256sum -c "$(basename "$latest_backup").sha256" >/dev/null 2>&1
   ); then
     critical "最新备份校验失败"
+    backup_details+=("SHA-256：失败")
+  else
+    backup_details+=("SHA-256：通过")
   fi
   if [[ -f /var/log/aggregated-accounts-backup.log ]] && ! \
     tail -80 /var/log/aggregated-accounts-backup.log | grep -q 'Restore verification passed'; then
     warn "备份日志中未找到最近的恢复验证成功记录"
+    backup_details+=("恢复验证：未确认")
+  else
+    backup_details+=("恢复验证：通过")
   fi
 fi
 
@@ -200,8 +267,15 @@ fi
 
 report="$icon Atlas Ledger 每日巡检：$status
 时间：$(TZ=Asia/Shanghai date '+%F %T %Z')"
-for line in "${details[@]}"; do
-  report+=$'\n'"$line"
+for section in "系统资源:system_details" "服务与网络:service_details" \
+  "交易所账户:account_details" "数据库与业务数据:data_details" "备份:backup_details"; do
+  section_title="${section%%:*}"
+  array_name="${section#*:}"
+  declare -n section_lines="$array_name"
+  report+=$'\n\n'"【$section_title】"
+  for line in "${section_lines[@]}"; do
+    report+=$'\n'"- $line"
+  done
 done
 if (( ${#criticals[@]} > 0 )); then
   report+=$'\n\n'"严重问题："
