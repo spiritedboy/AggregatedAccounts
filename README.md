@@ -154,6 +154,7 @@ make security-check   # 密钥、SQLite 和交易写操作检查
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 curl -fsS http://127.0.0.1:8000/api/health
 ./scripts/backup-postgres.sh
+sudo ./scripts/install-health-check-cron.sh  # 每天 03:30 巡检并推送飞书
 ```
 
 生产后端镜像使用独立的 `runtime` 构建阶段，不包含 `tests/`、pytest、Ruff 或覆盖率工具；
