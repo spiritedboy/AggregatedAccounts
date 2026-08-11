@@ -147,10 +147,6 @@ else
         WHERE source_record_id LIKE 'position-daily-' || to_char(now() AT TIME ZONE 'Asia/Shanghai', 'YYYYMMDD') || '%'),
       (SELECT count(*) FROM current_positions),
       (SELECT count(*) FROM closed_positions),
-      (SELECT count(*) FROM income_records),
-      (SELECT count(*) FROM funding_records),
-      (SELECT count(*) FROM trading_fee_records),
-      (SELECT count(*) FROM cash_flow_records),
       (SELECT extract(epoch FROM (now() - max(bucket_time)))::bigint FROM portfolio_equity_points),
       (SELECT count(*) FROM portfolio_equity_points),
       (SELECT count(*) FROM sync_jobs),
@@ -163,9 +159,8 @@ if [[ -z "$db_result" ]]; then
 else
   IFS='|' read -r db_bytes active_accounts latest_accounts stale_accounts failed_jobs \
     jobs_24h successful_jobs average_duration recent_errors translation_queue daily_accounts \
-    daily_assets daily_positions current_positions closed_positions income_records \
-    funding_records fee_records cash_flow_records equity_lag_seconds equity_point_count \
-    sync_job_count latest_at <<< "$db_result"
+    daily_assets daily_positions current_positions closed_positions \
+    equity_lag_seconds equity_point_count sync_job_count latest_at <<< "$db_result"
   db_megabytes=$((db_bytes / 1024 / 1024))
   if (( jobs_24h > 0 )); then
     success_rate="$(awk -v success="$successful_jobs" -v total="$jobs_24h" 'BEGIN {printf "%.2f", success * 100 / total}')"
@@ -175,7 +170,6 @@ else
   data_details+=("数据库：${db_megabytes}MB；同步任务累计 ${sync_job_count} 条")
   data_details+=("24小时同步：${successful_jobs}/${jobs_24h} 成功（${success_rate}%），平均 ${average_duration}ms")
   data_details+=("实时账户：${latest_accounts}/${active_accounts}；当前仓位 ${current_positions}；历史仓位 ${closed_positions}")
-  data_details+=("财务明细：收益 ${income_records}、资金费 ${funding_records}、手续费 ${fee_records}、流水 ${cash_flow_records}")
   data_details+=("今日快照：账户 ${daily_accounts}、资产 ${daily_assets}、持仓 ${daily_positions}")
   if [[ "$equity_lag_seconds" =~ ^[0-9]+$ ]]; then
     data_details+=("净值曲线：${equity_point_count} 点，延迟 $((equity_lag_seconds / 60)) 分钟")
