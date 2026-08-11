@@ -33,7 +33,6 @@ warnings=()
 criticals=()
 system_details=()
 service_details=()
-account_details=()
 data_details=()
 backup_details=()
 
@@ -185,19 +184,6 @@ else
     critical "无法确定净值曲线最新采样时间"
   fi
   data_details+=("最近账户更新：$latest_at")
-  while IFS='|' read -r exchange connection status age_seconds; do
-    [[ -z "$exchange" ]] && continue
-    if [[ "$age_seconds" =~ ^[0-9]+$ ]]; then
-      age_text="$((age_seconds / 60))分$((age_seconds % 60))秒前"
-    else
-      age_text="从未同步"
-    fi
-    account_details+=("$exchange｜$connection｜$status｜$age_text")
-  done < <(psql "$database_url" -AtF '|' -v ON_ERROR_STOP=1 -c "
-    SELECT exchange, replace(connection_name, '|', '/'), connection_status,
-      coalesce(extract(epoch FROM (now() - last_synced_at))::bigint, -1)
-    FROM exchange_accounts WHERE is_active = true ORDER BY exchange, connection_name;
-  " 2>/dev/null || true)
   if (( latest_accounts != active_accounts )); then
     critical "实时账户数 ${latest_accounts} 与启用账户数 ${active_accounts} 不一致"
   fi
@@ -268,7 +254,7 @@ fi
 report="$icon Atlas Ledger 每日巡检：$status
 时间：$(TZ=Asia/Shanghai date '+%F %T %Z')"
 for section in "系统资源:system_details" "服务与网络:service_details" \
-  "交易所账户:account_details" "数据库与业务数据:data_details" "备份:backup_details"; do
+  "数据库与业务数据:data_details" "备份:backup_details"; do
   section_title="${section%%:*}"
   array_name="${section#*:}"
   declare -n section_lines="$array_name"
