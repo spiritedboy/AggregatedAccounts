@@ -32,7 +32,7 @@ HEALTH_CHECK_CRITICAL_DISK_PERCENT=90
 sudo ./scripts/daily-health-check.sh --no-send
 ```
 
-手动检查并推送飞书：
+手动检查并推送飞书移动端适配卡片：
 
 ```bash
 sudo ./scripts/daily-health-check.sh
@@ -47,3 +47,7 @@ sudo cat /etc/cron.d/aggregated-accounts-health-check
 
 巡检安排在 03:17 数据库备份之后，以便同时检查当天备份。飞书发送失败会返回退出码 2，
 并写入 `/var/log/aggregated-accounts-health-check.log`。
+
+飞书消息采用单列卡片布局，根据正常、关注、异常显示绿色、橙色或红色标题。异常与告警
+优先展示，详细信息按系统、服务、数据库和备份分区，并提供打开资产看板的整行按钮；不使用
+手机端容易挤压的多列字段。

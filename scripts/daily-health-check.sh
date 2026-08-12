@@ -234,19 +234,23 @@ fi
 if (( ${#criticals[@]} > 0 )); then
   status="异常"
   icon="🔴"
+  card_template="red"
   exit_code=2
 elif (( ${#warnings[@]} > 0 )); then
   status="需要关注"
   icon="🟡"
+  card_template="orange"
   exit_code=1
 else
   status="正常"
   icon="🟢"
+  card_template="green"
   exit_code=0
 fi
 
+report_time="$(TZ=Asia/Shanghai date '+%F %T %Z')"
 report="$icon Atlas Ledger 每日巡检：$status
-时间：$(TZ=Asia/Shanghai date '+%F %T %Z')"
+时间：$report_time"
 for section in "系统资源:system_details" "服务与网络:service_details" \
   "数据库与业务数据:data_details" "备份:backup_details"; do
   section_title="${section%%:*}"
@@ -273,8 +277,20 @@ if (( send_message == 1 )); then
     echo "FEISHU_HEALTH_WEBHOOK_URL is not configured" >&2
     exit 2
   fi
-  payload="$(REPORT_TEXT="$report" python3 -c \
-    'import json, os; print(json.dumps({"msg_type":"text","content":{"text":os.environ["REPORT_TEXT"]}}, ensure_ascii=False))')"
+  card_args=(
+    --status "$status"
+    --icon "$icon"
+    --timestamp "$report_time"
+    --template "$card_template"
+    --public-url "$public_url"
+  )
+  for line in "${criticals[@]}"; do card_args+=(--critical "$line"); done
+  for line in "${warnings[@]}"; do card_args+=(--warning "$line"); done
+  for line in "${system_details[@]}"; do card_args+=(--system "$line"); done
+  for line in "${service_details[@]}"; do card_args+=(--service "$line"); done
+  for line in "${data_details[@]}"; do card_args+=(--data "$line"); done
+  for line in "${backup_details[@]}"; do card_args+=(--backup "$line"); done
+  payload="$(python3 "$script_dir/build-feishu-health-card.py" "${card_args[@]}")"
   response="$(curl -fsS --max-time 15 -H 'Content-Type: application/json; charset=utf-8' \
     -d "$payload" "$webhook_url" 2>/dev/null || true)"
   if ! RESPONSE_BODY="$response" python3 -c \
