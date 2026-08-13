@@ -84,7 +84,7 @@ function ReconciliationContent() {
           icon={Layers3}
           label="累计净收益"
           value={formatMoney(totals.net_realized_pnl)}
-          detail="已实现毛收益 + 资金费 − 手续费"
+          detail="历史仓位总盈利 − 历史仓位总亏损"
         />
         <SummaryCard
           icon={totals.status === "MATCHED" ? ShieldCheck : CircleAlert}

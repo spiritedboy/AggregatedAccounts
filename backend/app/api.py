@@ -45,6 +45,11 @@ from app.services.analytics import (
     build_sync_status,
 )
 from app.services.equity_curve import get_equity_curve
+from app.services.operational_read_models import (
+    DASHBOARD_SCOPE,
+    get_operational_read_model,
+    refresh_operational_read_models,
+)
 from app.services.pnl_read_model import get_pnl_read_model, refresh_pnl_read_model
 from app.services.position_math import position_margin_used
 
@@ -438,8 +443,10 @@ async def _latest_asset_rows(
     ).all()
 
 
-async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
+async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     latest = await _latest_balances(db)
+    pnl_data = await _pnl_bootstrap_data(db)
+    pnl_summary = pnl_data["summary"]
     current_positions = (
         await db.scalars(
             select(CurrentPosition).join(ExchangeAccount).where(ExchangeAccount.is_active.is_(True))
@@ -447,15 +454,12 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     ).all()
     dashboard_positions = current_positions[:6]
     translations = await _polymarket_translation_map(db, dashboard_positions)
-    daily_rows = await _daily_pnl_points(db)
+    daily_rows = pnl_data["daily"]
     total_equity = sum(_num(row.total_equity_usd) for row, _ in latest)
     available = sum(_num(row.available_balance_usd) for row, _ in latest)
     margin = sum(_num(row.margin_balance_usd) for row, _ in latest)
-    realized_pnl = sum(row["realized_pnl"] for row in daily_rows)
-    funding_fee = sum(row["funding_fee"] for row in daily_rows)
-    trading_fee = sum(row["trading_fee"] for row in daily_rows)
-    cumulative_net_pnl = realized_pnl + funding_fee - trading_fee
-    current_position_pnl = sum(_num(row.unrealized_pnl) for row in current_positions)
+    cumulative_net_pnl = _num(pnl_summary["period_net_realized_pnl"])
+    current_position_pnl = _num(pnl_summary["current_position_pnl"])
     today_key = str(datetime.now(UTC).date())
     today_return = sum(row["investment_return"] for row in daily_rows if row["period"] == today_key)
     account_by_id = {account.id: account for _, account in latest}
@@ -520,6 +524,11 @@ async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
         "notice": "仅统计添加 API Key 后产生的数据",
         "demo_mode": any(account.is_demo for _, account in latest),
     }
+
+
+async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
+    cached = await get_operational_read_model(db, DASHBOARD_SCOPE)
+    return cached if cached is not None else await _calculate_dashboard_summary_data(db)
 
 
 @router.get("/dashboard/summary")
@@ -1466,6 +1475,7 @@ async def refresh_all(
             }
         )
     await refresh_pnl_read_model(db)
+    await refresh_operational_read_models(db)
     await db.commit()
     return envelope(results)
 

@@ -1,13 +1,15 @@
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import String, case, cast, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AccountBalanceSnapshot,
+    AccountingDailySummary,
     AssetBalanceSnapshot,
     CashFlowRecord,
     ClosedPosition,
@@ -20,10 +22,108 @@ from app.models import (
     SyncJob,
     TradingFeeRecord,
 )
+from app.services.operational_read_models import (
+    COMPLETENESS_SCOPE,
+    get_operational_read_model,
+)
 
 
 def _num(value: Any) -> float:
     return float(value or 0)
+
+
+REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def _uses_reporting_day_boundaries(
+    start_time: datetime | None, end_time: datetime | None
+) -> bool:
+    if start_time is not None:
+        local_start = start_time.astimezone(REPORT_TIMEZONE)
+        if local_start.time().replace(tzinfo=None) != time.min:
+            return False
+    if end_time is not None:
+        local_end = end_time.astimezone(REPORT_TIMEZONE)
+        if local_end.time().replace(tzinfo=None) != time(23, 59, 59):
+            return False
+    return True
+
+
+async def _daily_summary(
+    db: AsyncSession,
+    *,
+    exchange: str | None,
+    account_id: uuid.UUID | None,
+    record_type: str | None,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> dict[str, float] | None:
+    if not _uses_reporting_day_boundaries(start_time, end_time):
+        return None
+    if not await db.scalar(select(func.count()).select_from(AccountingDailySummary)):
+        return None
+    query = (
+        select(
+            func.coalesce(
+                func.sum(AccountingDailySummary.amount_usd).filter(
+                    AccountingDailySummary.record_type == "REALIZED_PNL"
+                ),
+                0,
+            ).label("realized_pnl"),
+            func.coalesce(
+                func.sum(AccountingDailySummary.amount_usd).filter(
+                    AccountingDailySummary.record_type == "FUNDING_FEE"
+                ),
+                0,
+            ).label("funding_fee"),
+            func.coalesce(
+                func.sum(AccountingDailySummary.amount_usd).filter(
+                    AccountingDailySummary.record_type == "TRADING_FEE"
+                ),
+                0,
+            ).label("trading_fee"),
+            func.coalesce(
+                func.sum(AccountingDailySummary.amount_usd).filter(
+                    AccountingDailySummary.record_type == "DEPOSIT"
+                ),
+                0,
+            ).label("deposits"),
+            func.coalesce(
+                func.sum(AccountingDailySummary.amount_usd).filter(
+                    AccountingDailySummary.record_type == "WITHDRAWAL"
+                ),
+                0,
+            ).label("withdrawals"),
+        )
+        .join(ExchangeAccount)
+        .where(ExchangeAccount.is_active.is_(True))
+    )
+    if exchange:
+        query = query.where(AccountingDailySummary.exchange == exchange.upper())
+    if account_id:
+        query = query.where(AccountingDailySummary.exchange_account_id == account_id)
+    if record_type:
+        normalized = record_type.upper()
+        types = {"DEPOSIT", "WITHDRAWAL"} if normalized == "CASH_FLOW" else {normalized}
+        query = query.where(AccountingDailySummary.record_type.in_(types))
+    if start_time:
+        query = query.where(
+            AccountingDailySummary.record_date
+            >= start_time.astimezone(REPORT_TIMEZONE).date()
+        )
+    if end_time:
+        query = query.where(
+            AccountingDailySummary.record_date
+            <= end_time.astimezone(REPORT_TIMEZONE).date()
+        )
+    row = (await db.execute(query)).mappings().one()
+    summary = {key: _num(value) for key, value in row.items()}
+    summary["net_cash_flow"] = summary["deposits"] - summary["withdrawals"]
+    summary["net_realized_pnl"] = (
+        summary["realized_pnl"] + summary["funding_fee"] - summary["trading_fee"]
+    )
+    summary["net_effect"] = summary["net_realized_pnl"] + summary["net_cash_flow"]
+    return summary
 
 
 def _ledger_union():
@@ -160,6 +260,14 @@ async def list_accounting_records(
             .limit(limit)
         )
     ).mappings()
+    summary = await _daily_summary(
+        db,
+        exchange=exchange,
+        account_id=account_id,
+        record_type=record_type,
+        start_time=start_time,
+        end_time=end_time,
+    )
     summary_row = (
         await db.execute(
             select(
@@ -230,8 +338,9 @@ async def list_accounting_records(
                 ),
             )
         )
-    ).mappings().one()
-    summary = {key: _num(value) for key, value in summary_row.items()}
+    ).mappings().one() if summary is None else None
+    if summary is None:
+        summary = {key: _num(value) for key, value in summary_row.items()}
     closed_query = (
         select(func.coalesce(func.sum(ClosedPosition.realized_pnl), 0))
         .join(
@@ -250,17 +359,19 @@ async def list_accounting_records(
         closed_query = closed_query.where(ClosedPosition.close_time >= start_time)
     if end_time:
         closed_query = closed_query.where(ClosedPosition.close_time <= end_time)
-    summary["realized_pnl"] = (
-        _num(await db.scalar(closed_query))
-        if record_type is None or record_type.upper() == "REALIZED_PNL"
-        else 0.0
-    )
-    summary["net_cash_flow"] = summary["deposits"] - summary["withdrawals"]
-    summary["net_realized_pnl"] = (
-        summary["realized_pnl"]
-        + summary["funding_fee"]
-        - summary["trading_fee"]
-    )
+    if summary_row is not None:
+        summary["realized_pnl"] = (
+            _num(await db.scalar(closed_query))
+            if record_type is None or record_type.upper() == "REALIZED_PNL"
+            else 0.0
+        )
+        summary["net_cash_flow"] = summary["deposits"] - summary["withdrawals"]
+        summary["net_realized_pnl"] = (
+            summary["realized_pnl"]
+            + summary["funding_fee"]
+            - summary["trading_fee"]
+        )
+        summary["net_effect"] = summary["net_realized_pnl"] + summary["net_cash_flow"]
     return {
         "items": [
             {
@@ -323,7 +434,7 @@ def _component(
     }
 
 
-async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
+async def calculate_data_completeness(db: AsyncSession) -> dict[str, Any]:
     accounts = list(
         (
             await db.scalars(
@@ -552,3 +663,8 @@ async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
         },
         "accounts": items,
     }
+
+
+async def build_data_completeness(db: AsyncSession) -> dict[str, Any]:
+    cached = await get_operational_read_model(db, COMPLETENESS_SCOPE)
+    return cached if cached is not None else await calculate_data_completeness(db)

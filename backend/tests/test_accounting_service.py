@@ -2,15 +2,18 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import func, select
 
 from app.database import SessionLocal
 from app.models import (
     AccountBalanceSnapshot,
+    AccountingDailySummary,
     CashFlowRecord,
     ClosedPosition,
     ExchangeAccount,
     FundingRecord,
     IncomeRecord,
+    OperationalReadModel,
     SyncJob,
     TrackingPeriod,
     TradingFeeRecord,
@@ -19,6 +22,8 @@ from app.services.accounting import (
     build_data_completeness,
     list_accounting_records,
 )
+from app.services.operational_read_models import refresh_operational_read_models
+from app.services.pnl_read_model import refresh_pnl_read_model
 
 
 @pytest.mark.asyncio
@@ -123,7 +128,7 @@ async def test_accounting_records_and_component_completeness():
             "trading_fee": 0.5,
             "deposits": 10.0,
             "withdrawals": 3.0,
-            "net_effect": 10.5,
+            "net_effect": 11.5,
             "net_cash_flow": 7.0,
             "net_realized_pnl": 4.5,
         }
@@ -141,3 +146,24 @@ async def test_accounting_records_and_component_completeness():
         assert account_status["components"]["funding_fee"]["record_count"] == 1
         assert account_status["components"]["trading_fee"]["record_count"] == 1
         assert account_status["components"]["cash_flow"]["record_count"] == 2
+
+        await refresh_pnl_read_model(db)
+        refresh_result = await refresh_operational_read_models(db)
+        await db.commit()
+
+        assert refresh_result["read_models"] == 5
+        assert refresh_result["accounting_daily_rows"] == 5
+        assert await db.scalar(
+            select(func.count()).select_from(OperationalReadModel)
+        ) == 5
+        assert await db.scalar(
+            select(func.count()).select_from(AccountingDailySummary)
+        ) == 5
+
+        cached_result = await list_accounting_records(
+            db,
+            start_time=datetime(2026, 7, 25, 16, 0, tzinfo=UTC),
+            end_time=datetime(2026, 7, 26, 15, 59, 59, tzinfo=UTC),
+            limit=20,
+        )
+        assert cached_result["summary"] == result["summary"]

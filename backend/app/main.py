@@ -22,6 +22,7 @@ from app.services.equity_curve import (
     capture_portfolio_equity_point,
 )
 from app.services.maintenance import apply_data_retention
+from app.services.operational_read_models import refresh_operational_read_models
 from app.services.pnl_read_model import refresh_pnl_read_model
 from app.services.polymarket_translation import (
     process_pending_polymarket_translations,
@@ -84,6 +85,7 @@ async def scheduled_sync() -> None:
     async with SessionLocal() as db:
         try:
             await refresh_pnl_read_model(db)
+            await refresh_operational_read_models(db)
             await db.commit()
         except Exception:
             await db.rollback()
@@ -94,6 +96,7 @@ async def scheduled_retention() -> None:
     async with SessionLocal() as db:
         result = await apply_data_retention(db)
         await refresh_pnl_read_model(db)
+        await refresh_operational_read_models(db)
         await db.commit()
     logger.info("scheduled data retention completed result=%s", result)
 
@@ -101,6 +104,7 @@ async def scheduled_retention() -> None:
 async def scheduled_pnl_calibration() -> None:
     async with SessionLocal() as db:
         await refresh_pnl_read_model(db)
+        await refresh_operational_read_models(db)
         await db.commit()
     logger.info("daily PnL analytics calibration completed")
 
@@ -118,6 +122,7 @@ async def lifespan(_: FastAPI):
             captured = await capture_portfolio_equity_point(db)
             translation_result = await process_pending_polymarket_translations(db)
             await refresh_pnl_read_model(db)
+            await refresh_operational_read_models(db)
             await db.commit()
             logger.info(
                 "portfolio equity series ready backfilled=%s captured=%s translations=%s",

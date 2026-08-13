@@ -446,6 +446,46 @@ class PnlExchangeSummary(Base, TimestampMixin):
     )
 
 
+class OperationalReadModel(Base, TimestampMixin):
+    """Rebuildable JSON payloads for expensive read-only page summaries."""
+
+    __tablename__ = "operational_read_models"
+
+    scope: Mapped[str] = mapped_column(String(40), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class AccountingDailySummary(Base, TimestampMixin):
+    """Daily accounting totals in the product's Asia/Shanghai reporting day."""
+
+    __tablename__ = "accounting_daily_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "exchange_account_id",
+            "record_date",
+            "record_type",
+            name="uq_accounting_daily_summary",
+        ),
+        Index("ix_accounting_daily_summary_filters", "record_date", "exchange", "record_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
+    exchange: Mapped[str] = mapped_column(String(24), nullable=False)
+    exchange_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("exchange_accounts.id"), nullable=False
+    )
+    record_date: Mapped[date] = mapped_column(Date, nullable=False)
+    record_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    amount_usd: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0, nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
 class PortfolioEquityPoint(Base):
     """Five-minute, portfolio-level equity sample.
 

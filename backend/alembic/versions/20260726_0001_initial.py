@@ -23,6 +23,8 @@ LATER_TABLES = {
     "latest_asset_balances",
     "pnl_analytics_summaries",
     "pnl_exchange_summaries",
+    "operational_read_models",
+    "accounting_daily_summaries",
 }
 
 

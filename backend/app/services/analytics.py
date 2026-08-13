@@ -23,6 +23,12 @@ from app.models import (
     TrackingPeriod,
     TradingFeeRecord,
 )
+from app.services.operational_read_models import (
+    RECONCILIATION_SCOPE,
+    RISK_SCOPE,
+    SYNC_STATUS_SCOPE,
+    get_operational_read_model,
+)
 
 
 def _number(value: Decimal | float | int | None) -> float:
@@ -127,7 +133,7 @@ async def _latest_balances(
     return {row.exchange_account_id: row for row in rows}
 
 
-async def build_sync_status(
+async def calculate_sync_status(
     db: AsyncSession,
     accounts: list[ExchangeAccount] | None = None,
 ) -> dict[str, Any]:
@@ -292,7 +298,7 @@ async def build_sync_status(
     }
 
 
-async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
+async def calculate_reconciliation(db: AsyncSession) -> dict[str, Any]:
     accounts = await _active_accounts(db)
     account_ids = [account.id for account in accounts]
     latest_balances = await _latest_balances(db, account_ids)
@@ -320,6 +326,9 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
                 ClosedPosition.tracking_period_id,
                 func.coalesce(func.sum(ClosedPosition.realized_pnl), 0).label(
                     "realized_pnl"
+                ),
+                func.coalesce(func.sum(ClosedPosition.net_pnl), 0).label(
+                    "net_pnl"
                 ),
                 func.coalesce(func.sum(ClosedPosition.funding_fee), 0).label(
                     "funding_fee"
@@ -443,7 +452,7 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
             initial.initial_unrealized_pnl if initial else None
         )
         equity_return = current_equity - initial_equity - net_cash_flow
-        net_realized_pnl = realized_pnl + funding_fee - trading_fee
+        net_realized_pnl = _number(closed_stats.get("net_pnl"))
         component_return = (
             net_realized_pnl + current_position_pnl - initial_position_pnl
         )
@@ -522,13 +531,13 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
             "issues": quality_issues,
         },
         "notice": (
-            "累计净收益 = 已实现毛收益 + 资金费 - 手续费；对账组成收益再加当前"
+            "累计净收益 = 历史仓位总盈利 - 历史仓位总亏损；对账组成收益再加当前"
             "持仓收益并扣除接入时未实现盈亏。差额用于发现接口覆盖不足或重复记录。"
         ),
     }
 
 
-async def build_risk_metrics(db: AsyncSession) -> dict[str, Any]:
+async def calculate_risk_metrics(db: AsyncSession) -> dict[str, Any]:
     accounts = await _active_accounts(db)
     account_ids = [account.id for account in accounts]
     account_by_id = {account.id: account for account in accounts}
@@ -662,3 +671,21 @@ async def build_risk_metrics(db: AsyncSession) -> dict[str, Any]:
             key=lambda item: item["distance_percent"],
         )[:10],
     }
+
+
+async def build_sync_status(
+    db: AsyncSession,
+    accounts: list[ExchangeAccount] | None = None,
+) -> dict[str, Any]:
+    cached = await get_operational_read_model(db, SYNC_STATUS_SCOPE)
+    return cached if cached is not None else await calculate_sync_status(db, accounts)
+
+
+async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
+    cached = await get_operational_read_model(db, RECONCILIATION_SCOPE)
+    return cached if cached is not None else await calculate_reconciliation(db)
+
+
+async def build_risk_metrics(db: AsyncSession) -> dict[str, Any]:
+    cached = await get_operational_read_model(db, RISK_SCOPE)
+    return cached if cached is not None else await calculate_risk_metrics(db)
