@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -54,10 +55,22 @@ from app.services.pnl_read_model import get_pnl_read_model, refresh_pnl_read_mod
 from app.services.position_math import position_margin_used
 
 router = APIRouter(prefix="/api")
+REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 def _num(value: Decimal | float | None) -> float:
     return float(value or 0)
+
+
+def _account_stream_time(account: ExchangeAccount, key: str) -> datetime | None:
+    raw = (account.data_completeness_details or {}).get(key)
+    if not raw:
+        return account.last_synced_at
+    try:
+        value = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return account.last_synced_at
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def _polymarket_asset_id(row: CurrentPosition | ClosedPosition) -> str | None:
@@ -452,7 +465,15 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
             select(CurrentPosition).join(ExchangeAccount).where(ExchangeAccount.is_active.is_(True))
         )
     ).all()
-    dashboard_positions = current_positions[:6]
+    dashboard_positions = sorted(
+        current_positions,
+        key=lambda item: (
+            -abs(_num(item.position_value_usd)),
+            item.exchange,
+            item.normalized_symbol,
+            item.side,
+        ),
+    )[:6]
     translations = await _polymarket_translation_map(db, dashboard_positions)
     daily_rows = pnl_data["daily"]
     total_equity = sum(_num(row.total_equity_usd) for row, _ in latest)
@@ -460,7 +481,7 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     margin = sum(_num(row.margin_balance_usd) for row, _ in latest)
     cumulative_net_pnl = _num(pnl_summary["period_net_realized_pnl"])
     current_position_pnl = _num(pnl_summary["current_position_pnl"])
-    today_key = str(datetime.now(UTC).date())
+    today_key = str(datetime.now(UTC).astimezone(REPORT_TIMEZONE).date())
     today_return = sum(row["investment_return"] for row in daily_rows if row["period"] == today_key)
     account_by_id = {account.id: account for _, account in latest}
     unvalued_assets = [
@@ -490,8 +511,20 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
         "tracking_started_at": min(
             (account.tracking_started_at for _, account in latest), default=None
         ),
-        "last_updated_at": max(
-            (account.last_synced_at for _, account in latest if account.last_synced_at),
+        "last_updated_at": min(
+            (
+                updated
+                for _, account in latest
+                if (updated := _account_stream_time(account, "last_balance_sync_at"))
+            ),
+            default=None,
+        ),
+        "positions_updated_at": min(
+            (
+                updated
+                for _, account in latest
+                if (updated := _account_stream_time(account, "last_position_sync_at"))
+            ),
             default=None,
         ),
         "by_exchange": [

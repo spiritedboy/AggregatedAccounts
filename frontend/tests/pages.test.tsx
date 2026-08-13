@@ -727,7 +727,7 @@ describe("portfolio pages", () => {
     render(<ReconciliationPage />);
     expect(await screen.findAllByText(/US\$4,000\.00/)).not.toHaveLength(0);
     expect(screen.getAllByText("累计净收益")).not.toHaveLength(0);
-    expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
+    expect(screen.getByText("历史仓位总盈利 − 历史仓位总亏损")).toBeInTheDocument();
     expect(screen.getAllByText("当前持仓收益")).not.toHaveLength(0);
     expect(screen.getByText("低风险")).toBeInTheDocument();
     expect(screen.getAllByText(/BTCUSDT/)).not.toHaveLength(0);

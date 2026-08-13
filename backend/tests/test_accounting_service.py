@@ -167,3 +167,24 @@ async def test_accounting_records_and_component_completeness():
             limit=20,
         )
         assert cached_result["summary"] == result["summary"]
+
+        existing_ids = set(await db.scalars(select(AccountingDailySummary.id)))
+        db.add(
+            TradingFeeRecord(
+                exchange=account.exchange,
+                exchange_account_id=account.id,
+                tracking_period_id=period.id,
+                source_record_id="fee-next-day",
+                asset="USDT",
+                symbol="ETHUSDT",
+                amount_usd=Decimal("0.25"),
+                record_time=datetime(2026, 7, 26, 16, 1, tzinfo=UTC),
+            )
+        )
+        await db.flush()
+        incremental = await refresh_operational_read_models(db)
+        await db.commit()
+        assert incremental["accounting_daily_rows"] == 1
+        assert existing_ids.issubset(
+            set(await db.scalars(select(AccountingDailySummary.id)))
+        )

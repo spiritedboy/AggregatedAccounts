@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -114,6 +114,12 @@ async def test_pnl_read_model_is_persisted_and_served_without_live_reaggregation
         # pipeline explicitly rebuilds the read model.
         still_persisted = await _pnl_bootstrap_data(db)
         assert still_persisted["summary"]["total_profit"] == 20
+
+        read_model = await db.get(PnlAnalyticsSummary, ACTIVE_SCOPE)
+        read_model.calculated_at = datetime.now(UTC) - timedelta(minutes=10)
+        await db.commit()
+        stale_fallback = await _pnl_bootstrap_data(db)
+        assert stale_fallback["summary"]["total_profit"] == 200
 
         await refresh_pnl_read_model(db)
         await db.commit()

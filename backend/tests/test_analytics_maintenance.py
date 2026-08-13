@@ -176,10 +176,8 @@ async def test_okx_partial_close_cleanup_keeps_final_cumulative_row():
                     updated_at=close_time,
                 )
             )
-        for snapshot_date, realized in (
-            (date(2026, 7, 29), "16.983725"),
-            (date(2026, 7, 30), "63.5959"),
-        ):
+        # Both closes fall on 2026-07-30 in Asia/Shanghai.
+        for snapshot_date, realized in ((date(2026, 7, 30), "63.5959"),):
             db.add(
                 DailyPnlSnapshot(
                     exchange="OKX",
@@ -229,10 +227,7 @@ async def test_okx_partial_close_cleanup_keeps_final_cumulative_row():
                 )
             )
         ).all()
-        assert [row.realized_pnl for row in daily_rows] == [
-            Decimal("16.983725"),
-            Decimal("46.612175"),
-        ]
+        assert [row.realized_pnl for row in daily_rows] == [Decimal("63.5959")]
 
 
 @pytest.mark.asyncio

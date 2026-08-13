@@ -48,6 +48,12 @@ DAILY_SNAPSHOT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
 PUBLIC_ADDRESS_EXCHANGES = {"HYPERLIQUID", "POLYMARKET"}
 HISTORY_STREAMS = frozenset({"income", "funding", "fees", "cash_flows"})
+SYNC_CURSOR_KEYS = {
+    "balance": "last_balance_sync_at",
+    "positions": "last_position_sync_at",
+    "closed_positions": "last_closed_position_sync_at",
+    "history": "last_history_sync_at",
+}
 COMPLETENESS_KEYS = frozenset(
     {"equity", "balances", "positions", "closed_positions", *HISTORY_STREAMS}
 )
@@ -404,6 +410,35 @@ def update_completeness(
         and all(status == "COMPLETE" for status in relevant)
         else "PARTIAL"
     )
+
+
+def _parse_sync_cursor(account: ExchangeAccount, stream: str) -> datetime | None:
+    raw = (account.data_completeness_details or {}).get(SYNC_CURSOR_KEYS[stream])
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _stream_due(
+    account: ExchangeAccount,
+    stream: str,
+    interval_seconds: int,
+    now: datetime,
+) -> bool:
+    cursor = _parse_sync_cursor(account, stream)
+    return cursor is None or (now - cursor).total_seconds() >= max(interval_seconds, 5)
+
+
+def _mark_stream_synced(
+    account: ExchangeAccount, stream: str, synced_at: datetime
+) -> None:
+    details = dict(account.data_completeness_details or {})
+    details[SYNC_CURSOR_KEYS[stream]] = synced_at.isoformat()
+    account.data_completeness_details = details
 
 
 async def _apply_asset_coverage_baseline(
@@ -891,21 +926,6 @@ async def _upsert_amount_records(
     return len(valid_records)
 
 
-async def _last_full_history_sync(
-    db: AsyncSession, account: ExchangeAccount
-) -> SyncJob | None:
-    return await db.scalar(
-        select(SyncJob)
-        .where(
-            SyncJob.exchange_account_id == account.id,
-            SyncJob.job_type == "FULL_ACCOUNT",
-            SyncJob.status == "SUCCESS",
-        )
-        .order_by(SyncJob.finished_at.desc())
-        .limit(1)
-    )
-
-
 async def _write_daily_snapshot(
     db: AsyncSession,
     account: ExchangeAccount,
@@ -938,7 +958,11 @@ async def _write_daily_snapshot(
         )
         for row in cash_flows
     )
-    day_start = datetime.combine(recorded_at.date(), dt_time.min, tzinfo=UTC)
+    local_date = recorded_at.astimezone(DAILY_SNAPSHOT_TIMEZONE).date()
+    local_day_start = datetime.combine(
+        local_date, dt_time.min, tzinfo=DAILY_SNAPSHOT_TIMEZONE
+    )
+    day_start = local_day_start.astimezone(UTC)
     realized_today = await db.scalar(
         select(func.sum(ClosedPosition.realized_pnl)).where(
             ClosedPosition.exchange_account_id == account.id,
@@ -978,7 +1002,7 @@ async def _write_daily_snapshot(
         select(DailyPnlSnapshot).where(
             DailyPnlSnapshot.exchange_account_id == account.id,
             DailyPnlSnapshot.tracking_period_id == period.id,
-            DailyPnlSnapshot.snapshot_date == recorded_at.date(),
+            DailyPnlSnapshot.snapshot_date == local_date,
         )
     )
     if row is None:
@@ -986,8 +1010,8 @@ async def _write_daily_snapshot(
             exchange=account.exchange,
             exchange_account_id=account.id,
             tracking_period_id=period.id,
-            source_record_id=f"daily-{recorded_at.date()}",
-            snapshot_date=recorded_at.date(),
+            source_record_id=f"daily-{local_date}",
+            snapshot_date=local_date,
         )
         db.add(row)
     current_equity = Decimal(str(summary.get("total_equity_usd", 0)))
@@ -1033,60 +1057,41 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 )
                 if not period:
                     raise AdapterError("没有启用中的统计周期")
-                last_full_sync = await _last_full_history_sync(db, account)
-                history_due = (
-                    last_full_sync is None
-                    or started
-                    - (last_full_sync.finished_at or last_full_sync.started_at)
-                    >= timedelta(seconds=max(settings.sync_history_seconds, 60))
+                balance_due = _stream_due(
+                    account, "balance", settings.sync_balance_seconds, started
                 )
-                if history_due:
-                    job.job_type = "FULL_ACCOUNT"
-                adapter = await adapter_for_account(db, account)
-                try:
-                    summary, positions, closed_positions = await asyncio.gather(
-                        adapter.get_account_summary(),
-                        adapter.get_open_positions(),
-                        adapter.get_closed_positions(account.tracking_started_at, started),
-                    )
-                    balances = await adapter.get_balances()
-                    history_bundle: dict[str, Any] | None = None
-                    history_error: Exception | None = None
-                    if history_due and adapter.history_streams:
-                        history_start = account.tracking_started_at
-                        if last_full_sync:
-                            history_start = max(
-                                account.tracking_started_at,
-                                (last_full_sync.finished_at or last_full_sync.started_at)
-                                - timedelta(minutes=5),
-                            )
-                        try:
-                            history_bundle = await adapter.get_history_bundle(
-                                history_start, started
-                            )
-                        except Exception as exc:
-                            history_error = exc
-                finally:
-                    await adapter.close()
-                await _apply_asset_coverage_baseline(
-                    db, account, period, summary
+                positions_due = _stream_due(
+                    account, "positions", settings.sync_position_seconds, started
                 )
-                if account.exchange == "POLYMARKET":
-                    await capture_polymarket_translation_sources(
-                        db,
-                        [*positions, *closed_positions],
-                    )
-                capture_daily = await _write_summary(
-                    db, account, period, summary, started
-                )
-                await _write_asset_balances(
-                    db,
+                closed_due = _stream_due(
                     account,
-                    period,
-                    balances,
+                    "closed_positions",
+                    settings.sync_closed_position_seconds,
                     started,
-                    capture_daily=capture_daily,
                 )
+                history_due = (
+                    bool(ADAPTERS[account.exchange].history_streams)
+                    and _stream_due(
+                        account, "history", settings.sync_history_seconds, started
+                    )
+                )
+                due_streams = [
+                    name
+                    for name, due in (
+                        ("BALANCE", balance_due),
+                        ("POSITIONS", positions_due),
+                        ("CLOSED", closed_due),
+                        ("HISTORY", history_due),
+                    )
+                    if due
+                ]
+                if not due_streams:
+                    job.job_type = "NOOP"
+                    job.records_written = 0
+                    job.status = "SUCCESS"
+                    return {"status": "SUCCESS", "records_written": 0}
+                job.job_type = "+".join(due_streams)
+
                 previous_positions = (
                     await db.scalars(
                         select(CurrentPosition).where(
@@ -1095,6 +1100,98 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                         )
                     )
                 ).all()
+                adapter = await adapter_for_account(db, account)
+                try:
+                    calls: dict[str, Any] = {}
+                    if balance_due:
+                        calls["summary"] = adapter.get_account_summary()
+                        calls["balances"] = adapter.get_balances()
+                    if positions_due:
+                        calls["positions"] = adapter.get_open_positions()
+                    if closed_due:
+                        closed_cursor = _parse_sync_cursor(
+                            account, "closed_positions"
+                        )
+                        closed_start = (
+                            max(
+                                account.tracking_started_at,
+                                closed_cursor - timedelta(minutes=5),
+                            )
+                            if closed_cursor
+                            else account.tracking_started_at
+                        )
+                        known_open_times = [
+                            row.open_time
+                            for row in previous_positions
+                            if row.open_time is not None
+                        ]
+                        if known_open_times:
+                            closed_start = min(closed_start, min(known_open_times))
+                        calls["closed_positions"] = adapter.get_closed_positions(
+                            closed_start, started
+                        )
+                    history_bundle: dict[str, Any] | None = None
+                    history_error: Exception | None = None
+                    if history_due:
+                        history_cursor = _parse_sync_cursor(account, "history")
+                        history_start = (
+                            max(
+                                account.tracking_started_at,
+                                history_cursor - timedelta(minutes=5),
+                            )
+                            if history_cursor
+                            else account.tracking_started_at
+                        )
+                        try:
+                            calls["history_bundle"] = adapter.get_history_bundle(
+                                history_start, started
+                            )
+                        except Exception as exc:  # pragma: no cover - coroutine creation
+                            history_error = exc
+                    names = list(calls)
+                    results = await asyncio.gather(
+                        *(calls[name] for name in names),
+                        return_exceptions=True,
+                    )
+                    values: dict[str, Any] = {}
+                    for name, result in zip(names, results, strict=True):
+                        if isinstance(result, BaseException):
+                            if name == "history_bundle":
+                                history_error = result
+                            else:
+                                raise result
+                        else:
+                            values[name] = result
+                    summary = values.get("summary")
+                    balances = values.get("balances", [])
+                    positions = values.get("positions", [])
+                    closed_positions = values.get("closed_positions", [])
+                    history_bundle = values.get("history_bundle")
+                finally:
+                    await adapter.close()
+                if summary is not None:
+                    await _apply_asset_coverage_baseline(
+                        db, account, period, summary
+                    )
+                if account.exchange == "POLYMARKET":
+                    await capture_polymarket_translation_sources(
+                        db,
+                        [*positions, *closed_positions],
+                    )
+                capture_daily = False
+                if summary is not None:
+                    capture_daily = await _write_summary(
+                        db, account, period, summary, started
+                    )
+                    await _write_asset_balances(
+                        db,
+                        account,
+                        period,
+                        balances,
+                        started,
+                        capture_daily=capture_daily,
+                    )
+                    _mark_stream_synced(account, "balance", started)
                 previous_by_key = {
                     (row.normalized_symbol, row.side): row for row in previous_positions
                 }
@@ -1117,50 +1214,63 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                     ):
                         closed.setdefault("leverage", previous.leverage)
                         closed.setdefault("margin_used", previous.margin_used)
-                await _replace_positions(db, account, period, positions, started)
-                await _write_position_snapshots(
-                    db,
-                    account,
-                    period,
-                    positions,
-                    started,
-                    capture_daily=capture_daily,
-                )
-                closed_count = await _upsert_closed_positions(
-                    db, account, period, closed_positions
-                )
-                closed_status = (
-                    "PARTIAL"
-                    if account.exchange == "POLYMARKET"
-                    or any(
-                        item.get("data_completeness", "PARTIAL") != "COMPLETE"
-                        for item in closed_positions
+                if positions_due:
+                    await _replace_positions(db, account, period, positions, started)
+                    await _write_position_snapshots(
+                        db,
+                        account,
+                        period,
+                        positions,
+                        started,
+                        capture_daily=capture_daily,
                     )
-                    else "COMPLETE"
-                )
-                update_completeness(
-                    account,
-                    {
-                        "equity": "COMPLETE",
-                        "balances": (
-                            "PARTIAL"
-                            if int(summary.get("unvalued_asset_count", 0))
-                            else "COMPLETE"
-                        ),
-                        "positions": "COMPLETE",
-                        "closed_positions": closed_status,
-                    },
-                    authoritative=True,
-                )
-                await _run_data_quality_checks(
-                    db,
-                    account,
-                    period,
-                    list(previous_positions),
-                    positions,
-                    closed_positions,
-                    started,
-                )
+                    _mark_stream_synced(account, "positions", started)
+                closed_count = 0
+                if closed_due:
+                    closed_count = await _upsert_closed_positions(
+                        db, account, period, closed_positions
+                    )
+                    _mark_stream_synced(account, "closed_positions", started)
+                completeness_updates: dict[str, str] = {}
+                if summary is not None:
+                    completeness_updates.update(
+                        {
+                            "equity": "COMPLETE",
+                            "balances": (
+                                "PARTIAL"
+                                if int(summary.get("unvalued_asset_count", 0))
+                                else "COMPLETE"
+                            ),
+                        }
+                    )
+                if positions_due:
+                    completeness_updates["positions"] = "COMPLETE"
+                if closed_due:
+                    completeness_updates["closed_positions"] = (
+                        "PARTIAL"
+                        if account.exchange == "POLYMARKET"
+                        or any(
+                            item.get("data_completeness", "PARTIAL") != "COMPLETE"
+                            for item in closed_positions
+                        )
+                        else "COMPLETE"
+                    )
+                if completeness_updates:
+                    update_completeness(
+                        account,
+                        completeness_updates,
+                        authoritative=True,
+                    )
+                if positions_due and closed_due:
+                    await _run_data_quality_checks(
+                        db,
+                        account,
+                        period,
+                        list(previous_positions),
+                        positions,
+                        closed_positions,
+                        started,
+                    )
                 history_count = 0
                 if history_due:
                     if history_bundle is not None:
@@ -1197,6 +1307,7 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                                 for stream in HISTORY_STREAMS
                             },
                         )
+                        _mark_stream_synced(account, "history", started)
                     else:
                         update_completeness(
                             account,
@@ -1218,8 +1329,15 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                                 occurred_at=datetime.now(UTC),
                             )
                         )
-                await _write_daily_snapshot(db, account, period, summary, started)
-                job.records_written = len(positions) + closed_count + history_count + 2
+                if summary is not None:
+                    await _write_daily_snapshot(db, account, period, summary, started)
+                balance_count = 2 if summary is not None else 0
+                job.records_written = (
+                    balance_count
+                    + (len(positions) if positions_due else 0)
+                    + closed_count
+                    + history_count
+                )
                 account.last_synced_at = started
                 account.connection_status = "CONNECTED"
             job.status = "SUCCESS"

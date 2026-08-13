@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +18,7 @@ from app.models import (
     SyncJob,
     TrackingPeriod,
 )
+from app.services.reporting_calendar import REPORT_TIMEZONE, reporting_day_bounds
 
 
 def canonical_polymarket_closed_source_id(source_record_id: str) -> str:
@@ -66,8 +67,7 @@ async def _recalculate_realized_pnl_dates(
         )
         if snapshot is None:
             continue
-        start = datetime.combine(snapshot_date, time.min, tzinfo=UTC)
-        end = datetime.combine(snapshot_date, time.max, tzinfo=UTC)
+        start, end = reporting_day_bounds(snapshot_date)
         income_count, income_total = (
             await db.execute(
                 select(
@@ -130,7 +130,11 @@ async def cleanup_bitget_closed_positions(
         if duplicates:
             for row in items:
                 affected_dates.add(
-                    (account_id, period_id, row.close_time.date())
+                    (
+                        account_id,
+                        period_id,
+                        row.close_time.astimezone(REPORT_TIMEZONE).date(),
+                    )
                 )
 
     result = {
@@ -227,7 +231,7 @@ async def cleanup_binance_fill_fragments(
                 (
                     row.exchange_account_id,
                     row.tracking_period_id,
-                    row.close_time.date(),
+                    row.close_time.astimezone(REPORT_TIMEZONE).date(),
                 )
             )
         group_preview.append(
@@ -315,7 +319,11 @@ async def cleanup_okx_closed_positions(
             delete_rows.extend(duplicates)
             for row in items:
                 affected_dates.add(
-                    (account_id, period_id, row.close_time.date())
+                    (
+                        account_id,
+                        period_id,
+                        row.close_time.astimezone(REPORT_TIMEZONE).date(),
+                    )
                 )
             group_preview.append(
                 {
@@ -357,8 +365,7 @@ async def cleanup_okx_closed_positions(
         )
         if snapshot is None:
             continue
-        start = datetime.combine(snapshot_date, time.min, tzinfo=UTC)
-        end = datetime.combine(snapshot_date, time.max, tzinfo=UTC)
+        start, end = reporting_day_bounds(snapshot_date)
         income_count, income_total = (
             await db.execute(
                 select(
@@ -520,7 +527,11 @@ async def rebuild_okx_closed_position_cycles(
     await _recalculate_realized_pnl_dates(
         db,
         {
-            (account.id, period.id, item["close_time"].date())
+            (
+                account.id,
+                period.id,
+                item["close_time"].astimezone(REPORT_TIMEZONE).date(),
+            )
             for item in normalized_positions
         },
     )
@@ -609,8 +620,7 @@ async def cleanup_polymarket_closed_positions(
             )
         ).all()
         for snapshot in daily_rows:
-            start = datetime.combine(snapshot.snapshot_date, time.min, tzinfo=UTC)
-            end = datetime.combine(snapshot.snapshot_date, time.max, tzinfo=UTC)
+            start, end = reporting_day_bounds(snapshot.snapshot_date)
             realized = await db.scalar(
                 select(func.sum(ClosedPosition.realized_pnl)).where(
                     ClosedPosition.exchange_account_id == account_id,
@@ -676,8 +686,12 @@ async def apply_data_retention(
                 == AccountBalanceSnapshot.exchange_account_id,
                 DailyPnlSnapshot.tracking_period_id
                 == AccountBalanceSnapshot.tracking_period_id,
-                func.date(DailyPnlSnapshot.snapshot_date)
-                == func.date(AccountBalanceSnapshot.recorded_at),
+                DailyPnlSnapshot.snapshot_date
+                == func.date(
+                    func.timezone(
+                        "Asia/Shanghai", AccountBalanceSnapshot.recorded_at
+                    )
+                ),
             )
         )
         deleted_balances = (
@@ -694,8 +708,10 @@ async def apply_data_retention(
                 == AssetBalanceSnapshot.exchange_account_id,
                 DailyPnlSnapshot.tracking_period_id
                 == AssetBalanceSnapshot.tracking_period_id,
-                func.date(DailyPnlSnapshot.snapshot_date)
-                == func.date(AssetBalanceSnapshot.recorded_at),
+                DailyPnlSnapshot.snapshot_date
+                == func.date(
+                    func.timezone("Asia/Shanghai", AssetBalanceSnapshot.recorded_at)
+                ),
             )
         )
         deleted_asset_balances = (
@@ -712,8 +728,10 @@ async def apply_data_retention(
                 == PositionSnapshot.exchange_account_id,
                 DailyPnlSnapshot.tracking_period_id
                 == PositionSnapshot.tracking_period_id,
-                func.date(DailyPnlSnapshot.snapshot_date)
-                == func.date(PositionSnapshot.recorded_at),
+                DailyPnlSnapshot.snapshot_date
+                == func.date(
+                    func.timezone("Asia/Shanghai", PositionSnapshot.recorded_at)
+                ),
             )
         )
         deleted_positions = (

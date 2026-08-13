@@ -10,6 +10,7 @@ from app.models import (
     AccountBalanceSnapshot,
     AssetBalanceSnapshot,
     CashFlowRecord,
+    CurrentPosition,
     DailyPnlSnapshot,
     ExchangeAccount,
     FundingRecord,
@@ -328,6 +329,100 @@ async def test_daily_snapshot_rolls_over_at_shanghai_midnight():
         assert source_ids == {
             "balance-daily-20260810",
             "balance-daily-20260811",
+        }
+
+
+@pytest.mark.asyncio
+async def test_daily_pnl_uses_shanghai_reporting_date():
+    account = await _create_account()
+    summary = await FakeAccountingAdapter().get_account_summary()
+    after_midnight = datetime(2026, 8, 10, 16, 1, tzinfo=UTC)
+    async with SessionLocal() as db:
+        stored = await db.get(ExchangeAccount, account.id)
+        period = await db.scalar(
+            select(TrackingPeriod).where(
+                TrackingPeriod.exchange_account_id == stored.id
+            )
+        )
+        from app.services.accounts import _write_daily_snapshot
+
+        await _write_daily_snapshot(db, stored, period, summary, after_midnight)
+        await db.flush()
+        daily = await db.scalar(select(DailyPnlSnapshot))
+        assert str(daily.snapshot_date) == "2026-08-11"
+
+
+@pytest.mark.asyncio
+async def test_stream_cursors_skip_fresh_streams_and_keep_long_position_lookback(
+    monkeypatch,
+):
+    account = await _create_account()
+
+    class CountingAdapter(FakeAccountingAdapter):
+        calls = {"balance": 0, "positions": 0, "closed": 0, "history": 0}
+        closed_start = None
+
+        async def get_account_summary(self):
+            self.calls["balance"] += 1
+            return await super().get_account_summary()
+
+        async def get_balances(self):
+            return await super().get_balances()
+
+        async def get_open_positions(self):
+            self.calls["positions"] += 1
+            return await super().get_open_positions()
+
+        async def get_closed_positions(self, start_time, end_time):
+            del end_time
+            self.calls["closed"] += 1
+            type(self).closed_start = start_time
+            return []
+
+        async def get_history_bundle(self, start_time, end_time):
+            self.calls["history"] += 1
+            return await super().get_history_bundle(start_time, end_time)
+
+    monkeypatch.setitem(ADAPTERS, "HYPERLIQUID", CountingAdapter)
+    async with SessionLocal() as db:
+        stored = await db.get(ExchangeAccount, account.id)
+        period = await db.scalar(
+            select(TrackingPeriod).where(
+                TrackingPeriod.exchange_account_id == stored.id
+            )
+        )
+        long_open_time = datetime.now(UTC) - timedelta(days=2)
+        db.add(
+            CurrentPosition(
+                exchange=stored.exchange,
+                exchange_account_id=stored.id,
+                tracking_period_id=period.id,
+                source_record_id="long-held",
+                symbol="BTC",
+                normalized_symbol="BTC-USDC-PERP",
+                side="LONG",
+                open_time=long_open_time,
+                tracking_started_at=stored.tracking_started_at,
+            )
+        )
+        await db.commit()
+
+        assert (await sync_account(db, stored))["status"] == "SUCCESS"
+        assert CountingAdapter.calls == {
+            "balance": 1,
+            "positions": 1,
+            "closed": 1,
+            "history": 1,
+        }
+        assert CountingAdapter.closed_start == long_open_time
+
+        CountingAdapter.calls = {key: 0 for key in CountingAdapter.calls}
+        assert (await sync_account(db, stored))["status"] == "SUCCESS"
+        assert CountingAdapter.calls == {
+            "balance": 0,
+            "positions": 0,
+            "closed": 0,
+            "history": 0,
         }
 
 

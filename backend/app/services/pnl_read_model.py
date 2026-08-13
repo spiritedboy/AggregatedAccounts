@@ -8,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import PnlAnalyticsSummary, PnlExchangeSummary
 
 ACTIVE_SCOPE = "ACTIVE_PORTFOLIO"
@@ -67,6 +68,9 @@ async def refresh_pnl_read_model(db: AsyncSession) -> dict[str, Any]:
 async def get_pnl_read_model(db: AsyncSession) -> dict[str, Any] | None:
     row = await db.get(PnlAnalyticsSummary, ACTIVE_SCOPE)
     if row is None:
+        return None
+    max_age = max(settings.sync_health_seconds * 2, 120)
+    if (datetime.now(UTC) - row.calculated_at).total_seconds() > max_age:
         return None
     exchanges = (
         await db.scalars(select(PnlExchangeSummary).order_by(PnlExchangeSummary.exchange))

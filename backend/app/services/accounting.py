@@ -19,7 +19,6 @@ from app.models import (
     IncomeRecord,
     LatestAccountBalance,
     LatestAssetBalance,
-    SyncJob,
     TradingFeeRecord,
 )
 from app.services.operational_read_models import (
@@ -33,6 +32,18 @@ def _num(value: Any) -> float:
 
 
 REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def _parse_history_cursor(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _uses_reporting_day_boundaries(
@@ -477,31 +488,13 @@ async def calculate_data_completeness(db: AsyncSession) -> dict[str, Any]:
     cash_stats = await _record_stats(
         db, CashFlowRecord, account_ids, CashFlowRecord.record_time
     )
-    full_jobs = (
-        await db.scalars(
-            select(SyncJob)
-            .where(
-                SyncJob.exchange_account_id.in_(account_ids),
-                SyncJob.job_type == "FULL_ACCOUNT",
-                SyncJob.status == "SUCCESS",
-            )
-            .order_by(
-                SyncJob.exchange_account_id,
-                func.coalesce(SyncJob.finished_at, SyncJob.started_at).desc(),
-                SyncJob.id.desc(),
-            )
-            .distinct(SyncJob.exchange_account_id)
-        )
-    ).all()
-    latest_full_job = {job.exchange_account_id: job for job in full_jobs}
-
     items: list[dict[str, Any]] = []
     status_counts: dict[str, int] = defaultdict(int)
     for account in accounts:
-        full_job = latest_full_job.get(account.id)
-        full_synced_at = (
-            full_job.finished_at or full_job.started_at if full_job else None
+        history_cursor = (account.data_completeness_details or {}).get(
+            "last_history_sync_at"
         )
+        full_synced_at = _parse_history_cursor(history_cursor)
         balance_count, latest_balance = balance_stats.get(account.id, (0, None))
         asset_balance_count, latest_asset_balance = asset_balance_stats.get(
             account.id, (0, None)

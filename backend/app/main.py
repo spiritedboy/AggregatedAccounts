@@ -27,6 +27,7 @@ from app.services.pnl_read_model import refresh_pnl_read_model
 from app.services.polymarket_translation import (
     process_pending_polymarket_translations,
 )
+from app.services.reporting_calendar import rebuild_daily_pnl_reporting_calendar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +35,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("portfolio")
 scheduler = AsyncIOScheduler(timezone="UTC")
+
+
+def _scheduler_tick_seconds() -> int:
+    return max(
+        min(
+            settings.sync_balance_seconds,
+            settings.sync_position_seconds,
+            settings.sync_history_seconds,
+            settings.sync_closed_position_seconds,
+        ),
+        5,
+    )
 
 
 async def scheduled_sync() -> None:
@@ -69,21 +82,6 @@ async def scheduled_sync() -> None:
             )
     async with SessionLocal() as db:
         try:
-            translation_result = await process_pending_polymarket_translations(db)
-            if translation_result.get("translated") or translation_result.get("failed"):
-                logger.info(
-                    "polymarket translations processed result=%s",
-                    translation_result,
-                )
-        except Exception:
-            logger.exception("polymarket translation processing failed")
-    async with SessionLocal() as db:
-        try:
-            await capture_portfolio_equity_point(db)
-        except Exception:
-            logger.exception("portfolio equity sample failed")
-    async with SessionLocal() as db:
-        try:
             await refresh_pnl_read_model(db)
             await refresh_operational_read_models(db)
             await db.commit()
@@ -92,11 +90,29 @@ async def scheduled_sync() -> None:
             logger.exception("PnL analytics read model refresh failed")
 
 
+async def scheduled_translation() -> None:
+    async with SessionLocal() as db:
+        try:
+            result = await process_pending_polymarket_translations(db)
+            if result.get("translated") or result.get("failed"):
+                logger.info("polymarket translations processed result=%s", result)
+        except Exception:
+            logger.exception("polymarket translation processing failed")
+
+
+async def scheduled_equity_capture() -> None:
+    async with SessionLocal() as db:
+        try:
+            await capture_portfolio_equity_point(db)
+        except Exception:
+            logger.exception("portfolio equity sample failed")
+
+
 async def scheduled_retention() -> None:
     async with SessionLocal() as db:
         result = await apply_data_retention(db)
         await refresh_pnl_read_model(db)
-        await refresh_operational_read_models(db)
+        await refresh_operational_read_models(db, full_accounting=True)
         await db.commit()
     logger.info("scheduled data retention completed result=%s", result)
 
@@ -104,7 +120,7 @@ async def scheduled_retention() -> None:
 async def scheduled_pnl_calibration() -> None:
     async with SessionLocal() as db:
         await refresh_pnl_read_model(db)
-        await refresh_operational_read_models(db)
+        await refresh_operational_read_models(db, full_accounting=True)
         await db.commit()
     logger.info("daily PnL analytics calibration completed")
 
@@ -118,6 +134,7 @@ async def lifespan(_: FastAPI):
         configured = await provision_configured_accounts(db)
         logger.info("configured account provisioning completed result=%s", configured)
         if settings.app_env != "test":
+            calendar_result = await rebuild_daily_pnl_reporting_calendar(db)
             backfilled = await backfill_portfolio_equity_points(db)
             captured = await capture_portfolio_equity_point(db)
             translation_result = await process_pending_polymarket_translations(db)
@@ -125,7 +142,9 @@ async def lifespan(_: FastAPI):
             await refresh_operational_read_models(db)
             await db.commit()
             logger.info(
-                "portfolio equity series ready backfilled=%s captured=%s translations=%s",
+                "portfolio equity series ready calendar=%s backfilled=%s "
+                "captured=%s translations=%s",
+                calendar_result,
                 backfilled,
                 bool(captured),
                 translation_result,
@@ -134,7 +153,7 @@ async def lifespan(_: FastAPI):
         scheduler.add_job(
             scheduled_sync,
             "interval",
-            seconds=max(settings.sync_balance_seconds, 30),
+            seconds=_scheduler_tick_seconds(),
             id="portfolio-sync",
             max_instances=1,
             coalesce=True,
@@ -146,6 +165,24 @@ async def lifespan(_: FastAPI):
             hour=min(max(settings.maintenance_hour_utc, 0), 23),
             minute=min(max(settings.maintenance_minute_utc, 0), 59),
             id="data-retention",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            scheduled_translation,
+            "interval",
+            seconds=60,
+            id="polymarket-translation",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            scheduled_equity_capture,
+            "interval",
+            seconds=300,
+            id="portfolio-equity-capture",
             max_instances=1,
             coalesce=True,
             replace_existing=True,
