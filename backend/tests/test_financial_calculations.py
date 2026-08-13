@@ -109,6 +109,32 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
         )
         db.add_all(
             [
+                ClosedPosition(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id="closed-win",
+                    symbol="WIN-USDT-SWAP",
+                    normalized_symbol="WIN-USDT-PERP",
+                    side="LONG",
+                    net_pnl=Decimal("7"),
+                    open_time=period.started_at,
+                    close_time=datetime(2026, 7, 2, tzinfo=UTC),
+                    tracking_started_at=period.started_at,
+                ),
+                ClosedPosition(
+                    exchange=account.exchange,
+                    exchange_account_id=account.id,
+                    tracking_period_id=period.id,
+                    source_record_id="closed-loss",
+                    symbol="LOSS-USDT-SWAP",
+                    normalized_symbol="LOSS-USDT-PERP",
+                    side="SHORT",
+                    net_pnl=Decimal("-3"),
+                    open_time=period.started_at,
+                    close_time=datetime(2026, 7, 3, tzinfo=UTC),
+                    tracking_started_at=period.started_at,
+                ),
                 AccountBalanceSnapshot(
                     exchange=account.exchange,
                     exchange_account_id=account.id,
@@ -144,6 +170,8 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
     assert summary["period_funding_fee"] == -1
     assert summary["period_trading_fee"] == 1
     assert summary["period_net_realized_pnl"] == 4
+    assert summary["total_profit"] == 7
+    assert summary["total_loss"] == 3
     assert summary["current_position_pnl"] == 9.5
     assert dashboard["cumulative_net_pnl"] == summary["period_net_realized_pnl"]
     assert dashboard["current_position_pnl"] == summary["current_position_pnl"]

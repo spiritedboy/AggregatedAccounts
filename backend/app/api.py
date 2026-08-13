@@ -1166,13 +1166,37 @@ async def _pnl_summary_data(
         .join(ExchangeAccount)
         .where(ExchangeAccount.is_active.is_(True))
     )
+    closed_net_totals = (
+        await db.execute(
+            select(
+                func.coalesce(
+                    func.sum(ClosedPosition.net_pnl).filter(ClosedPosition.net_pnl > 0),
+                    0,
+                ).label("total_profit"),
+                func.coalesce(
+                    func.sum(ClosedPosition.net_pnl).filter(ClosedPosition.net_pnl < 0),
+                    0,
+                ).label("total_loss"),
+            )
+            .join(ExchangeAccount)
+            .join(TrackingPeriod)
+            .where(
+                ExchangeAccount.is_active.is_(True),
+                TrackingPeriod.is_active.is_(True),
+            )
+        )
+    ).one()
+    total_profit = _num(closed_net_totals.total_profit)
+    total_loss = abs(_num(closed_net_totals.total_loss))
     return {
         "period_initial_equity": sum(_num(row.initial_equity) for row in latest_initial),
         # Daily points store period deltas; the summary needs the period-to-date
         # value from the cumulative curve rather than only the final day's delta.
         "period_investment_return": daily[-1]["cumulative_return"] if daily else 0,
         "period_realized_pnl": realized_pnl,
-        "period_net_realized_pnl": realized_pnl + funding_fee - trading_fee,
+        "period_net_realized_pnl": total_profit - total_loss,
+        "total_profit": total_profit,
+        "total_loss": total_loss,
         "current_position_pnl": _num(current_position_pnl),
         "period_unrealized_pnl_change": (
             daily[-1]["cumulative_unrealized_pnl_change"] if daily else 0

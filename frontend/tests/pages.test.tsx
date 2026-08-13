@@ -542,6 +542,8 @@ describe("portfolio pages", () => {
           period_unrealized_pnl_change: 25,
           period_funding_fee: -2,
           period_trading_fee: 3,
+          total_profit: 175,
+          total_loss: 80,
           best_day: 120,
           worst_day: -30,
           profitable_days: 12,
@@ -582,15 +584,19 @@ describe("portfolio pages", () => {
     render(<PnlPage />);
     expect(await screen.findByText("累计净收益")).toBeInTheDocument();
     expect(screen.getAllByText("已实现毛收益")).not.toHaveLength(0);
-    expect(screen.getByText("已实现毛收益 + 资金费 - 手续费")).toBeInTheDocument();
+    expect(screen.getByText("总盈利 - 总亏损（均按历史仓位净收益统计）")).toBeInTheDocument();
     expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
     expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
     expect(screen.getByText("多空表现")).toBeInTheDocument();
     expect(screen.getByText("8 笔")).toBeInTheDocument();
     expect(screen.getByText("4 笔")).toBeInTheDocument();
     expect(screen.getByText("交易质量")).toBeInTheDocument();
-    expect(screen.getByText("最大单笔盈利")).toBeInTheDocument();
-    expect(screen.getByText("最大单笔亏损")).toBeInTheDocument();
+    expect(screen.getByText("总盈利")).toBeInTheDocument();
+    expect(screen.getByText("总亏损")).toBeInTheDocument();
+    expect(screen.getByText("最佳单日")).toBeInTheDocument();
+    expect(screen.getByText("最大单日亏损")).toBeInTheDocument();
+    expect(screen.queryByText("最大单笔盈利")).not.toBeInTheDocument();
+    expect(screen.queryByText("最大单笔亏损")).not.toBeInTheDocument();
     expect(screen.getAllByText("盈利因子")).not.toHaveLength(0);
     expect(screen.getByText("2.00 : 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();

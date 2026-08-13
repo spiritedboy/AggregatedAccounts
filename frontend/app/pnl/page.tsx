@@ -29,6 +29,8 @@ type PnlSummary = {
   period_unrealized_pnl_change: number;
   period_funding_fee: number;
   period_trading_fee: number;
+  total_profit: number;
+  total_loss: number;
   best_day: number;
   worst_day: number;
   profitable_days: number;
@@ -67,12 +69,9 @@ type SidePnl = {
   short: SideMetrics;
   count_ratio: number | null;
 };
-type ExtremeTrade = { exchange: string; symbol: string; side: "LONG" | "SHORT"; net_pnl: number; close_time: string };
 type TradeQuality = SideMetrics & {
   payoff_ratio: number | null;
   profit_factor: number | null;
-  best_trade: ExtremeTrade | null;
-  worst_trade: ExtremeTrade | null;
 };
 
 export default function PnlPage() {
@@ -241,7 +240,7 @@ function PnlContent() {
         <MetricCard
           label="累计净收益"
           value={formatMoney(summary.period_net_realized_pnl)}
-          detail="已实现毛收益 + 资金费 - 手续费"
+          detail="总盈利 - 总亏损（均按历史仓位净收益统计）"
           icon={CircleDollarSign}
           tone={summary.period_net_realized_pnl >= 0 ? "positive" : "negative"}
           featured
@@ -270,13 +269,13 @@ function PnlContent() {
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
             <p className="section-label">周期表现</p>
-            <p className="muted mt-1 text-xs">统计期内的高低点与胜负天数</p>
+            <p className="muted mt-1 text-xs">按历史仓位净收益统计盈利、亏损与胜负天数</p>
             </div>
             <p className="muted text-[11px]">{summary.notice}</p>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <Stat icon={TrendingUp} label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
-            <Stat icon={TrendingDown} label="最大单日亏损" value={formatMoney(summary.worst_day)} tone="negative" />
+            <Stat icon={TrendingUp} label="总盈利" value={formatMoney(summary.total_profit)} tone="positive" />
+            <Stat icon={TrendingDown} label="总亏损" value={formatMoney(summary.total_loss)} tone="negative" />
             <Stat icon={CalendarDays} label="盈利天数" value={`${summary.profitable_days} 天`} />
             <Stat icon={CalendarDays} label="亏损天数" value={`${summary.losing_days} 天`} />
             <div className="soft-block flex min-h-24 flex-col justify-center p-4">
@@ -291,7 +290,7 @@ function PnlContent() {
         </article>
       </section>
 
-      {tradeQuality ? <TradeQualityPanel data={tradeQuality} formatMoney={formatMoney} /> : null}
+      {tradeQuality ? <TradeQualityPanel data={tradeQuality} summary={summary} formatMoney={formatMoney} /> : null}
       {bySide ? <SidePerformance data={bySide} quality={tradeQuality} formatMoney={formatMoney} /> : null}
 
       <section className="panel mt-4 p-5 md:p-6">
@@ -354,7 +353,7 @@ function PnlContent() {
   );
 }
 
-function TradeQualityPanel({ data, formatMoney }: { data: TradeQuality; formatMoney: (value: number) => string }) {
+function TradeQualityPanel({ data, summary, formatMoney }: { data: TradeQuality; summary: PnlSummary; formatMoney: (value: number) => string }) {
   const ratio = (value: number | null) => (value === null ? "--" : value.toFixed(2));
   const metrics = [
     ["交易胜率", `${data.win_rate.toFixed(1)}%`],
@@ -380,25 +379,21 @@ function TradeQualityPanel({ data, formatMoney }: { data: TradeQuality; formatMo
           ))}
         </div>
         <div className="grid gap-3 p-5 sm:grid-cols-2 md:p-6">
-          <ExtremeTradeCard label="最大单笔盈利" trade={data.best_trade} formatMoney={formatMoney} tone="positive" />
-          <ExtremeTradeCard label="最大单笔亏损" trade={data.worst_trade} formatMoney={formatMoney} tone="negative" />
+          <DayExtremeCard label="最佳单日" value={summary.best_day} formatMoney={formatMoney} tone="positive" />
+          <DayExtremeCard label="最大单日亏损" value={summary.worst_day} formatMoney={formatMoney} tone="negative" />
         </div>
       </div>
     </section>
   );
 }
 
-function ExtremeTradeCard({ label, trade, formatMoney, tone }: { label: string; trade: ExtremeTrade | null; formatMoney: (value: number) => string; tone: "positive" | "negative" }) {
+function DayExtremeCard({ label, value, formatMoney, tone }: { label: string; value: number; formatMoney: (value: number) => string; tone: "positive" | "negative" }) {
   return (
-    <div className="soft-block p-4">
+    <div className="soft-block flex min-h-24 flex-col justify-center p-4">
       <p className="metric-label">{label}</p>
-      {trade ? (
-        <>
-          <p className={`mono-number mt-2 text-lg font-bold ${tone === "positive" ? "text-positive" : "text-negative"}`}>{formatMoney(trade.net_pnl)}</p>
-          <p className="mt-2 truncate text-xs font-semibold">{trade.symbol}</p>
-          <p className="muted mt-1 text-[11px]">{exchangeDisplayName(trade.exchange)} · {trade.side === "LONG" ? "做多" : "做空"}</p>
-        </>
-      ) : <p className="muted mt-3 text-sm">暂无数据</p>}
+      <p className={`mono-number mt-3 text-lg font-bold ${tone === "positive" ? "text-positive" : "text-negative"}`}>
+        {formatMoney(value)}
+      </p>
     </div>
   );
 }
