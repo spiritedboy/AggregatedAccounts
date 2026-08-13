@@ -28,6 +28,14 @@ backup_dir="${BACKUP_DIR:-$project_dir/../backups}"
 webhook_url="${FEISHU_HEALTH_WEBHOOK_URL:-}"
 warning_disk_percent="${HEALTH_CHECK_WARNING_DISK_PERCENT:-80}"
 critical_disk_percent="${HEALTH_CHECK_CRITICAL_DISK_PERCENT:-90}"
+balance_stale_seconds=$(( ${SYNC_BALANCE_SECONDS:-60} * 3 ))
+position_stale_seconds=$(( ${SYNC_POSITION_SECONDS:-15} * 4 ))
+closed_stale_seconds=$(( ${SYNC_CLOSED_POSITION_SECONDS:-600} * 2 ))
+history_stale_seconds=$(( ${SYNC_HISTORY_SECONDS:-300} * 3 ))
+(( balance_stale_seconds < 300 )) && balance_stale_seconds=300
+(( position_stale_seconds < 120 )) && position_stale_seconds=120
+(( closed_stale_seconds < 1200 )) && closed_stale_seconds=1200
+(( history_stale_seconds < 900 )) && history_stale_seconds=900
 
 warnings=()
 criticals=()
@@ -150,7 +158,46 @@ else
       (SELECT extract(epoch FROM (now() - max(bucket_time)))::bigint FROM portfolio_equity_points),
       (SELECT count(*) FROM portfolio_equity_points),
       (SELECT count(*) FROM sync_jobs),
-      (SELECT coalesce(max(recorded_at)::text, 'none') FROM latest_account_balances);
+      (SELECT coalesce(max(recorded_at)::text, 'none') FROM latest_account_balances),
+      (SELECT coalesce(max(extract(epoch FROM (now() - coalesce(
+        nullif(data_completeness_details->>'last_balance_sync_at', '')::timestamptz,
+        last_synced_at))))::bigint, -1) FROM exchange_accounts WHERE is_active),
+      (SELECT coalesce(max(extract(epoch FROM (now() - coalesce(
+        nullif(data_completeness_details->>'last_position_sync_at', '')::timestamptz,
+        last_synced_at))))::bigint, -1) FROM exchange_accounts WHERE is_active),
+      (SELECT coalesce(max(extract(epoch FROM (now() - coalesce(
+        nullif(data_completeness_details->>'last_closed_position_sync_at', '')::timestamptz,
+        last_synced_at))))::bigint, -1) FROM exchange_accounts WHERE is_active),
+      (SELECT coalesce(max(extract(epoch FROM (now() - coalesce(
+        nullif(data_completeness_details->>'last_history_sync_at', '')::timestamptz,
+        last_synced_at))))::bigint, -1)
+        FROM exchange_accounts
+        WHERE is_active AND (
+          coalesce(data_completeness_details->>'income', 'UNKNOWN') <> 'UNSUPPORTED'
+          OR coalesce(data_completeness_details->>'funding', 'UNKNOWN') <> 'UNSUPPORTED'
+          OR coalesce(data_completeness_details->>'fees', 'UNKNOWN') <> 'UNSUPPORTED'
+          OR coalesce(data_completeness_details->>'cash_flows', 'UNKNOWN') <> 'UNSUPPORTED'
+        )),
+      (SELECT count(*) FROM operational_read_models),
+      (SELECT coalesce(extract(epoch FROM (now() - min(calculated_at)))::bigint, -1)
+        FROM operational_read_models),
+      (SELECT count(*) FROM accounting_daily_summaries),
+      (SELECT count(*) FROM app_settings
+        WHERE key = 'daily_pnl_reporting_calendar'
+          AND value->>'version' = '2'
+          AND value->>'timezone' = 'Asia/Shanghai'),
+      (SELECT count(*) FROM sync_jobs
+        WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'
+          AND job_type LIKE '%POSITIONS%'),
+      (SELECT count(*) FROM sync_jobs
+        WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'
+          AND job_type LIKE '%HISTORY%'),
+      (SELECT count(*) FROM sync_jobs
+        WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'
+          AND job_type LIKE '%CLOSED%'),
+      (SELECT count(*) FROM sync_jobs
+        WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'
+          AND job_type LIKE '%BALANCE%');
   " 2>/dev/null || true)"
 fi
 
@@ -160,7 +207,10 @@ else
   IFS='|' read -r db_bytes active_accounts latest_accounts stale_accounts failed_jobs \
     jobs_24h successful_jobs average_duration recent_errors translation_queue daily_accounts \
     daily_assets daily_positions current_positions closed_positions \
-    equity_lag_seconds equity_point_count sync_job_count latest_at <<< "$db_result"
+    equity_lag_seconds equity_point_count sync_job_count latest_at \
+    balance_lag_seconds position_lag_seconds closed_lag_seconds history_lag_seconds \
+    read_model_count read_model_lag_seconds accounting_summary_count calendar_marker_count \
+    position_jobs history_jobs closed_jobs balance_jobs <<< "$db_result"
   db_megabytes=$((db_bytes / 1024 / 1024))
   if (( jobs_24h > 0 )); then
     success_rate="$(awk -v success="$successful_jobs" -v total="$jobs_24h" 'BEGIN {printf "%.2f", success * 100 / total}')"
@@ -171,6 +221,9 @@ else
   data_details+=("24小时同步：${successful_jobs}/${jobs_24h} 成功（${success_rate}%），平均 ${average_duration}ms")
   data_details+=("实时账户：${latest_accounts}/${active_accounts}；当前仓位 ${current_positions}；历史仓位 ${closed_positions}")
   data_details+=("今日快照：账户 ${daily_accounts}、资产 ${daily_assets}、持仓 ${daily_positions}")
+  data_details+=("同步流：余额 ${balance_lag_seconds}秒、仓位 ${position_lag_seconds}秒、平仓 ${closed_lag_seconds}秒、账务 ${history_lag_seconds}秒")
+  data_details+=("24小时分流任务：余额 ${balance_jobs}、仓位 ${position_jobs}、平仓 ${closed_jobs}、账务 ${history_jobs}")
+  data_details+=("读取模型：${read_model_count}/5，最旧延迟 ${read_model_lag_seconds}秒；财务日汇总 ${accounting_summary_count} 条")
   if [[ "$equity_lag_seconds" =~ ^[0-9]+$ ]]; then
     data_details+=("净值曲线：${equity_point_count} 点，延迟 $((equity_lag_seconds / 60)) 分钟")
   else
@@ -183,6 +236,32 @@ else
   fi
   if (( stale_accounts > 0 )); then
     critical "$stale_accounts 个账户超过5分钟未更新"
+  fi
+  if (( balance_lag_seconds < 0 || balance_lag_seconds > balance_stale_seconds )); then
+    critical "余额同步流已延迟 ${balance_lag_seconds} 秒"
+  fi
+  if (( position_lag_seconds < 0 || position_lag_seconds > position_stale_seconds )); then
+    critical "当前仓位同步流已延迟 ${position_lag_seconds} 秒"
+  fi
+  if (( closed_lag_seconds < 0 || closed_lag_seconds > closed_stale_seconds )); then
+    critical "已平仓同步流已延迟 ${closed_lag_seconds} 秒"
+  fi
+  if (( history_lag_seconds < 0 || history_lag_seconds > history_stale_seconds )); then
+    critical "账务历史同步流已延迟 ${history_lag_seconds} 秒"
+  fi
+  if (( read_model_count != 5 )); then
+    critical "读取模型数量异常：${read_model_count}/5"
+  elif (( read_model_lag_seconds < 0 || read_model_lag_seconds > 300 )); then
+    critical "读取模型最旧数据已延迟 ${read_model_lag_seconds} 秒"
+  fi
+  if (( accounting_summary_count == 0 )); then
+    critical "财务日汇总为空"
+  fi
+  if (( calendar_marker_count != 1 )); then
+    critical "北京时间日快照迁移标记缺失或版本异常"
+  fi
+  if (( position_jobs == 0 || closed_jobs == 0 || balance_jobs == 0 )); then
+    warn "最近24小时存在未执行成功的核心同步流"
   fi
   if (( failed_jobs > 0 )); then
     warn "最近24小时有 $failed_jobs 个同步任务失败"
