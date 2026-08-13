@@ -45,6 +45,7 @@ from app.services.analytics import (
     build_sync_status,
 )
 from app.services.equity_curve import get_equity_curve
+from app.services.pnl_read_model import get_pnl_read_model, refresh_pnl_read_model
 from app.services.position_math import position_margin_used
 
 router = APIRouter(prefix="/api")
@@ -1345,7 +1346,7 @@ async def _pnl_by_side_data(db: AsyncSession) -> dict[str, Any]:
     }
 
 
-async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
+async def _calculate_pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
     rows = await _daily_pnl_rows(db)
     daily = _daily_pnl_points_from_rows(rows)
     trade_analytics = await _pnl_by_side_data(db)
@@ -1360,6 +1361,11 @@ async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
+    cached = await get_pnl_read_model(db)
+    return cached if cached is not None else await _calculate_pnl_bootstrap_data(db)
+
+
 @router.get("/pnl/bootstrap")
 async def pnl_bootstrap(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
@@ -1371,37 +1377,35 @@ async def pnl_bootstrap(
 async def pnl_summary(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    daily = await _pnl_series(db, "daily")
-    return envelope(await _pnl_summary_data(db, daily))
+    return envelope((await _pnl_bootstrap_data(db))["summary"])
 
 
 @router.get("/pnl/daily")
 async def pnl_daily(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    return envelope(await _pnl_series(db, "daily"))
+    return envelope((await _pnl_bootstrap_data(db))["daily"])
 
 
 @router.get("/pnl/weekly")
 async def pnl_weekly(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    return envelope(await _pnl_series(db, "week"))
+    return envelope((await _pnl_bootstrap_data(db))["weekly"])
 
 
 @router.get("/pnl/monthly")
 async def pnl_monthly(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    return envelope(await _pnl_series(db, "month"))
+    return envelope((await _pnl_bootstrap_data(db))["monthly"])
 
 
 @router.get("/pnl/by-exchange")
 async def pnl_by_exchange(
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    rows = await _daily_pnl_rows(db)
-    return envelope(await _pnl_by_exchange_data(db, rows))
+    return envelope((await _pnl_bootstrap_data(db))["by_exchange"])
 
 
 @router.get("/sync/status")
@@ -1461,6 +1465,8 @@ async def refresh_all(
                 **await sync_account(db, account),
             }
         )
+    await refresh_pnl_read_model(db)
+    await db.commit()
     return envelope(results)
 
 

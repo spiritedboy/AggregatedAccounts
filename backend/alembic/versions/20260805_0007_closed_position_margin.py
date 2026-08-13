@@ -15,11 +15,16 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    op.add_column("closed_positions", sa.Column("leverage", sa.Numeric(12, 4), nullable=True))
-    op.add_column(
-        "closed_positions",
-        sa.Column("margin_used", sa.Numeric(30, 10), nullable=False, server_default="0"),
-    )
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("closed_positions")}
+    if "leverage" not in columns:
+        op.add_column(
+            "closed_positions", sa.Column("leverage", sa.Numeric(12, 4), nullable=True)
+        )
+    if "margin_used" not in columns:
+        op.add_column(
+            "closed_positions",
+            sa.Column("margin_used", sa.Numeric(30, 10), nullable=False, server_default="0"),
+        )
 
 
 def downgrade() -> None:

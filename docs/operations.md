@@ -3,6 +3,10 @@
 项目提供宿主机只读巡检脚本 `scripts/daily-health-check.sh`。它独立于 backend 运行，
 即使应用容器故障也能检查并报告问题。
 
+收益分析使用 `pnl_analytics_summaries` 与 `pnl_exchange_summaries` 作为可重建的读取层。
+每轮交易所同步完成后统一刷新，服务启动时及每天北京时间 00:05 全量校准；历史仓位、
+财务流水和每日收益快照仍是唯一事实来源。汇总异常时应重建，不能反向修改明细。
+
 ## 巡检范围
 
 - backend、frontend、gateway 容器和本机健康接口

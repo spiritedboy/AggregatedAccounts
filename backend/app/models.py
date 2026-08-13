@@ -413,6 +413,39 @@ class DailyPnlSnapshot(Base, BusinessMixin):
     investment_return: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
 
 
+class PnlAnalyticsSummary(Base, TimestampMixin):
+    """Rebuildable read model for the active portfolio PnL page."""
+
+    __tablename__ = "pnl_analytics_summaries"
+
+    scope: Mapped[str] = mapped_column(String(32), primary_key=True)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    daily: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    weekly: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    monthly: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    by_side: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    trade_quality: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class PnlExchangeSummary(Base, TimestampMixin):
+    """Rebuildable exchange contribution rows for the active PnL period."""
+
+    __tablename__ = "pnl_exchange_summaries"
+    __table_args__ = (Index("ix_pnl_exchange_summary_calculated", "calculated_at"),)
+
+    exchange: Mapped[str] = mapped_column(String(24), primary_key=True)
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    funding_fee: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    trading_fee: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    investment_return: Mapped[Decimal] = mapped_column(Numeric(30, 10), default=0)
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
 class PortfolioEquityPoint(Base):
     """Five-minute, portfolio-level equity sample.
 
