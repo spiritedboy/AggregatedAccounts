@@ -1,26 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Manrope, Noto_Sans_SC } from "next/font/google";
+import "@fontsource-variable/manrope";
+import "@fontsource-variable/noto-sans-sc";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/ibm-plex-mono/600.css";
 
 import "./globals.css";
-
-const bodyFont = Noto_Sans_SC({
-  subsets: ["latin"],
-  variable: "--font-body",
-  display: "swap",
-});
-
-const displayFont = Manrope({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-});
-
-const dataFont = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-data",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Atlas Ledger · 多交易所资产",
@@ -58,9 +43,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
       </head>
-      <body className={`${bodyFont.variable} ${displayFont.variable} ${dataFont.variable}`}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

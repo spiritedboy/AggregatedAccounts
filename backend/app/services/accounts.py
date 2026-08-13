@@ -1086,9 +1086,7 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                     if due
                 ]
                 if not due_streams:
-                    job.job_type = "NOOP"
-                    job.records_written = 0
-                    job.status = "SUCCESS"
+                    await db.delete(job)
                     return {"status": "SUCCESS", "records_written": 0}
                 job.job_type = "+".join(due_streams)
 
@@ -1321,13 +1319,12 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                             },
                         )
                     if history_error is not None:
-                        db.add(
-                            SyncError(
-                                exchange_account_id=account.id,
-                                error_type=type(history_error).__name__,
-                                safe_message="资产同步成功，但账务流水同步不完整",
-                                occurred_at=datetime.now(UTC),
-                            )
+                        await _record_sync_error(
+                            db,
+                            account_id=account.id,
+                            error_type=type(history_error).__name__,
+                            safe_message="资产同步成功，但账务流水同步不完整",
+                            occurred_at=datetime.now(UTC),
                         )
                 if summary is not None:
                     await _write_daily_snapshot(db, account, period, summary, started)
@@ -1341,6 +1338,18 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 account.last_synced_at = started
                 account.connection_status = "CONNECTED"
             job.status = "SUCCESS"
+            if job.job_type == "POSITIONS":
+                previous_sample = await db.scalar(
+                    select(SyncJob.id).where(
+                        SyncJob.exchange_account_id == account_id,
+                        SyncJob.id != job.id,
+                        SyncJob.job_type == "POSITIONS",
+                        SyncJob.status == "SUCCESS",
+                        SyncJob.started_at >= started - timedelta(seconds=60),
+                    )
+                )
+                if previous_sample is not None:
+                    await db.delete(job)
             return {"status": "SUCCESS", "records_written": job.records_written}
         except Exception as exc:
             # A database error during autoflush leaves the session in a failed
@@ -1359,19 +1368,46 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 started_at=started,
             )
             db.add(job)
-            db.add(
-                SyncError(
-                    exchange_account_id=account_id,
-                    error_type=error_type,
-                    safe_message="同步失败，请测试连接或检查只读 API 权限",
-                    occurred_at=datetime.now(UTC),
-                )
+            await _record_sync_error(
+                db,
+                account_id=account_id,
+                error_type=error_type,
+                safe_message="同步失败，请测试连接或检查只读 API 权限",
+                occurred_at=datetime.now(UTC),
             )
             return {"status": "FAILED", "error": "同步失败，请检查连接"}
         finally:
             job.finished_at = datetime.now(UTC)
             job.duration_ms = int((time.monotonic() - timer) * 1000)
             await db.commit()
+
+
+async def _record_sync_error(
+    db: AsyncSession,
+    *,
+    account_id: uuid.UUID,
+    error_type: str,
+    safe_message: str,
+    occurred_at: datetime,
+) -> None:
+    """Keep one equivalent operational error per account and hour."""
+    duplicate = await db.scalar(
+        select(SyncError.id).where(
+            SyncError.exchange_account_id == account_id,
+            SyncError.error_type == error_type,
+            SyncError.safe_message == safe_message,
+            SyncError.occurred_at >= occurred_at - timedelta(hours=1),
+        )
+    )
+    if duplicate is None:
+        db.add(
+            SyncError(
+                exchange_account_id=account_id,
+                error_type=error_type,
+                safe_message=safe_message,
+                occurred_at=occurred_at,
+            )
+        )
 
 
 async def delete_account(db: AsyncSession, account: ExchangeAccount, ip: str) -> None:

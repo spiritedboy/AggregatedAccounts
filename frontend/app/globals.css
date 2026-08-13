@@ -4,6 +4,9 @@
 
 :root {
   color-scheme: light;
+  --font-body: "Noto Sans SC Variable";
+  --font-display: "Manrope Variable";
+  --font-data: "IBM Plex Mono";
   --bg: #e9e5f0;
   --surface: rgba(248, 246, 252, 0.97);
   --surface-solid: #f8f6fc;

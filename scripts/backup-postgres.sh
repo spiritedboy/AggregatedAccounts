@@ -36,6 +36,7 @@ verify_restore="${BACKUP_VERIFY_RESTORE:-1}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_file="$backup_dir/atlas-ledger-$timestamp.dump"
 temporary_file="$backup_dir/.atlas-ledger-$timestamp-$$.tmp"
+verification_file="$backup_file.verified"
 
 umask 077
 mkdir -p "$backup_dir"
@@ -56,14 +57,16 @@ sha256sum "$backup_file" > "$backup_file.sha256"
 if [[ "$verify_restore" == "1" ]]; then
   if ! BACKUP_DATABASE_URL="$database_url" ENV_FILE="$env_file" \
     "$script_dir/verify-postgres-backup.sh" "$backup_file"; then
-    rm -f "$backup_file" "$backup_file.sha256"
+    rm -f "$backup_file" "$backup_file.sha256" "$verification_file"
     echo "Backup restore verification failed; unverified files removed" >&2
     exit 1
   fi
+  printf 'restore_verified_at=%s\n' "$(date -u '+%FT%TZ')" > "$verification_file"
 fi
 
 find "$backup_dir" -maxdepth 1 -type f \
-  \( -name 'atlas-ledger-*.dump' -o -name 'atlas-ledger-*.dump.sha256' \) \
+  \( -name 'atlas-ledger-*.dump' -o -name 'atlas-ledger-*.dump.sha256' \
+     -o -name 'atlas-ledger-*.dump.verified' \) \
   -mtime "+$retention_days" -delete
 
 echo "Backup completed: $backup_file"

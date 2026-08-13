@@ -410,6 +410,10 @@ sudo cat /etc/cron.d/aggregated-accounts-backup
 sudo systemctl enable --now cron
 ```
 
+恢复验证成功后会生成与转储同名的 `.dump.verified` 标记；巡检以该标记确认“最新备份”
+确实完成过临时数据库恢复，避免从滚动日志推断而产生误报。转储、SHA-256 和验证标记按
+相同的 90 天策略清理。
+
 高安全环境可进一步使用 sudo/peer authentication 或外部备份系统替代密码型超级用户，
 但必须保留“实际恢复到独立数据库并验证”的步骤，不能只检查 `pg_dump` 是否退出成功。
 

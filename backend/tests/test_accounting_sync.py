@@ -80,8 +80,8 @@ class FakeAccountingAdapter:
     async def get_closed_positions(self, *_):
         return []
 
-    async def get_history_bundle(self, start_time, _):
-        recorded_at = start_time + timedelta(minutes=1)
+    async def get_history_bundle(self, _start_time, end_time):
+        recorded_at = end_time - timedelta(seconds=1)
         common = {
             "asset": "USDC",
             "record_time": recorded_at,
@@ -415,6 +415,7 @@ async def test_stream_cursors_skip_fresh_streams_and_keep_long_position_lookback
             "history": 1,
         }
         assert CountingAdapter.closed_start == long_open_time
+        job_count = await db.scalar(select(func.count()).select_from(SyncJob))
 
         CountingAdapter.calls = {key: 0 for key in CountingAdapter.calls}
         assert (await sync_account(db, stored))["status"] == "SUCCESS"
@@ -424,6 +425,27 @@ async def test_stream_cursors_skip_fresh_streams_and_keep_long_position_lookback
             "closed": 0,
             "history": 0,
         }
+        assert await db.scalar(select(func.count()).select_from(SyncJob)) == job_count
+
+        for expected_job_count in (job_count + 1, job_count + 1):
+            details = dict(stored.data_completeness_details)
+            details["last_position_sync_at"] = (
+                datetime.now(UTC) - timedelta(seconds=20)
+            ).isoformat()
+            stored.data_completeness_details = details
+            await db.commit()
+            CountingAdapter.calls = {key: 0 for key in CountingAdapter.calls}
+            assert (await sync_account(db, stored))["status"] == "SUCCESS"
+            assert CountingAdapter.calls == {
+                "balance": 0,
+                "positions": 1,
+                "closed": 0,
+                "history": 0,
+            }
+            assert (
+                await db.scalar(select(func.count()).select_from(SyncJob))
+                == expected_job_count
+            )
 
 
 @pytest.mark.asyncio
@@ -439,6 +461,9 @@ async def test_accounting_failure_does_not_block_primary_asset_sync(monkeypatch)
         error = await db.scalar(select(SyncError))
         assert error.safe_message == "资产同步成功，但账务流水同步不完整"
         assert "secret upstream detail" not in error.safe_message
+
+        assert (await sync_account(db, stored))["status"] == "SUCCESS"
+        assert await db.scalar(select(func.count()).select_from(SyncError)) == 1
 
 
 @pytest.mark.asyncio

@@ -144,7 +144,8 @@ else
         WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'),
       (SELECT coalesce(avg(duration_ms), 0)::bigint FROM sync_jobs
         WHERE status = 'SUCCESS' AND started_at >= now() - interval '24 hours'),
-      (SELECT count(*) FROM sync_errors
+      (SELECT count(DISTINCT (exchange_account_id, error_type, safe_message,
+          date_trunc('hour', occurred_at))) FROM sync_errors
         WHERE occurred_at >= now() - interval '24 hours'),
       (SELECT count(*) FROM polymarket_translations WHERE status IN ('PENDING', 'FAILED')),
       (SELECT count(*) FROM account_balance_snapshots
@@ -266,9 +267,7 @@ else
   if (( failed_jobs > 0 )); then
     warn "最近24小时有 $failed_jobs 个同步任务失败"
   fi
-  if (( recent_errors > 0 )); then
-    warn "最近24小时记录了 $recent_errors 个同步错误"
-  fi
+  data_details+=("24小时异常记录：任务失败 ${failed_jobs} 次、去重后同步错误 ${recent_errors} 条")
   if (( translation_queue > 0 )); then
     warn "Polymarket 待处理或失败翻译 $translation_queue 条"
   fi
@@ -301,9 +300,8 @@ else
   else
     backup_details+=("SHA-256：通过")
   fi
-  if [[ -f /var/log/aggregated-accounts-backup.log ]] && ! \
-    tail -80 /var/log/aggregated-accounts-backup.log | grep -q 'Restore verification passed'; then
-    warn "备份日志中未找到最近的恢复验证成功记录"
+  if [[ ! -f "$latest_backup.verified" ]]; then
+    warn "最新备份缺少恢复验证标记"
     backup_details+=("恢复验证：未确认")
   else
     backup_details+=("恢复验证：通过")
