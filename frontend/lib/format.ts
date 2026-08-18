@@ -52,6 +52,7 @@ const exchangeDisplayNames: Record<string, string> = {
   BINANCE: "Binance",
   OKX: "OKX",
   BITGET: "Bitget",
+  BYBIT: "Bybit",
   HYPERLIQUID: "Hyperliquid",
   POLYMARKET: "Polymarket",
 };

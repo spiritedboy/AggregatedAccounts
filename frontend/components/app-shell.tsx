@@ -294,7 +294,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2">
               <div className="mr-1 hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="muted">五个平台 · 60 秒更新</span>
+                <span className="muted">六个平台 · 60 秒更新</span>
               </div>
               <button
                 type="button"

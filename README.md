@@ -1,6 +1,6 @@
 # Atlas Ledger
 
-Atlas Ledger 是一个公开只读的多交易所资产聚合平台，将 Binance、OKX、Bitget、
+Atlas Ledger 是一个公开只读的多交易所资产聚合平台，将 Binance、OKX、Bitget、Bybit、
 Hyperliquid 和 Polymarket 的账户权益、余额、当前仓位、历史仓位、财务流水与收益分析
 汇总到同一个响应式 Web 看板。
 
@@ -11,7 +11,7 @@ Hyperliquid 和 Polymarket 的账户权益、余额、当前仓位、历史仓�
 
 ## 核心能力
 
-- 聚合 Binance、OKX、Bitget、Hyperliquid、Polymarket 五个平台
+- 聚合 Binance、OKX、Bitget、Bybit、Hyperliquid、Polymarket 六个平台
 - 账户权益、逐资产余额、当前仓位、历史仓位和财务流水统一展示
 - 已实现收益、资金费、手续费和充值提现分开核算
 - 累计净收益、当前持仓收益、日/周/月收益与五分钟净值曲线
@@ -153,7 +153,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps 
 make prod-up          # 生产构建、迁移和启动
 make dev-up           # 本地构建、迁移和启动
 make test-fast        # 无需数据库的后端快速测试 + 前端测试
-make test-exchanges   # 五个交易所适配器专项测试
+make test-exchanges   # 六个交易所适配器专项测试
 make test             # 完整回归测试（需要测试数据库）
 make lint             # Ruff 和 ESLint
 make security-check   # 密钥、SQLite 和交易写操作检查

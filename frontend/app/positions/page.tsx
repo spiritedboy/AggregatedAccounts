@@ -167,6 +167,7 @@ function PositionsContent() {
           <option value="BINANCE">Binance</option>
           <option value="OKX">OKX</option>
           <option value="BITGET">Bitget</option>
+          <option value="BYBIT">Bybit</option>
           <option value="HYPERLIQUID">Hyperliquid</option>
           <option value="POLYMARKET">Polymarket</option>
         </FilterSelect>

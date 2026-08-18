@@ -235,7 +235,7 @@ function DashboardContent() {
       <PageHeader
         eyebrow="今天的钱包"
         title="资产总览"
-        description="五个平台，一张轻松看懂的资产地图。"
+        description="六个平台，一张轻松看懂的资产地图。"
         action={
           <AutoRefreshStatus
             state={autoRefresh}

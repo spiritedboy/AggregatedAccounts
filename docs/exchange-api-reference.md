@@ -76,6 +76,31 @@ Base64 编码。
 历史仓位以 `productType + positionId` 作为稳定来源 ID；若接口重复返回同一个
 `positionId` 的阶段状态，只保留 `utime` 最新的累计记录。
 
+## Bybit
+
+官方资料：
+
+- <https://bybit-exchange.github.io/docs/v5/guide>
+- <https://bybit-exchange.github.io/docs/v5/user/apikey-info>
+- <https://bybit-exchange.github.io/docs/v5/account/wallet-balance>
+- <https://bybit-exchange.github.io/docs/v5/position>
+- <https://bybit-exchange.github.io/docs/v5/position/close-pnl>
+- <https://bybit-exchange.github.io/docs/v5/account/transaction-log>
+
+使用：
+
+- `GET /v5/user/query-api`：验证 API Key 为只读
+- `GET /v5/account/wallet-balance`：统一账户权益和逐币种余额
+- `GET /v5/account/info` 与 `GET /v5/position/list`：保证金模式及当前仓位
+- `GET /v5/position/closed-pnl`：线性与反向合约净平仓收益
+- `GET /v5/account/transaction-log`：毛收益、资金费、手续费和统一账户转入转出
+
+签名原文为 `timestamp + apiKey + recvWindow + queryString`，使用 HMAC-SHA256 后发送
+Bybit V5 认证请求头。历史接口单次最多查询 7 天，适配器会按时间分段并对每段游标分页。
+`closedPnl` 已包含交易费及资金费，作为历史仓位净收益；收益分析的费用拆分以 Transaction
+Log 的 `cashFlow`、`funding` 和 `fee` 为权威来源。Bybit 官方限制美国及中国大陆 IP
+访问 API，服务器出口必须位于可用地区。
+
 ## Hyperliquid
 
 官方资料：

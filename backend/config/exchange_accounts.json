@@ -25,6 +25,13 @@
       "passphrase_env": "BITGET_PASSPHRASE"
     },
     {
+      "exchange": "BYBIT",
+      "connection_name": "Bybit 默认账户",
+      "enabled": false,
+      "api_key_env": "BYBIT_API_KEY",
+      "api_secret_env": "BYBIT_API_SECRET"
+    },
+    {
       "exchange": "HYPERLIQUID",
       "connection_name": "Hyperliquid 默认账户",
       "enabled": false,

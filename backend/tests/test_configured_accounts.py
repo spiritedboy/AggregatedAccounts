@@ -12,12 +12,13 @@ from app.services.configured_accounts import (
 )
 
 
-def test_default_config_contains_all_five_platforms():
+def test_default_config_contains_all_six_platforms():
     definitions = load_account_definitions("/app/config/exchange_accounts.json")
     assert {item["exchange"] for item in definitions} == {
         "BINANCE",
         "OKX",
         "BITGET",
+        "BYBIT",
         "HYPERLIQUID",
         "POLYMARKET",
     }

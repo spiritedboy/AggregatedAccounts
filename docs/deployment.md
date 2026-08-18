@@ -228,6 +228,8 @@ sudo -u atlas nano backend/config/exchange_accounts.local.json
 OKX_API_KEY=
 OKX_API_SECRET=
 OKX_PASSPHRASE=
+BYBIT_API_KEY=
+BYBIT_API_SECRET=
 HYPERLIQUID_WALLET_ADDRESS=0x...
 POLYMARKET_WALLET_ADDRESS=0x...
 ```
@@ -250,7 +252,7 @@ BAIDU_TRANSLATION_ENDPOINT=https://fanyi-api.baidu.com/ait/api/aiTextTranslate
 
 ```bash
 make test-fast       # 无需 PostgreSQL：适配器、公式和前端测试
-make test-exchanges  # 五个交易所专项测试
+make test-exchanges  # 六个交易所专项测试
 make test            # 发布前完整回归，需要 TEST_DATABASE_URL 可连接
 ```
 

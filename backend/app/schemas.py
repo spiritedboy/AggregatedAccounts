@@ -5,7 +5,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ExchangeName = Literal["BINANCE", "OKX", "BITGET", "HYPERLIQUID", "POLYMARKET"]
+ExchangeName = Literal[
+    "BINANCE", "OKX", "BITGET", "BYBIT", "HYPERLIQUID", "POLYMARKET"
+]
 
 
 class ExchangeAccountCreate(BaseModel):

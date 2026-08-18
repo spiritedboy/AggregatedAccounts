@@ -52,3 +52,13 @@ def test_okx_requires_passphrase():
             api_key="abcdefgh",
             api_secret="abcdefgh",
         )
+
+
+def test_bybit_requires_key_and_secret_without_passphrase():
+    payload = ExchangeAccountCreate(
+        exchange="BYBIT",
+        connection_name="Bybit read only",
+        api_key="abcdefgh",
+        api_secret="abcdefgh",
+    )
+    assert payload.passphrase is None

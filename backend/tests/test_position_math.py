@@ -7,7 +7,9 @@ from app.services.position_math import position_margin_used
 pytestmark = pytest.mark.no_db
 
 
-@pytest.mark.parametrize("exchange", ["BINANCE", "OKX", "BITGET", "HYPERLIQUID"])
+@pytest.mark.parametrize(
+    "exchange", ["BINANCE", "OKX", "BITGET", "BYBIT", "HYPERLIQUID"]
+)
 def test_leveraged_margin_uses_usd_notional_for_every_exchange(exchange):
     del exchange  # The formula deliberately has no exchange-specific branch.
     margin = position_margin_used(

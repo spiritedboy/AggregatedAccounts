@@ -215,6 +215,7 @@ const exchangeNames: Record<string, string> = {
   BINANCE: "BN",
   OKX: "OK",
   BITGET: "BG",
+  BYBIT: "BY",
   HYPERLIQUID: "HL",
   POLYMARKET: "PM",
 };
@@ -223,6 +224,7 @@ const exchangePalette: Record<string, { color: string; background: string; borde
   BINANCE: { color: "#8a6500", background: "#fff4c8", border: "#f3cf55" },
   OKX: { color: "#5c4fc2", background: "#eeeaff", border: "#c9c1ff" },
   BITGET: { color: "#087f87", background: "#dcf9f7", border: "#8be2dc" },
+  BYBIT: { color: "#d26018", background: "#fff0df", border: "#f3bd82" },
   HYPERLIQUID: { color: "#068968", background: "#ddf9ef", border: "#86dfc2" },
   POLYMARKET: { color: "#bd4679", background: "#ffe7f2", border: "#f6a9c9" },
 };
