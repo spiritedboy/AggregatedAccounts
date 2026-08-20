@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import time
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from decimal import Decimal
@@ -439,6 +440,27 @@ def _mark_stream_synced(
     details = dict(account.data_completeness_details or {})
     details[SYNC_CURSOR_KEYS[stream]] = synced_at.isoformat()
     account.data_completeness_details = details
+
+
+def _position_was_reduced(
+    previous_positions: list[CurrentPosition],
+    current_positions: list[dict[str, Any]],
+) -> bool:
+    """Detect a full or partial close without relying on exchange-specific IDs."""
+    previous_sizes: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    current_sizes: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    for position in previous_positions:
+        previous_sizes[(position.normalized_symbol, position.side)] += Decimal(
+            str(position.position_size or 0)
+        )
+    for position in current_positions:
+        current_sizes[(position["normalized_symbol"], position["side"])] += Decimal(
+            str(position.get("position_size") or 0)
+        )
+    return any(
+        size > 0 and current_sizes.get(key, Decimal("0")) < size
+        for key, size in previous_sizes.items()
+    )
 
 
 async def _apply_asset_coverage_baseline(
@@ -1160,6 +1182,36 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                                 raise result
                         else:
                             values[name] = result
+                    if (
+                        positions_due
+                        and not closed_due
+                        and _position_was_reduced(
+                            list(previous_positions), values.get("positions", [])
+                        )
+                    ):
+                        closed_cursor = _parse_sync_cursor(
+                            account, "closed_positions"
+                        )
+                        closed_start = (
+                            max(
+                                account.tracking_started_at,
+                                closed_cursor - timedelta(minutes=5),
+                            )
+                            if closed_cursor
+                            else account.tracking_started_at
+                        )
+                        known_open_times = [
+                            row.open_time
+                            for row in previous_positions
+                            if row.open_time is not None
+                        ]
+                        if known_open_times:
+                            closed_start = min(closed_start, min(known_open_times))
+                        values["closed_positions"] = (
+                            await adapter.get_closed_positions(closed_start, started)
+                        )
+                        closed_due = True
+                        job.job_type = f"{job.job_type}+CLOSED"
                     summary = values.get("summary")
                     balances = values.get("balances", [])
                     positions = values.get("positions", [])

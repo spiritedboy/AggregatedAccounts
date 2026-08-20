@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     sync_balance_seconds: int = 60
     sync_position_seconds: int = 15
     sync_history_seconds: int = 300
-    sync_closed_position_seconds: int = 600
+    sync_closed_position_seconds: int = 60
     sync_health_seconds: int = 60
     sync_job_retention_days: int = 7
     balance_snapshot_retention_days: int = 90

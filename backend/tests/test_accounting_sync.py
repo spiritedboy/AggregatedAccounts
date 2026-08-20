@@ -25,11 +25,36 @@ from app.models import (
     TradingFeeRecord,
 )
 from app.services.accounts import (
+    _position_was_reduced,
     _upsert_amount_records,
     _write_summary,
     sync_account,
     update_completeness,
 )
+
+
+@pytest.mark.parametrize(
+    ("current_size", "expected"),
+    [(1, False), (Decimal("0.5"), True), (0, True)],
+)
+def test_position_reduction_detects_partial_and_full_closes(current_size, expected):
+    previous = CurrentPosition(
+        normalized_symbol="BTC-USDT-PERP",
+        side="LONG",
+        position_size=Decimal("1"),
+    )
+    current = (
+        [
+            {
+                "normalized_symbol": "BTC-USDT-PERP",
+                "side": "LONG",
+                "position_size": current_size,
+            }
+        ]
+        if current_size
+        else []
+    )
+    assert _position_was_reduced([previous], current) is expected
 
 
 class FakeAccountingAdapter:
@@ -361,6 +386,7 @@ async def test_stream_cursors_skip_fresh_streams_and_keep_long_position_lookback
     class CountingAdapter(FakeAccountingAdapter):
         calls = {"balance": 0, "positions": 0, "closed": 0, "history": 0}
         closed_start = None
+        current_positions = None
 
         async def get_account_summary(self):
             self.calls["balance"] += 1
@@ -371,6 +397,8 @@ async def test_stream_cursors_skip_fresh_streams_and_keep_long_position_lookback
 
         async def get_open_positions(self):
             self.calls["positions"] += 1
+            if self.current_positions is not None:
+                return self.current_positions
             return await super().get_open_positions()
 
         async def get_closed_positions(self, start_time, end_time):
@@ -446,6 +474,29 @@ async def test_stream_cursors_skip_fresh_streams_and_keep_long_position_lookback
                 await db.scalar(select(func.count()).select_from(SyncJob))
                 == expected_job_count
             )
+
+        details = dict(stored.data_completeness_details)
+        details["last_position_sync_at"] = (
+            datetime.now(UTC) - timedelta(seconds=20)
+        ).isoformat()
+        details["last_closed_position_sync_at"] = datetime.now(UTC).isoformat()
+        stored.data_completeness_details = details
+        await db.commit()
+        CountingAdapter.calls = {key: 0 for key in CountingAdapter.calls}
+        CountingAdapter.current_positions = []
+        assert (await sync_account(db, stored))["status"] == "SUCCESS"
+        assert CountingAdapter.calls == {
+            "balance": 0,
+            "positions": 1,
+            "closed": 1,
+            "history": 0,
+        }
+        latest_job = await db.scalar(
+            select(SyncJob)
+            .where(SyncJob.exchange_account_id == stored.id)
+            .order_by(SyncJob.started_at.desc())
+        )
+        assert latest_job.job_type == "POSITIONS+CLOSED"
 
 
 @pytest.mark.asyncio
