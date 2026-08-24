@@ -46,6 +46,7 @@ from app.services.position_math import position_margin_used
 
 cipher = CredentialCipher(settings.app_encryption_key)
 DAILY_SNAPSHOT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+POLYMARKET_CLOSED_LOOKBACK = timedelta(hours=72)
 _account_locks: dict[uuid.UUID, asyncio.Lock] = {}
 PUBLIC_ADDRESS_EXCHANGES = {"HYPERLIQUID", "POLYMARKET"}
 HISTORY_STREAMS = frozenset({"income", "funding", "fees", "cash_flows"})
@@ -442,6 +443,26 @@ def _mark_stream_synced(
     account.data_completeness_details = details
 
 
+def _closed_sync_start(
+    account: ExchangeAccount,
+    previous_positions: list[CurrentPosition],
+    started: datetime,
+) -> datetime:
+    """Return a safe history boundary, including delayed Polymarket settlements."""
+    if account.exchange == "POLYMARKET":
+        return max(account.tracking_started_at, started - POLYMARKET_CLOSED_LOOKBACK)
+    cursor = _parse_sync_cursor(account, "closed_positions")
+    start = (
+        max(account.tracking_started_at, cursor - timedelta(minutes=5))
+        if cursor
+        else account.tracking_started_at
+    )
+    known_open_times = [
+        row.open_time for row in previous_positions if row.open_time is not None
+    ]
+    return min(start, min(known_open_times)) if known_open_times else start
+
+
 def _position_was_reduced(
     previous_positions: list[CurrentPosition],
     current_positions: list[dict[str, Any]],
@@ -740,6 +761,47 @@ async def _upsert_closed_positions(
         row.data_source = item.get("data_source", "EXCHANGE_API")
         row.data_completeness = item.get("data_completeness", "PARTIAL")
     return len(positions)
+
+
+async def _refresh_polymarket_closed_daily_pnl(
+    db: AsyncSession,
+    account: ExchangeAccount,
+    period: TrackingPeriod,
+    positions: list[dict[str, Any]],
+) -> None:
+    """Repair affected historical day totals when settlements arrive late."""
+    if account.exchange != "POLYMARKET" or not positions:
+        return
+    local_dates = {
+        position["close_time"].astimezone(DAILY_SNAPSHOT_TIMEZONE).date()
+        for position in positions
+    }
+    snapshots = (
+        await db.scalars(
+            select(DailyPnlSnapshot).where(
+                DailyPnlSnapshot.exchange_account_id == account.id,
+                DailyPnlSnapshot.tracking_period_id == period.id,
+                DailyPnlSnapshot.snapshot_date.in_(local_dates),
+            )
+        )
+    ).all()
+    for snapshot in snapshots:
+        local_start = datetime.combine(
+            snapshot.snapshot_date,
+            dt_time.min,
+            tzinfo=DAILY_SNAPSHOT_TIMEZONE,
+        )
+        day_start = local_start.astimezone(UTC)
+        day_end = (local_start + timedelta(days=1)).astimezone(UTC)
+        realized = await db.scalar(
+            select(func.sum(ClosedPosition.realized_pnl)).where(
+                ClosedPosition.exchange_account_id == account.id,
+                ClosedPosition.tracking_period_id == period.id,
+                ClosedPosition.close_time >= day_start,
+                ClosedPosition.close_time < day_end,
+            )
+        )
+        snapshot.realized_pnl = realized or Decimal("0")
 
 
 async def _run_data_quality_checks(
@@ -1129,24 +1191,9 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                     if positions_due:
                         calls["positions"] = adapter.get_open_positions()
                     if closed_due:
-                        closed_cursor = _parse_sync_cursor(
-                            account, "closed_positions"
+                        closed_start = _closed_sync_start(
+                            account, list(previous_positions), started
                         )
-                        closed_start = (
-                            max(
-                                account.tracking_started_at,
-                                closed_cursor - timedelta(minutes=5),
-                            )
-                            if closed_cursor
-                            else account.tracking_started_at
-                        )
-                        known_open_times = [
-                            row.open_time
-                            for row in previous_positions
-                            if row.open_time is not None
-                        ]
-                        if known_open_times:
-                            closed_start = min(closed_start, min(known_open_times))
                         calls["closed_positions"] = adapter.get_closed_positions(
                             closed_start, started
                         )
@@ -1189,24 +1236,9 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                             list(previous_positions), values.get("positions", [])
                         )
                     ):
-                        closed_cursor = _parse_sync_cursor(
-                            account, "closed_positions"
+                        closed_start = _closed_sync_start(
+                            account, list(previous_positions), started
                         )
-                        closed_start = (
-                            max(
-                                account.tracking_started_at,
-                                closed_cursor - timedelta(minutes=5),
-                            )
-                            if closed_cursor
-                            else account.tracking_started_at
-                        )
-                        known_open_times = [
-                            row.open_time
-                            for row in previous_positions
-                            if row.open_time is not None
-                        ]
-                        if known_open_times:
-                            closed_start = min(closed_start, min(known_open_times))
                         values["closed_positions"] = (
                             await adapter.get_closed_positions(closed_start, started)
                         )
@@ -1278,6 +1310,9 @@ async def sync_account(db: AsyncSession, account: ExchangeAccount) -> dict[str, 
                 closed_count = 0
                 if closed_due:
                     closed_count = await _upsert_closed_positions(
+                        db, account, period, closed_positions
+                    )
+                    await _refresh_polymarket_closed_daily_pnl(
                         db, account, period, closed_positions
                     )
                     _mark_stream_synced(account, "closed_positions", started)

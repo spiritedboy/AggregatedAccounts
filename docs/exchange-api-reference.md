@@ -145,6 +145,8 @@ Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需�
 类型下完整确认外部充值与提现，因此 Polymarket 账户默认显示为统计部分完整。
 已平仓响应中的 `timestamp` 可能变化，平台使用官方响应里的 outcome token `asset`
 作为稳定幂等键，避免同一 outcome 在后续同步中被重复写入。
+结算记录可能晚于当前仓位消失才进入官方已平仓接口，因此每轮平仓同步固定回看最近
+72 小时，并按 outcome token 幂等写入；迟到记录会同时修正所属北京时间自然日的收益。
 
 市场标题的简体中文显示使用百度“LLM 大模型翻译”服务，不使用通用机器翻译接口。
 适配器会保存官方 `title`、`outcome`、`conditionId`、`outcomeIndex` 和 outcome token；

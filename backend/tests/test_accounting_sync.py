@@ -10,6 +10,7 @@ from app.models import (
     AccountBalanceSnapshot,
     AssetBalanceSnapshot,
     CashFlowRecord,
+    ClosedPosition,
     CurrentPosition,
     DailyPnlSnapshot,
     ExchangeAccount,
@@ -25,7 +26,10 @@ from app.models import (
     TradingFeeRecord,
 )
 from app.services.accounts import (
+    POLYMARKET_CLOSED_LOOKBACK,
+    _closed_sync_start,
     _position_was_reduced,
+    _refresh_polymarket_closed_daily_pnl,
     _upsert_amount_records,
     _write_summary,
     sync_account,
@@ -55,6 +59,22 @@ def test_position_reduction_detects_partial_and_full_closes(current_size, expect
         else []
     )
     assert _position_was_reduced([previous], current) is expected
+
+
+def test_polymarket_closed_sync_always_looks_back_72_hours():
+    started = datetime(2026, 8, 24, 5, tzinfo=UTC)
+    account = ExchangeAccount(
+        exchange="POLYMARKET",
+        connection_name="delayed-settlement",
+        masked_identifier="0xaa••••aa",
+        tracking_started_at=started - timedelta(days=10),
+        data_completeness_details={
+            "last_closed_position_sync_at": started.isoformat()
+        },
+    )
+    assert _closed_sync_start(account, [], started) == (
+        started - POLYMARKET_CLOSED_LOOKBACK
+    )
 
 
 class FakeAccountingAdapter:
@@ -375,6 +395,59 @@ async def test_daily_pnl_uses_shanghai_reporting_date():
         await db.flush()
         daily = await db.scalar(select(DailyPnlSnapshot))
         assert str(daily.snapshot_date) == "2026-08-11"
+
+
+@pytest.mark.asyncio
+async def test_late_polymarket_close_repairs_its_shanghai_daily_total():
+    account = await _create_account()
+    close_time = datetime(2026, 8, 23, 10, tzinfo=UTC)
+    async with SessionLocal() as db:
+        stored = await db.get(ExchangeAccount, account.id)
+        stored.exchange = "POLYMARKET"
+        period = await db.scalar(
+            select(TrackingPeriod).where(
+                TrackingPeriod.exchange_account_id == stored.id
+            )
+        )
+        period.exchange = "POLYMARKET"
+        db.add(
+            DailyPnlSnapshot(
+                exchange="POLYMARKET",
+                exchange_account_id=stored.id,
+                tracking_period_id=period.id,
+                source_record_id="daily-2026-08-23",
+                snapshot_date=datetime(2026, 8, 23).date(),
+                realized_pnl=Decimal("0"),
+            )
+        )
+        db.add(
+            ClosedPosition(
+                exchange="POLYMARKET",
+                exchange_account_id=stored.id,
+                tracking_period_id=period.id,
+                source_record_id="poly-closed:late",
+                symbol="LoL delayed settlement",
+                normalized_symbol="POLY-LATE-0",
+                side="LONG",
+                open_time=stored.tracking_started_at,
+                close_time=close_time,
+                realized_pnl=Decimal("14.5127"),
+                net_pnl=Decimal("14.5127"),
+                tracking_started_at=stored.tracking_started_at,
+            )
+        )
+        await db.flush()
+
+        await _refresh_polymarket_closed_daily_pnl(
+            db, stored, period, [{"close_time": close_time}]
+        )
+        snapshot = await db.scalar(
+            select(DailyPnlSnapshot).where(
+                DailyPnlSnapshot.exchange_account_id == stored.id,
+                DailyPnlSnapshot.snapshot_date == datetime(2026, 8, 23).date(),
+            )
+        )
+        assert snapshot.realized_pnl == Decimal("14.5127")
 
 
 @pytest.mark.asyncio
