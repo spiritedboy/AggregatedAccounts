@@ -509,6 +509,13 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
     expect(screen.queryByText("LONG")).not.toBeInTheDocument();
     expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
+    const pageSummary = screen.getByRole("region", { name: "当前页盈亏汇总" });
+    expect(within(pageSummary).getByText("本页汇总")).toBeInTheDocument();
+    expect(within(pageSummary).getByText("第 1 页 · 本页 2 笔 · 筛选后共 2 笔")).toBeInTheDocument();
+    expect(within(pageSummary).getByText(/168\.00/)).toHaveClass("text-positive");
+    expect(
+      within(pageSummary).getByText("当前页净收益合计，已计入资金费与手续费"),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /净收益排序：未排序/ }));
     let rows = screen.getAllByRole("row").slice(1);
@@ -517,6 +524,72 @@ describe("portfolio pages", () => {
     await user.click(screen.getByRole("button", { name: /净收益排序：升序/ }));
     rows = screen.getAllByRole("row").slice(1);
     expect(within(rows[0]).getByText("CXMT-USDT-PERP")).toBeInTheDocument();
+  });
+
+  it("recalculates the current-page PnL summary after filtering", async () => {
+    const user = userEvent.setup();
+    const profitablePosition = {
+      id: "summary-profit",
+      exchange: "BINANCE",
+      symbol: "BTCUSDT",
+      normalized_symbol: "BTC-USDT-PERP",
+      side: "LONG",
+      open_time: "2026-07-01T00:00:00Z",
+      close_time: "2026-07-02T00:00:00Z",
+      average_entry_price: 100,
+      average_exit_price: 110,
+      max_position_size: 1,
+      realized_pnl: 12,
+      funding_fee: -1,
+      trading_fee: 1,
+      net_pnl: 10,
+      leverage: 2,
+      margin_used: 50,
+      return_percent: 20,
+      data_source: "EXCHANGE_API",
+      data_completeness: "COMPLETE",
+      tracking_started_at: "2026-07-01T00:00:00Z",
+    };
+    const losingPosition = {
+      ...profitablePosition,
+      id: "summary-loss",
+      exchange: "OKX",
+      symbol: "ETH-USDT-SWAP",
+      normalized_symbol: "ETH-USDT-PERP",
+      side: "SHORT",
+      realized_pnl: -7,
+      funding_fee: 0,
+      trading_fee: 1,
+      net_pnl: -8,
+      return_percent: -16,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        if (url.pathname.includes("/api/auth/status")) return envelope({ authenticated: true });
+        if (url.pathname.includes("/api/exchange-accounts")) return envelope([account]);
+        if (url.pathname.includes("/api/positions/history")) {
+          const filtered = url.searchParams.get("exchange") === "OKX";
+          return envelope({
+            total: filtered ? 1 : 2,
+            items: filtered ? [losingPosition] : [profitablePosition, losingPosition],
+          });
+        }
+        return envelope({});
+      }),
+    );
+
+    render(<HistoryPage />);
+    let pageSummary = await screen.findByRole("region", { name: "当前页盈亏汇总" });
+    expect(within(pageSummary).getByText(/2\.00/)).toHaveClass("text-positive");
+
+    await user.selectOptions(screen.getByLabelText("交易所"), "OKX");
+    await waitFor(() => {
+      pageSummary = screen.getByRole("region", { name: "当前页盈亏汇总" });
+      expect(within(pageSummary).getByText("第 1 页 · 本页 1 笔 · 筛选后共 1 笔")).toBeInTheDocument();
+      expect(within(pageSummary).getByText(/8\.00/)).toHaveClass("text-negative");
+    });
   });
 
   it("renders PnL analytics and all period selectors", async () => {

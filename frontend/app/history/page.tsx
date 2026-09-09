@@ -111,6 +111,10 @@ function HistoryContent() {
       return netPnlSort === "asc" ? difference : -difference;
     });
   }, [netPnlSort, result?.items]);
+  const pageNetPnl = useMemo(
+    () => (result?.items ?? []).reduce((total, position) => total + position.net_pnl, 0),
+    [result?.items],
+  );
 
   function exportCsv() {
     const query = params();
@@ -225,6 +229,46 @@ function HistoryContent() {
         <div className="panel"><EmptyState title="没有历史仓位" description="当前筛选范围内没有已关闭仓位。" /></div>
       ) : (
         <>
+          <section
+            aria-label="当前页盈亏汇总"
+            className="panel relative mb-4 overflow-hidden px-4 py-3 sm:px-5 sm:py-4"
+          >
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-0 left-0 w-1"
+              style={{
+                background:
+                  pageNetPnl > 0
+                    ? "var(--positive)"
+                    : pageNetPnl < 0
+                      ? "var(--negative)"
+                      : "var(--line-strong)",
+              }}
+            />
+            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">本页汇总</p>
+                <p className="muted mt-1 text-xs">
+                  第 {page} 页 · 本页 {result.items.length} 笔 · 筛选后共 {result.total} 笔
+                </p>
+              </div>
+              <div className="min-w-0 sm:text-right">
+                <p className="metric-label">本页净盈亏</p>
+                <p
+                  className={`mono-number mt-1 break-words text-xl font-bold sm:text-2xl ${
+                    pageNetPnl > 0
+                      ? "text-positive"
+                      : pageNetPnl < 0
+                        ? "text-negative"
+                        : ""
+                  }`}
+                >
+                  {pageNetPnl > 0 ? "+" : ""}{formatMoney(pageNetPnl)}
+                </p>
+                <p className="muted mt-1 text-[11px]">当前页净收益合计，已计入资金费与手续费</p>
+              </div>
+            </div>
+          </section>
           <div className="table-shell table-shell-sticky hidden lg:block">
             <table className="data-table min-w-[1040px]">
               <thead>
