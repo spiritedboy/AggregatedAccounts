@@ -16,7 +16,7 @@
     "echarts": "6.1.0",
     "echarts-for-react": "3.0.6",
     "lucide-react": "1.27.0",
-    "next": "16.2.12",
+    "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -40,6 +40,6 @@
   },
   "overrides": {
     "postcss": "8.5.23",
-    "sharp": "0.35.0"
+    "sharp": "0.35.4"
   }
 }
