@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import PnlAnalyticsSummary, PnlExchangeSummary
+from app.services.behavior_analytics import refresh_behavior_read_models
 
 ACTIVE_SCOPE = "ACTIVE_PORTFOLIO"
 
@@ -61,6 +62,7 @@ async def refresh_pnl_read_model(db: AsyncSession) -> dict[str, Any]:
         exchange_row.investment_return = Decimal(str(item["investment_return"]))
         exchange_row.calculated_at = calculated_at
 
+    await refresh_behavior_read_models(db)
     await db.flush()
     return {**payload, "by_exchange": exchange_rows}
 

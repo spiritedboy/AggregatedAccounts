@@ -45,6 +45,7 @@ from app.services.analytics import (
     build_risk_metrics,
     build_sync_status,
 )
+from app.services.behavior_analytics import BehaviorPeriod, get_behavior_analysis
 from app.services.equity_curve import get_equity_curve
 from app.services.liquidation import (
     liquidation_distance_percent,
@@ -1530,9 +1531,24 @@ async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
 
 @router.get("/pnl/bootstrap")
 async def pnl_bootstrap(
+    behavior_period: BehaviorPeriod = Query("30d"),
     _: AppSession = Depends(require_session), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    return envelope(await _pnl_bootstrap_data(db))
+    return envelope(
+        {
+            **await _pnl_bootstrap_data(db),
+            "behavior": await get_behavior_analysis(db, behavior_period),
+        }
+    )
+
+
+@router.get("/pnl/behavior")
+async def pnl_behavior(
+    period: BehaviorPeriod = Query("30d"),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return envelope(await get_behavior_analysis(db, period))
 
 
 @router.get("/pnl/summary")

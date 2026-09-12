@@ -287,6 +287,60 @@ const completenessData = {
   ],
 };
 
+const behaviorMetric = {
+  key: "1h_4h",
+  label: "1～4 小时",
+  trade_count: 8,
+  win_rate: 62.5,
+  net_pnl: 180,
+  average_pnl: 22.5,
+  average_win: 48,
+  average_loss: -26.67,
+  payoff_ratio: 1.8,
+  payoff_ratio_unbounded: false,
+  profit_factor: 3,
+  profit_factor_unbounded: false,
+  gross_profit: 240,
+  gross_loss: -60,
+};
+
+const behaviorAnalysis = {
+  schema_version: 1,
+  period: "30d",
+  timezone: "Asia/Shanghai",
+  requested_from: "2026-06-26T00:00:00Z",
+  effective_from: "2026-07-01T00:00:00Z",
+  to: "2026-07-26T00:00:00Z",
+  trade_count: 12,
+  minimum_insight_sample_size: 5,
+  data_quality: {
+    invalid_duration_count: 1,
+    missing_leverage_count: 2,
+    missing_margin_count: 1,
+    position_size_basis: "HISTORICAL_MARGIN_USED_USD",
+  },
+  duration: [behaviorMetric],
+  open_session: [{ ...behaviorMetric, key: "00_03", label: "00:00～03:00" }],
+  weekday: [{ ...behaviorMetric, key: "0", label: "周一" }],
+  leverage: [{ ...behaviorMetric, key: "10x_20x", label: "10～20×" }],
+  position_size: [{ ...behaviorMetric, key: "500_1k", label: "500～1,000 USD" }],
+  symbols: [
+    { ...behaviorMetric, key: "BTC", label: "BTC", net_pnl: 200 },
+    { ...behaviorMetric, key: "ETH", label: "ETH", net_pnl: -20 },
+  ],
+  sides: [{ ...behaviorMetric, key: "LONG", label: "做多" }],
+  exchanges: [{ ...behaviorMetric, key: "BINANCE", label: "BINANCE" }],
+  insights: [{
+    code: "DURATION_BEST",
+    tone: "positive",
+    target_tab: "time",
+    target_key: "duration-1h_4h",
+    label: "1～4 小时",
+    trade_count: 8,
+    net_pnl: 180,
+  }],
+};
+
 function installFetch(routes: Record<string, unknown>) {
   vi.stubGlobal(
     "fetch",
@@ -763,7 +817,8 @@ describe("portfolio pages", () => {
     });
   });
 
-  it("renders PnL analytics and all period selectors", async () => {
+  it("renders grouped PnL behavior analytics, sorting, and period selectors", async () => {
+    const user = userEvent.setup();
     const point = {
       period: "2026-07-26",
       investment_return: 120,
@@ -823,17 +878,15 @@ describe("portfolio pages", () => {
           best_trade: { exchange: "BINANCE", symbol: "BTC-USDT-PERP", side: "LONG", net_pnl: 120, close_time: "2026-07-26T00:00:00Z" },
           worst_trade: { exchange: "OKX", symbol: "ETH-USDT-PERP", side: "SHORT", net_pnl: -80, close_time: "2026-07-25T00:00:00Z" },
         },
+        behavior: behaviorAnalysis,
       },
     });
     render(<PnlPage />);
     expect(await screen.findByText("累计净收益")).toBeInTheDocument();
     expect(screen.getAllByText("已实现毛收益")).not.toHaveLength(0);
-    expect(screen.getByText("总盈利 - 总亏损（均按历史仓位净收益统计）")).toBeInTheDocument();
+    expect(screen.getByText("总盈利 - 总亏损（历史仓位净收益）")).toBeInTheDocument();
     expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
-    expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
-    expect(screen.getByText("多空表现")).toBeInTheDocument();
-    expect(screen.getByText("8 笔")).toBeInTheDocument();
-    expect(screen.getByText("4 笔")).toBeInTheDocument();
+    expect(screen.getByText("当前仓位未实现盈亏求和")).toBeInTheDocument();
     expect(screen.getByText("交易质量")).toBeInTheDocument();
     expect(screen.getByText("总盈利")).toBeInTheDocument();
     expect(screen.getByText("总亏损")).toBeInTheDocument();
@@ -843,9 +896,33 @@ describe("portfolio pages", () => {
     expect(screen.queryByText("最大单笔亏损")).not.toBeInTheDocument();
     expect(screen.getAllByText("盈利因子")).not.toHaveLength(0);
     expect(screen.getByText("2.00 : 1")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "每日" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "每周" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "每月" })).toBeInTheDocument();
+    expect(screen.getByText(/1～4 小时持仓累计净收益/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "7D" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "时间" }));
+    expect(screen.getByText("持仓时间")).toBeInTheDocument();
+    expect(screen.getByText("开仓时间段")).toBeInTheDocument();
+    expect(screen.getByText("星期表现")).toBeInTheDocument();
+    expect(screen.getByText("00:00～03:00")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "仓位" }));
+    expect(screen.getByText("杠杆表现")).toBeInTheDocument();
+    expect(screen.getByText("仓位大小")).toBeInTheDocument();
+    expect(screen.getByText(/不将其伪装为权益占比/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "标的" }));
+    expect(screen.getByText("标的表现")).toBeInTheDocument();
+    expect(screen.getByText("BTC")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收益 ↓" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "笔数" }));
+    expect(screen.getByRole("button", { name: "笔数 ↓" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "7D" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/pnl/bootstrap?behavior_period=7d"),
+      expect.anything(),
+    ));
   });
 
   it("renders accounting records and sorts filtered page results by financial impact", async () => {

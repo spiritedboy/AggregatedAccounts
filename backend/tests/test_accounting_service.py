@@ -155,7 +155,7 @@ async def test_accounting_records_and_component_completeness():
         assert refresh_result["accounting_daily_rows"] == 5
         assert await db.scalar(
             select(func.count()).select_from(OperationalReadModel)
-        ) == 5
+        ) == 9
         assert await db.scalar(
             select(func.count()).select_from(AccountingDailySummary)
         ) == 5

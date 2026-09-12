@@ -62,6 +62,7 @@ def test_other_page_bootstraps_return_complete_payloads(client):
         "by_exchange",
         "by_side",
         "trade_quality",
+        "behavior",
     }
     assert expected_sections == set(pnl_data)
     assert {"long", "short", "count_ratio"} == set(
@@ -71,6 +72,8 @@ def test_other_page_bootstraps_return_complete_payloads(client):
         pnl_data["trade_quality"]
     )
     assert pnl_data["daily"]
+    assert pnl_data["behavior"]["period"] == "30d"
+    assert pnl_data["behavior"]["timezone"] == "Asia/Shanghai"
     assert pnl_data["summary"] == client.get("/api/pnl/summary").json()["data"]
     assert pnl_data["daily"] == client.get("/api/pnl/daily").json()["data"]
     assert pnl_data["weekly"] == client.get("/api/pnl/weekly").json()["data"]
@@ -78,6 +81,9 @@ def test_other_page_bootstraps_return_complete_payloads(client):
     assert pnl_data["by_exchange"] == client.get(
         "/api/pnl/by-exchange"
     ).json()["data"]
+    behavior = client.get("/api/pnl/behavior?period=7d")
+    assert behavior.status_code == 200
+    assert behavior.json()["data"]["period"] == "7d"
 
     accounting = client.get("/api/accounting/bootstrap?page_size=20")
     assert accounting.status_code == 200

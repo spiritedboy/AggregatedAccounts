@@ -200,6 +200,68 @@ export type PnlPoint = {
   equity: number;
 };
 
+export type BehaviorPeriod = "7d" | "30d" | "90d" | "all";
+
+export type BehaviorMetricRow = {
+  key: string;
+  label: string;
+  trade_count: number;
+  win_rate: number;
+  net_pnl: number;
+  average_pnl: number;
+  average_win: number;
+  average_loss: number;
+  payoff_ratio: number | null;
+  payoff_ratio_unbounded: boolean;
+  profit_factor: number | null;
+  profit_factor_unbounded: boolean;
+  gross_profit: number;
+  gross_loss: number;
+};
+
+export type BehaviorInsight = {
+  code:
+    | "DURATION_BEST"
+    | "HIGH_LEVERAGE_WEAK"
+    | "SYMBOL_BEST"
+    | "OPEN_SESSION_LOW_WIN_RATE"
+    | "EXCHANGE_LOSS";
+  tone: "positive" | "negative" | "warning";
+  target_tab: "time" | "position" | "symbol";
+  target_key: string;
+  label?: string;
+  trade_count: number;
+  net_pnl: number;
+  win_rate?: number;
+  profit_factor?: number;
+};
+
+export type BehaviorAnalysis = {
+  schema_version: number;
+  period: BehaviorPeriod;
+  timezone: "Asia/Shanghai";
+  requested_from: string | null;
+  effective_from: string | null;
+  to: string;
+  trade_count: number;
+  minimum_insight_sample_size: number;
+  data_quality: {
+    invalid_duration_count: number;
+    missing_leverage_count: number;
+    missing_margin_count: number;
+    position_size_basis: "HISTORICAL_MARGIN_USED_USD";
+  };
+  duration: BehaviorMetricRow[];
+  open_session: BehaviorMetricRow[];
+  weekday: BehaviorMetricRow[];
+  leverage: BehaviorMetricRow[];
+  position_size: BehaviorMetricRow[];
+  symbols: BehaviorMetricRow[];
+  sides: BehaviorMetricRow[];
+  exchanges: BehaviorMetricRow[];
+  insights: BehaviorInsight[];
+};
+
 export type SyncStatusData = {
   summary: {
     total_accounts: number;

@@ -12,10 +12,12 @@ from app.models import (
     DailyPnlSnapshot,
     ExchangeAccount,
     InitialAccountSnapshot,
+    OperationalReadModel,
     PnlAnalyticsSummary,
     PnlExchangeSummary,
     TrackingPeriod,
 )
+from app.services.behavior_analytics import get_behavior_analysis
 from app.services.pnl_read_model import ACTIVE_SCOPE, refresh_pnl_read_model
 
 
@@ -98,11 +100,27 @@ async def test_pnl_read_model_is_persisted_and_served_without_live_reaggregation
 
         assert await db.get(PnlAnalyticsSummary, ACTIVE_SCOPE) is not None
         assert await db.scalar(select(PnlExchangeSummary)) is not None
+        behavior_scopes = set(
+            await db.scalars(
+                select(OperationalReadModel.scope).where(
+                    OperationalReadModel.scope.like("PNL_BEHAVIOR_%")
+                )
+            )
+        )
+        assert behavior_scopes == {
+            "PNL_BEHAVIOR_7D",
+            "PNL_BEHAVIOR_30D",
+            "PNL_BEHAVIOR_90D",
+            "PNL_BEHAVIOR_ALL",
+        }
         persisted = await _pnl_bootstrap_data(db)
+        behavior = await get_behavior_analysis(db, "all")
         assert persisted == jsonable_encoder(expected)
         assert persisted["summary"]["total_profit"] == 20
         assert persisted["summary"]["total_loss"] == 8
         assert persisted["summary"]["period_net_realized_pnl"] == 12
+        assert behavior["trade_count"] == 2
+        assert sum(item["net_pnl"] for item in behavior["symbols"]) == 12
 
         win = await db.scalar(
             select(ClosedPosition).where(ClosedPosition.source_record_id == "win")
@@ -113,7 +131,9 @@ async def test_pnl_read_model_is_persisted_and_served_without_live_reaggregation
         # The endpoint-facing reader remains stable until the synchronization
         # pipeline explicitly rebuilds the read model.
         still_persisted = await _pnl_bootstrap_data(db)
+        still_cached_behavior = await get_behavior_analysis(db, "all")
         assert still_persisted["summary"]["total_profit"] == 20
+        assert sum(item["net_pnl"] for item in still_cached_behavior["symbols"]) == 12
 
         read_model = await db.get(PnlAnalyticsSummary, ACTIVE_SCOPE)
         read_model.calculated_at = datetime.now(UTC) - timedelta(minutes=10)
@@ -124,5 +144,7 @@ async def test_pnl_read_model_is_persisted_and_served_without_live_reaggregation
         await refresh_pnl_read_model(db)
         await db.commit()
         refreshed = await _pnl_bootstrap_data(db)
+        refreshed_behavior = await get_behavior_analysis(db, "all")
         assert refreshed["summary"]["total_profit"] == 200
         assert refreshed["summary"]["period_net_realized_pnl"] == 192
+        assert sum(item["net_pnl"] for item in refreshed_behavior["symbols"]) == 192
