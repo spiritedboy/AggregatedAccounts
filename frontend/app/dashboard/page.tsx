@@ -1,6 +1,7 @@
 "use client";
 
 import type { EChartsOption } from "echarts";
+import Link from "next/link";
 import {
   Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2,
   CircleDollarSign, Clock3, Coins, Gauge, Landmark, Scale, ShieldAlert,
@@ -25,7 +26,7 @@ const curveRanges: Array<{ value: EquityCurveRange; label: string }> = [
 ];
 const riskLevelLabel = { LOW: "低风险", MEDIUM: "中风险", HIGH: "高风险" };
 type Tone = "positive" | "negative" | "warning" | "neutral";
-type BriefItem = { title: string; detail: string; tone: Tone; icon: typeof Activity };
+type BriefItem = { title: string; detail: string; tone: Tone; icon: typeof Activity; href?: string };
 
 function equityAxisLabel(value: number) {
   const magnitude = Math.abs(value);
@@ -52,6 +53,14 @@ function portfolioUpdatedAt(data: DashboardData, fallback: string | null) {
   return values.reduce((oldest, value) => new Date(value) < new Date(oldest) ? value : oldest);
 }
 
+function liquidationPositionHref(item: RiskData["liquidation_risks"][number]) {
+  const params = new URLSearchParams({
+    sort: "liquidation-asc",
+    focus: item.position_id,
+  });
+  return `/positions?${params.toString()}`;
+}
+
 function buildTodayBrief(data: DashboardData, risk: RiskData, formatMoney: (value: number) => string): BriefItem[] {
   const items: BriefItem[] = [];
   const today = data.today;
@@ -62,12 +71,22 @@ function buildTodayBrief(data: DashboardData, risk: RiskData, formatMoney: (valu
       tone: pnlTone(today.net_return), icon: today.net_return >= 0 ? ArrowUpRight : ArrowDownRight,
     });
   }
-  const liquidation = risk.summary.nearest_liquidation_distance_percent;
-  if (liquidation !== null && liquidation <= 20) {
+  const nearestLiquidation = risk.liquidation_risks[0];
+  const dangerLiquidation = risk.liquidation_risks.find((item) => item.risk_level === "DANGER");
+  const watchCount = risk.liquidation_risks.filter((item) => item.risk_level === "WATCH").length;
+  if (dangerLiquidation) {
     items.push({
-      title: `最近强平距离仅 ${number(liquidation, 1)}%`,
-      detail: "已进入重点关注区间，请检查对应仓位与保证金。",
-      tone: liquidation <= 10 ? "negative" : "warning", icon: AlertTriangle,
+      title: `${dangerLiquidation.normalized_symbol} ${positionSideLabel(dangerLiquidation.side, dangerLiquidation.exchange)}距离强平价仅 ${number(dangerLiquidation.distance_percent, 1)}%，属于高风险仓位。`,
+      detail: `${exchangeDisplayName(dangerLiquidation.exchange)} · 点击查看并定位该仓位`,
+      tone: "negative", icon: AlertTriangle,
+      href: liquidationPositionHref(dangerLiquidation),
+    });
+  } else if (watchCount > 0) {
+    items.push({
+      title: `存在 ${watchCount} 个仓位进入强平关注区间。`,
+      detail: nearestLiquidation ? `${nearestLiquidation.normalized_symbol} 最近，距离 ${number(nearestLiquidation.distance_percent, 1)}%。` : "请检查对应仓位与保证金。",
+      tone: "warning", icon: AlertTriangle,
+      href: nearestLiquidation ? liquidationPositionHref(nearestLiquidation) : undefined,
     });
   }
   if (risk.summary.margin_utilization_percent >= 50) {
@@ -209,6 +228,7 @@ function DashboardContent() {
   if (!data || !risk || !curve) return <><PageHeader eyebrow="TODAY DESK" title="今日驾驶舱" description="正在整理账户、收益与风险数据…" /><LoadingState rows={6} /></>;
 
   const briefItems = buildTodayBrief(data, risk, formatMoney);
+  const nearestLiquidation = risk.liquidation_risks[0] ?? null;
   const todayTone = pnlTone(data.today.net_return);
   const dataUpdatedAt = portfolioUpdatedAt(data, lastLoadedAt);
   return <>
@@ -243,7 +263,19 @@ function DashboardContent() {
       <div className="grid border-t sm:grid-cols-2 xl:grid-cols-5" style={{ borderColor: "var(--line)" }}>
         <CoreMetric label="当前未实现盈亏" value={formatMoney(data.current_position_pnl)} tone={pnlTone(data.current_position_pnl)} icon={<Activity className="h-4 w-4" />} />
         <CoreMetric label="保证金使用率" value={`${number(risk.summary.margin_utilization_percent, 1)}%`} tone={risk.summary.margin_utilization_percent >= 80 ? "negative" : risk.summary.margin_utilization_percent >= 50 ? "warning" : "neutral"} icon={<Gauge className="h-4 w-4" />} />
-        <CoreMetric label="最近强平距离" value={risk.summary.nearest_liquidation_distance_percent === null ? "暂无可用强平价" : `${number(risk.summary.nearest_liquidation_distance_percent, 1)}%`} tone={risk.summary.nearest_liquidation_distance_percent !== null && risk.summary.nearest_liquidation_distance_percent <= 10 ? "negative" : risk.summary.nearest_liquidation_distance_percent !== null && risk.summary.nearest_liquidation_distance_percent <= 20 ? "warning" : "neutral"} icon={<Target className="h-4 w-4" />} compact={risk.summary.nearest_liquidation_distance_percent === null} />
+        {nearestLiquidation ? (
+          <Link href={liquidationPositionHref(nearestLiquidation)} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
+            <CoreMetric
+              label="最近强平距离"
+              value={`${number(nearestLiquidation.distance_percent, 1)}%`}
+              detail={`${nearestLiquidation.normalized_symbol} ${positionSideLabel(nearestLiquidation.side, nearestLiquidation.exchange)} · ${exchangeDisplayName(nearestLiquidation.exchange)}`}
+              tone={nearestLiquidation.risk_level === "DANGER" ? "negative" : nearestLiquidation.risk_level === "WATCH" ? "warning" : "neutral"}
+              icon={<Target className="h-4 w-4" />}
+            />
+          </Link>
+        ) : (
+          <CoreMetric label="最近强平距离" value="暂无可用强平价" detail="当前仓位均无可靠交易所强平价" icon={<Target className="h-4 w-4" />} compact />
+        )}
         <CoreMetric label="总持仓敞口 / Notional" value={usd(risk.summary.total_position_value)} icon={<Scale className="h-4 w-4" />} />
         <CoreMetric label="最近数据更新时间" value={dateTime(dataUpdatedAt)} icon={<Clock3 className="h-4 w-4" />} compact />
       </div>
@@ -251,7 +283,7 @@ function DashboardContent() {
 
     <section className="panel mt-4 overflow-hidden" aria-labelledby="today-brief-title">
       <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}><div><p id="today-brief-title" className="section-label">今日摘要</p><p className="muted mt-1 text-xs">基于账户收益、当前仓位与风险阈值自动提炼</p></div><Activity className="h-5 w-5 text-[var(--accent)]" /></div>
-      <div className="grid lg:grid-cols-2">{briefItems.map((item, index) => { const Icon = item.icon; return <article key={`${item.title}-${index}`} className="flex gap-3 border-b px-5 py-4 last:border-b-0 lg:odd:border-r" style={{ borderColor: "var(--line)" }}><span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] ${toneClass(item.tone)}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className={`text-sm font-semibold ${toneClass(item.tone)}`}>{item.title}</p><p className="muted mt-1 text-xs leading-5">{item.detail}</p></div></article>; })}</div>
+      <div className="grid lg:grid-cols-2">{briefItems.map((item, index) => { const Icon = item.icon; const content = <><span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] ${toneClass(item.tone)}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className={`text-sm font-semibold ${toneClass(item.tone)}`}>{item.title}</p><p className="muted mt-1 text-xs leading-5">{item.detail}</p></div></>; const className = "flex gap-3 border-b px-5 py-4 last:border-b-0 lg:odd:border-r"; return item.href ? <Link key={`${item.title}-${index}`} href={item.href} className={`${className} transition hover:bg-[var(--surface-soft)]`} style={{ borderColor: "var(--line)" }}>{content}</Link> : <article key={`${item.title}-${index}`} className={className} style={{ borderColor: "var(--line)" }}>{content}</article>; })}</div>
     </section>
 
     <section className="mt-4 grid gap-4 xl:grid-cols-[1.45fr_.72fr]">
@@ -296,8 +328,8 @@ function DashboardContent() {
 function CoreSubMetric({ label, value }: { label: string; value: string }) {
   return <div><p className="metric-label">{label}</p><p className="mono-number mt-1 break-all text-sm font-semibold sm:text-base">{value}</p></div>;
 }
-function CoreMetric({ label, value, tone = "neutral", icon, compact = false }: { label: string; value: string; tone?: Tone; icon: ReactNode; compact?: boolean }) {
-  return <article className="cockpit-core-metric"><div className="flex items-center justify-between gap-2"><p className="metric-label">{label}</p><span className={tone === "neutral" ? "text-[var(--muted)]" : toneClass(tone)}>{icon}</span></div><p className={`mono-number mt-2 break-words font-semibold ${compact ? "text-sm leading-5" : "text-lg"} ${toneClass(tone)}`}>{value}</p></article>;
+function CoreMetric({ label, value, detail, tone = "neutral", icon, compact = false }: { label: string; value: string; detail?: string; tone?: Tone; icon: ReactNode; compact?: boolean }) {
+  return <article className="cockpit-core-metric h-full"><div className="flex items-center justify-between gap-2"><p className="metric-label">{label}</p><span className={tone === "neutral" ? "text-[var(--muted)]" : toneClass(tone)}>{icon}</span></div><p className={`mono-number mt-2 break-words font-semibold ${compact ? "text-sm leading-5" : "text-lg"} ${toneClass(tone)}`}>{value}</p>{detail ? <p className="muted mt-1 text-[10px] leading-4">{detail}</p> : null}</article>;
 }
 function BreakdownRow({ label, value, tone }: { label: string; value: string; tone: Tone }) {
   return <div className="flex items-center justify-between gap-4 py-2.5 text-sm"><span className="muted">{label}</span><span className={`mono-number font-semibold ${toneClass(tone)}`}>{value}</span></div>;

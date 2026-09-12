@@ -1,11 +1,12 @@
 "use client";
 
-import { Filter, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, Filter, Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { CalculationHint } from "@/components/calculation-hint";
+import { LiquidationRiskDisplay } from "@/components/liquidation-risk";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
 import { SortButton, type SortDirection } from "@/components/sort-button";
@@ -13,10 +14,11 @@ import { readPageFilters, useUrlFilterSync } from "@/components/use-url-filter-s
 import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
-import type { ExchangeAccount, Position } from "@/lib/types";
+import type { ExchangeAccount, LiquidationRiskLevel, Position } from "@/lib/types";
 
 type PositionResult = { items: Position[]; total: number };
-type PositionSortField = "value" | "pnl";
+type PositionSortField = "value" | "pnl" | "liquidation";
+type LiquidationRiskFilter = "" | LiquidationRiskLevel | "NO_DATA";
 
 export default function PositionsPage() {
   return (
@@ -33,6 +35,8 @@ function PositionsContent() {
   const [accountId, setAccountId] = useState("");
   const [side, setSide] = useState("");
   const [symbol, setSymbol] = useState("");
+  const [liquidationRisk, setLiquidationRisk] = useState<LiquidationRiskFilter>("");
+  const [focusPositionId, setFocusPositionId] = useState("");
   const [sortField, setSortField] = useState<PositionSortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
@@ -46,6 +50,7 @@ function PositionsContent() {
     if (accountId) params.set("account_id", accountId);
     if (side) params.set("side", side);
     if (symbol) params.set("symbol", symbol);
+    params.set("page_size", "200");
     setError("");
     return apiFetch<PositionResult>(`/api/positions/current?${params}`)
       .then((nextResult) => {
@@ -62,8 +67,13 @@ function PositionsContent() {
       setAccountId(query.get("account") ?? "");
       setSide(query.get("side") ?? "");
       setSymbol(query.get("symbol") ?? "");
+      const risk = query.get("risk") ?? "";
+      if (["SAFE", "WATCH", "DANGER", "NO_DATA"].includes(risk)) {
+        setLiquidationRisk(risk as LiquidationRiskFilter);
+      }
+      setFocusPositionId(query.get("focus") ?? "");
       const [field, direction] = (query.get("sort") ?? "").split("-");
-      if ((field === "value" || field === "pnl") && (direction === "asc" || direction === "desc")) {
+      if ((field === "value" || field === "pnl" || field === "liquidation") && (direction === "asc" || direction === "desc")) {
         setSortField(field);
         setSortDirection(direction);
       }
@@ -82,20 +92,46 @@ function PositionsContent() {
     account: accountId,
     side,
     symbol,
+    risk: liquidationRisk,
+    focus: focusPositionId,
     sort: sortField && sortDirection !== "none" ? `${sortField}-${sortDirection}` : "",
   });
 
   const positions = useMemo(() => {
-    const rows = [...(result?.items ?? [])];
+    const rows = (result?.items ?? []).filter((position) => {
+      if (!liquidationRisk) return true;
+      if (liquidationRisk === "NO_DATA") return position.liquidation_risk_level === null;
+      return position.liquidation_risk_level === liquidationRisk;
+    });
     if (!sortField || sortDirection === "none") return rows;
     return rows.sort((left, right) => {
-      const difference =
-        sortField === "value"
-          ? left.position_value_usd - right.position_value_usd
-          : left.unrealized_pnl - right.unrealized_pnl;
+      if (sortField === "liquidation") {
+        const leftDistance = left.liquidation_distance_percent;
+        const rightDistance = right.liquidation_distance_percent;
+        if (leftDistance === null) return 1;
+        if (rightDistance === null) return -1;
+        return sortDirection === "asc" ? leftDistance - rightDistance : rightDistance - leftDistance;
+      }
+      const difference = sortField === "value"
+        ? left.position_value_usd - right.position_value_usd
+        : left.unrealized_pnl - right.unrealized_pnl;
       return sortDirection === "asc" ? difference : -difference;
     });
-  }, [result?.items, sortDirection, sortField]);
+  }, [liquidationRisk, result?.items, sortDirection, sortField]);
+
+  useEffect(() => {
+    if (!focusPositionId || positions.length === 0) return;
+    const desktop = window.matchMedia?.("(min-width: 1024px)").matches ?? false;
+    const element = document.getElementById(
+      `position-${focusPositionId}-${desktop ? "desktop" : "mobile"}`,
+    );
+    element?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [focusPositionId, positions]);
+  useEffect(() => {
+    if (result && focusPositionId && !positions.some((position) => position.id === focusPositionId)) {
+      setFocusPositionId("");
+    }
+  }, [focusPositionId, positions, result]);
 
   function changeSort(field: PositionSortField, direction: SortDirection) {
     setSortField(direction === "none" ? null : field);
@@ -118,6 +154,7 @@ function PositionsContent() {
 
   const valueSortDirection = sortField === "value" ? sortDirection : "none";
   const pnlSortDirection = sortField === "pnl" ? sortDirection : "none";
+  const liquidationSortDirection = sortField === "liquidation" ? sortDirection : "none";
   const mobileSortValue =
     sortField && sortDirection !== "none"
       ? `${sortField}-${sortDirection}`
@@ -149,8 +186,8 @@ function PositionsContent() {
       />
 
       <FilterPanel
-        activeCount={[accountId, side, mobileSortValue !== "none" ? mobileSortValue : ""].filter(Boolean).length}
-        desktopClassName="md:grid-cols-2 lg:grid-cols-4"
+        activeCount={[exchange, accountId, side, symbol, liquidationRisk, mobileSortValue !== "none" ? mobileSortValue : ""].filter(Boolean).length}
+        desktopClassName="md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
         primary={<>
         <label className="relative">
           <Search className="muted absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
@@ -186,6 +223,13 @@ function PositionsContent() {
           <option value="LONG">做多</option>
           <option value="SHORT">做空</option>
         </FilterSelect>
+        <FilterSelect value={liquidationRisk} onChange={(value) => setLiquidationRisk(value as LiquidationRiskFilter)} label="强平风险">
+          <option value="">全部强平风险</option>
+          <option value="SAFE">正常</option>
+          <option value="WATCH">关注</option>
+          <option value="DANGER">危险</option>
+          <option value="NO_DATA">无强平数据</option>
+        </FilterSelect>
         <div className="md:hidden">
           <FilterSelect value={mobileSortValue} onChange={changeMobileSort} label="排序">
             <option value="none">默认排序</option>
@@ -193,6 +237,8 @@ function PositionsContent() {
             <option value="value-desc">仓位价值降序</option>
             <option value="pnl-asc">未实现盈亏升序</option>
             <option value="pnl-desc">未实现盈亏降序</option>
+            <option value="liquidation-asc">强平距离从近到远</option>
+            <option value="liquidation-desc">强平距离从远到近</option>
           </FilterSelect>
         </div>
         </>}
@@ -203,7 +249,7 @@ function PositionsContent() {
           <p className="muted text-xs">
             当前显示 <span className="mono-number font-semibold text-[var(--text)]">{positions.length}</span> 个仓位
           </p>
-          {(exchange || accountId || side || symbol) && (
+          {(exchange || accountId || side || symbol || liquidationRisk) && (
             <button
               type="button"
               className="text-xs font-semibold text-[var(--accent)]"
@@ -212,6 +258,8 @@ function PositionsContent() {
                 setAccountId("");
                 setSide("");
                 setSymbol("");
+                setLiquidationRisk("");
+                setFocusPositionId("");
               }}
             >
               清除筛选
@@ -231,13 +279,13 @@ function PositionsContent() {
       ) : (
         <>
           <div className="table-shell table-shell-sticky hidden lg:block">
-            <table className="data-table min-w-[1000px]">
+            <table className="data-table min-w-[1080px]">
               <thead>
                 <tr>
-                  {["交易对 / 账户", "方向", "数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "当前未实现盈亏", "更新时间"].map((title) => (
+                  {["交易对 / 账户", "方向", "数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "强平风险", "当前未实现盈亏"].map((title) => (
                     <th
                       key={title}
-                      data-numeric={["数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "当前未实现盈亏"].includes(title)}
+                      data-numeric={["数量", "仓位价值", "入场 / 标记", "杠杆 / 保证金", "强平风险", "当前未实现盈亏"].includes(title)}
                     >
                       {title === "仓位价值" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
@@ -261,6 +309,15 @@ function PositionsContent() {
                             onChange={(direction) => changeSort("pnl", direction)}
                           />
                         </span>
+                      ) : title === "强平风险" ? (
+                        <span className="inline-flex items-center whitespace-nowrap">
+                          {title}
+                          <SortButton
+                            direction={liquidationSortDirection}
+                            label="强平距离"
+                            onChange={(direction) => changeSort("liquidation", direction)}
+                          />
+                        </span>
                       ) : title === "杠杆 / 保证金" ? (
                         <span className="inline-flex items-center whitespace-nowrap">
                           {title}
@@ -276,12 +333,12 @@ function PositionsContent() {
               </thead>
               <tbody>
                 {positions.map((position) => (
-                  <tr key={position.id}>
+                  <tr key={position.id} id={`position-${position.id}-desktop`} className={focusPositionId === position.id ? "bg-[var(--accent-soft)]" : undefined}>
                     <td>
                       <div className="max-w-md">
                         <PositionLabel position={position} />
                       </div>
-                      <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)} · {position.market_type}</p>
+                      <p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)} · {position.market_type} · {dateTime(position.update_time)}</p>
                     </td>
                     <td>
                       <Badge tone={position.side === "LONG" ? "positive" : "negative"}>
@@ -299,6 +356,14 @@ function PositionsContent() {
                       <p className="muted mt-1 text-xs">本金 {formatMoney(position.margin_used)}</p>
                     </td>
                     <td data-numeric="true">
+                      <LiquidationRiskDisplay
+                        liquidationPrice={position.liquidation_price}
+                        distancePercent={position.liquidation_distance_percent}
+                        riskLevel={position.liquidation_risk_level}
+                        marginMode={position.margin_mode}
+                      />
+                    </td>
+                    <td data-numeric="true">
                       <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                         {formatMoney(position.unrealized_pnl)}
                       </p>
@@ -312,7 +377,6 @@ function PositionsContent() {
                         {number(position.unrealized_pnl_percent, 2)}%
                       </p>
                     </td>
-                    <td className="muted whitespace-nowrap text-xs">{dateTime(position.update_time)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -320,7 +384,16 @@ function PositionsContent() {
           </div>
           <div className="grid gap-3 lg:hidden">
             {positions.map((position) => (
-              <article key={position.id} className="panel min-w-0 overflow-hidden p-4">
+              <article
+                key={position.id}
+                id={`position-${position.id}-mobile`}
+                className={`panel min-w-0 overflow-hidden p-4 ${position.liquidation_risk_level === "DANGER" ? "border-l-4 !border-l-[var(--negative)] bg-[var(--negative-soft)]" : ""} ${focusPositionId === position.id ? "ring-2 ring-[var(--accent)]" : ""}`}
+              >
+                {position.liquidation_risk_level === "DANGER" ? (
+                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-negative">
+                    <AlertTriangle className="h-4 w-4" />高风险仓位 · 已进入强平危险区间
+                  </div>
+                ) : null}
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <PositionLabel position={position} />
@@ -337,6 +410,16 @@ function PositionsContent() {
                   <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatMoney(position.unrealized_pnl)} · ${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
                   <Metric label="杠杆 / 本金" hint="本金 = 入场价 × 仓位数量 ÷ 杠杆倍数。" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
+                  <div className="col-span-2 rounded-xl border p-3" style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}>
+                    <p className="metric-label mb-2">强平风险</p>
+                    <LiquidationRiskDisplay
+                      liquidationPrice={position.liquidation_price}
+                      distancePercent={position.liquidation_distance_percent}
+                      riskLevel={position.liquidation_risk_level}
+                      marginMode={position.margin_mode}
+                      compact
+                    />
+                  </div>
                 </div>
               </article>
             ))}

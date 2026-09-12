@@ -21,7 +21,8 @@ def test_dashboard_bootstrap_returns_homepage_payloads(client):
     data = response.json()["data"]
     assert {"dashboard", "risk", "equity_curve"} == set(data)
     assert data["dashboard"]["by_exchange"]
-    assert data["dashboard"]["schema_version"] == 2
+    assert data["dashboard"]["schema_version"] == 3
+    assert data["risk"]["schema_version"] == 2
     assert {
         "opening_equity",
         "net_return",
@@ -120,6 +121,16 @@ def test_demo_dashboard_positions_and_pnl(authenticated):
     positions = client.get("/api/positions/current").json()["data"]
     assert positions["total"] >= 4
     assert {item["side"] for item in positions["items"]} <= {"LONG", "SHORT"}
+    assert all(
+        {"liquidation_price", "liquidation_distance_percent", "liquidation_risk_level"}
+        <= set(item)
+        for item in positions["items"]
+    )
+    assert all(
+        item["liquidation_distance_percent"] is not None
+        or item["liquidation_risk_level"] is None
+        for item in positions["items"]
+    )
     leveraged = next(item for item in positions["items"] if item["leverage"] > 1)
     expected_margin = (
         abs(leveraged["entry_price"] * leveraged["position_size"])

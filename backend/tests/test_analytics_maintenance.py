@@ -58,6 +58,33 @@ def test_risk_calculations():
         )
         == "HIGH"
     )
+    assert (
+        calculate_risk_level(
+            max_drawdown_percent=5,
+            largest_exchange_concentration_percent=30,
+            margin_utilization_percent=20,
+            nearest_liquidation_distance_percent=14.999,
+        )
+        == "HIGH"
+    )
+    assert (
+        calculate_risk_level(
+            max_drawdown_percent=5,
+            largest_exchange_concentration_percent=30,
+            margin_utilization_percent=20,
+            nearest_liquidation_distance_percent=15,
+        )
+        == "MEDIUM"
+    )
+    assert (
+        calculate_risk_level(
+            max_drawdown_percent=5,
+            largest_exchange_concentration_percent=30,
+            margin_utilization_percent=20,
+            nearest_liquidation_distance_percent=30,
+        )
+        == "LOW"
+    )
 
 
 @pytest.mark.asyncio

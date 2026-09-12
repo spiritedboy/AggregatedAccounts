@@ -23,12 +23,20 @@ from app.models import (
     TrackingPeriod,
     TradingFeeRecord,
 )
+from app.services.liquidation import (
+    LIQUIDATION_DANGER_THRESHOLD_PERCENT,
+    LIQUIDATION_SAFE_THRESHOLD_PERCENT,
+    liquidation_distance_percent,
+    liquidation_risk_level,
+)
 from app.services.operational_read_models import (
     RECONCILIATION_SCOPE,
     RISK_SCOPE,
     SYNC_STATUS_SCOPE,
     get_operational_read_model,
 )
+
+RISK_SCHEMA_VERSION = 2
 
 
 def _number(value: Decimal | float | int | None) -> float:
@@ -59,7 +67,8 @@ def calculate_risk_level(
         or margin_utilization_percent >= 80
         or (
             nearest_liquidation_distance_percent is not None
-            and nearest_liquidation_distance_percent <= 10
+            and nearest_liquidation_distance_percent
+            < LIQUIDATION_DANGER_THRESHOLD_PERCENT
         )
     ):
         return "HIGH"
@@ -69,7 +78,8 @@ def calculate_risk_level(
         or margin_utilization_percent >= 50
         or (
             nearest_liquidation_distance_percent is not None
-            and nearest_liquidation_distance_percent <= 20
+            and nearest_liquidation_distance_percent
+            < LIQUIDATION_SAFE_THRESHOLD_PERCENT
         )
     ):
         return "MEDIUM"
@@ -595,20 +605,25 @@ async def calculate_risk_metrics(db: AsyncSession) -> dict[str, Any]:
         exposure["exchanges"].add(position.exchange)
         exposure["position_value"] += value
         exposure["unrealized_pnl"] += _number(position.unrealized_pnl)
-        mark = _number(position.mark_price)
-        liquidation = _number(position.liquidation_price)
-        if mark > 0 and liquidation > 0:
-            distance = (
-                (mark - liquidation) / mark * 100
-                if position.side == "LONG"
-                else (liquidation - mark) / mark * 100
-            )
+        distance = liquidation_distance_percent(
+            side=position.side,
+            mark_price=position.mark_price,
+            liquidation_price=position.liquidation_price,
+        )
+        if distance is not None:
             liquidation_risks.append(
                 {
+                    "position_id": str(position.id),
+                    "exchange_account_id": str(position.exchange_account_id),
                     "exchange": position.exchange,
                     "symbol": position.symbol,
+                    "normalized_symbol": position.normalized_symbol,
                     "side": position.side,
-                    "distance_percent": max(distance, 0),
+                    "mark_price": _number(position.mark_price),
+                    "liquidation_price": _number(position.liquidation_price),
+                    "distance_percent": distance,
+                    "risk_level": liquidation_risk_level(distance),
+                    "margin_mode": position.margin_mode,
                 }
             )
 
@@ -647,6 +662,7 @@ async def calculate_risk_metrics(db: AsyncSession) -> dict[str, Any]:
         default=None,
     )
     return {
+        "schema_version": RISK_SCHEMA_VERSION,
         "summary": {
             "risk_level": calculate_risk_level(
                 max_drawdown_percent=max_drawdown,
@@ -688,4 +704,6 @@ async def build_reconciliation(db: AsyncSession) -> dict[str, Any]:
 
 async def build_risk_metrics(db: AsyncSession) -> dict[str, Any]:
     cached = await get_operational_read_model(db, RISK_SCOPE)
-    return cached if cached is not None else await calculate_risk_metrics(db)
+    if cached is not None and cached.get("schema_version") == RISK_SCHEMA_VERSION:
+        return cached
+    return await calculate_risk_metrics(db)

@@ -61,6 +61,8 @@ export type Position = {
   entry_price: number;
   mark_price: number;
   liquidation_price: number | null;
+  liquidation_distance_percent: number | null;
+  liquidation_risk_level: LiquidationRiskLevel | null;
   leverage: number;
   margin_mode: string;
   margin_used: number;
@@ -75,6 +77,8 @@ export type Position = {
   is_initial_position: boolean;
   update_time: string;
 };
+
+export type LiquidationRiskLevel = "SAFE" | "WATCH" | "DANGER";
 
 export type ClosedPosition = {
   id: string;
@@ -374,6 +378,7 @@ export type ReconciliationData = {
 };
 
 export type RiskData = {
+  schema_version: number;
   summary: {
     risk_level: "LOW" | "MEDIUM" | "HIGH";
     total_equity: number;
@@ -398,10 +403,17 @@ export type RiskData = {
     equity_percent: number;
   }>;
   liquidation_risks: Array<{
+    position_id: string;
+    exchange_account_id: string;
     exchange: string;
     symbol: string;
+    normalized_symbol: string;
     side: "LONG" | "SHORT";
+    mark_price: number;
+    liquidation_price: number;
     distance_percent: number;
+    risk_level: LiquidationRiskLevel;
+    margin_mode: string;
   }>;
 };
 

@@ -8,11 +8,13 @@ import {
   Scale,
   ShieldCheck,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { useCurrency } from "@/components/app-shell";
 import { ProtectedPage } from "@/components/protected-page";
+import { liquidationRiskLabel, liquidationRiskTone } from "@/components/liquidation-risk";
 import { Badge, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { connectionDisplayName, dateTime, exchangeDisplayName, number, usd } from "@/lib/format";
@@ -139,11 +141,35 @@ function ReconciliationContent() {
             />
             <RiskMetric label="单仓最大敞口" value={risk.summary.largest_position_exposure_percent} />
             <RiskMetric label="保证金使用率" value={risk.summary.margin_utilization_percent} />
-            <RiskMetric
-              label="最近强平距离"
-              value={risk.summary.nearest_liquidation_distance_percent}
-              empty="无可用强平价"
-            />
+          </div>
+          <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--line)" }}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="metric-label">最近强平仓位 · Top 3</p>
+              <Link href="/positions?sort=liquidation-asc" className="text-xs font-semibold text-[var(--accent)]">查看全部 →</Link>
+            </div>
+            {risk.liquidation_risks.length === 0 ? (
+              <p className="muted mt-3 text-xs leading-5">当前仓位均未获得交易所可靠强平价。</p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {risk.liquidation_risks.slice(0, 3).map((item) => (
+                  <Link
+                    key={item.position_id}
+                    href={`/positions?sort=liquidation-asc&focus=${encodeURIComponent(item.position_id)}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition hover:bg-[var(--surface-soft)]"
+                    style={{ borderColor: "var(--line)" }}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{item.normalized_symbol} · {item.side === "LONG" ? "做多" : "做空"}</p>
+                      <p className="muted mt-0.5 text-[11px]">{exchangeDisplayName(item.exchange)} · 强平价 {usd(item.liquidation_price)}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className={`mono-number text-sm font-bold ${liquidationRiskTone(item.risk_level) === "positive" ? "text-positive" : liquidationRiskTone(item.risk_level) === "warning" ? "text-warning" : "text-negative"}`}>{number(item.distance_percent, 1)}%</p>
+                      <p className="mt-0.5 text-[10px] text-[var(--muted)]">{liquidationRiskLabel(item.risk_level)}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </article>
       </section>

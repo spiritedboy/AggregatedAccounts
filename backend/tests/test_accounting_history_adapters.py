@@ -94,6 +94,8 @@ async def test_binance_positions_use_v2_leverage_and_margin_type(monkeypatch):
     assert positions[0]["normalized_symbol"] == "GOOGL-USDT-PERP"
     assert positions[0]["leverage"] == 20
     assert positions[0]["margin_mode"] == "CROSS"
+    assert positions[0]["mark_price"] == 325.38
+    assert positions[0]["liquidation_price"] is None
 
 
 @pytest.mark.asyncio
@@ -130,6 +132,10 @@ async def test_okx_positions_convert_contract_count_to_underlying_quantity(monke
     assert position["position_size"] == pytest.approx(18.085339)
     assert position["position_value_usd"] == pytest.approx(981.581774225)
     assert position["margin_used"] == pytest.approx(49.87665216115)
+    assert position["mark_price"] == 54.275
+    assert position["liquidation_price"] == 80
+    assert position["leverage"] == 20
+    assert position["margin_mode"] == "CROSS"
 
 
 @pytest.mark.asyncio
@@ -176,6 +182,9 @@ async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch
                     "total": "1",
                     "markPrice": "100",
                     "openPriceAvg": "90",
+                    "liquidationPrice": "70",
+                    "leverage": "5",
+                    "marginMode": "isolated",
                     "marginSize": "20",
                     "unrealizedPL": "10",
                 }
@@ -201,6 +210,10 @@ async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch
         "BTC-USDT-PERP",
         "BTC-USDC-PERP",
     }
+    assert all(row["liquidation_price"] == 70 for row in positions)
+    assert all(row["mark_price"] == 100 for row in positions)
+    assert all(row["leverage"] == 5 for row in positions)
+    assert all(row["margin_mode"] == "ISOLATED" for row in positions)
 
 
 @pytest.mark.asyncio
@@ -390,6 +403,10 @@ async def test_hyperliquid_open_positions_include_hip3_dex(monkeypatch):
     assert positions[0]["normalized_symbol"] == "CXMT-USDT-PERP"
     assert positions[0]["side"] == "SHORT"
     assert positions[0]["position_size"] == 28.5
+    assert positions[0]["mark_price"] == pytest.approx(7.5547)
+    assert positions[0]["liquidation_price"] == pytest.approx(9.3091002172)
+    assert positions[0]["leverage"] == 5
+    assert positions[0]["margin_mode"] == "ISOLATED"
 
 
 @pytest.mark.asyncio

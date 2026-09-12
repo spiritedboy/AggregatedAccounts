@@ -46,6 +46,10 @@ from app.services.analytics import (
     build_sync_status,
 )
 from app.services.equity_curve import get_equity_curve
+from app.services.liquidation import (
+    liquidation_distance_percent,
+    liquidation_risk_level,
+)
 from app.services.operational_read_models import (
     DASHBOARD_SCOPE,
     get_operational_read_model,
@@ -56,7 +60,7 @@ from app.services.position_math import position_margin_used
 
 router = APIRouter(prefix="/api")
 REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
-DASHBOARD_SCHEMA_VERSION = 2
+DASHBOARD_SCHEMA_VERSION = 3
 
 
 def _num(value: Decimal | float | None) -> float:
@@ -800,6 +804,12 @@ def _position_dict(
         )
     )
     unrealized_pnl = _num(row.unrealized_pnl)
+    liquidation_price = _num(row.liquidation_price) if row.liquidation_price else None
+    liquidation_distance = liquidation_distance_percent(
+        side=row.side,
+        mark_price=row.mark_price,
+        liquidation_price=row.liquidation_price,
+    )
     return {
         "id": row.id,
         "exchange": row.exchange,
@@ -813,7 +823,9 @@ def _position_dict(
         "position_value_usd": _num(row.position_value_usd),
         "entry_price": _num(row.entry_price),
         "mark_price": _num(row.mark_price),
-        "liquidation_price": _num(row.liquidation_price) if row.liquidation_price else None,
+        "liquidation_price": liquidation_price,
+        "liquidation_distance_percent": liquidation_distance,
+        "liquidation_risk_level": liquidation_risk_level(liquidation_distance),
         "leverage": leverage,
         "margin_mode": row.margin_mode,
         "margin_used": margin_used,

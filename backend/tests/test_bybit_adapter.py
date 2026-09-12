@@ -118,6 +118,10 @@ async def test_bybit_summary_balances_and_positions(monkeypatch):
     assert positions[0]["side"] == "LONG"
     assert positions[0]["margin_used"] == 700
     assert positions[0]["unrealized_pnl"] == 100
+    assert positions[0]["mark_price"] == 70000
+    assert positions[0]["liquidation_price"] == 62000
+    assert positions[0]["leverage"] == 10
+    assert positions[0]["margin_mode"] == "CROSS"
 
 
 @pytest.mark.asyncio

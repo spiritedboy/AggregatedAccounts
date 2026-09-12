@@ -69,6 +69,8 @@ const position = {
   entry_price: 68000,
   mark_price: 70000,
   liquidation_price: 45000,
+  liquidation_distance_percent: 35.7142857,
+  liquidation_risk_level: "SAFE",
   leverage: 5,
   margin_mode: "CROSS",
   margin_used: 5600,
@@ -93,6 +95,9 @@ const shortPosition = {
   position_value_usd: 50000,
   unrealized_pnl: 1000,
   unrealized_pnl_percent: 2,
+  liquidation_price: 77000,
+  liquidation_distance_percent: 10,
+  liquidation_risk_level: "DANGER",
 };
 
 const polymarketPosition = {
@@ -109,18 +114,24 @@ const polymarketPosition = {
   position_value_usd: 40000,
   unrealized_pnl: -50,
   unrealized_pnl_percent: -0.125,
+  liquidation_price: null,
+  liquidation_distance_percent: null,
+  liquidation_risk_level: null,
+  leverage: 1,
+  margin_mode: "CASH",
 };
 
 const riskData = {
+  schema_version: 2,
   summary: {
-    risk_level: "LOW",
+    risk_level: "HIGH",
     total_equity: 100000,
     total_position_value: 28000,
     max_drawdown_percent: 8.5,
     largest_exchange_concentration_percent: 42,
     largest_position_exposure_percent: 28,
     margin_utilization_percent: 5.6,
-    nearest_liquidation_distance_percent: 35,
+    nearest_liquidation_distance_percent: 10,
   },
   exchange_concentration: [{ exchange: "BINANCE", equity: 42000, percent: 42 }],
   top_exposures: [
@@ -134,7 +145,19 @@ const riskData = {
     },
   ],
   liquidation_risks: [
-    { exchange: "BINANCE", symbol: "BTCUSDT", side: "LONG", distance_percent: 35 },
+    {
+      position_id: "p2",
+      exchange_account_id: account.id,
+      exchange: "BINANCE",
+      symbol: "ETHUSDT",
+      normalized_symbol: "ETH-USDT-PERP",
+      side: "SHORT",
+      mark_price: 70000,
+      liquidation_price: 77000,
+      distance_percent: 10,
+      risk_level: "DANGER",
+      margin_mode: "CROSS",
+    },
   ],
 };
 
@@ -277,6 +300,7 @@ function installFetch(routes: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, "", "/dashboard");
   window.localStorage.clear();
   document.documentElement.classList.add("dark");
   Object.defineProperty(document, "cookie", {
@@ -297,7 +321,7 @@ describe("portfolio pages", () => {
     installFetch({
       "/api/dashboard/bootstrap": {
         dashboard: {
-          schema_version: 2,
+          schema_version: 3,
           estimated_total_equity: 100000,
           available_balance: 62000,
           margin_used: 18000,
@@ -397,6 +421,12 @@ describe("portfolio pages", () => {
     expect(screen.getByText("今日收益率")).toBeInTheDocument();
     expect(screen.getAllByText(/当日期初权益/)).not.toHaveLength(0);
     expect(screen.getByText("最近强平距离")).toBeInTheDocument();
+    expect(screen.getAllByText(/ETH-USDT-PERP/)).not.toHaveLength(0);
+    expect(screen.getByText(/属于高风险仓位/)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /10%/ })[0]).toHaveAttribute(
+      "href",
+      "/positions?sort=liquidation-asc&focus=p2",
+    );
     expect(screen.getByText("总持仓敞口 / Notional")).toBeInTheDocument();
     expect(screen.getByText("最近数据更新时间")).toBeInTheDocument();
     expect(screen.getByText("净值曲线")).toBeInTheDocument();
@@ -423,7 +453,7 @@ describe("portfolio pages", () => {
     installFetch({
       "/api/dashboard/bootstrap": {
         dashboard: {
-          schema_version: 2,
+          schema_version: 3,
           estimated_total_equity: 1000,
           available_balance: 1000,
           margin_used: 0,
@@ -495,6 +525,7 @@ describe("portfolio pages", () => {
 
   it("renders localized position sides and sorts current positions by value and PnL", async () => {
     const user = userEvent.setup();
+    window.history.replaceState({}, "", "/positions");
     installFetch({
       "/api/positions/current": {
         items: [shortPosition, polymarketPosition, position],
@@ -507,6 +538,9 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
     expect(screen.getAllByText("本金 US$5,600.00")).not.toHaveLength(0);
     expect(screen.getAllByText("14.29%")).not.toHaveLength(0);
+    expect(screen.getAllByText("距强平 35.7%")).not.toHaveLength(0);
+    expect(screen.getAllByText("交易所未提供可靠强平价")).not.toHaveLength(0);
+    expect(screen.getByText(/高风险仓位 · 已进入强平危险区间/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "仓位价值计算说明" })).not.toHaveLength(0);
     expect(screen.getAllByRole("button", { name: "仓位本金计算说明" })).not.toHaveLength(0);
     expect(document.querySelector(".table-shell-sticky")).toBeInTheDocument();
@@ -540,6 +574,42 @@ describe("portfolio pages", () => {
     await user.click(screen.getByRole("button", { name: /未实现盈亏排序：升序/ }));
     rows = screen.getAllByRole("row").slice(1);
     expect(within(rows[0]).getByText("ETH-USDT-PERP")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /强平距离排序：未排序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("ETH-USDT-PERP")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /强平距离排序：升序/ }));
+    rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("BTC-USDT-PERP")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("Will the integration test pass? · Yes")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("强平风险"), "DANGER");
+    expect(screen.getAllByText("ETH-USDT-PERP")).not.toHaveLength(0);
+    expect(screen.queryByText("BTC-USDT-PERP")).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).toContain("risk=DANGER"));
+  });
+
+  it("restores liquidation filtering, sorting, and focused position from the URL", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/positions?risk=DANGER&sort=liquidation-asc&focus=p2",
+    );
+    installFetch({
+      "/api/positions/current": {
+        items: [position, polymarketPosition, shortPosition],
+        total: 3,
+      },
+      "/api/exchange-accounts": [account],
+    });
+
+    render(<PositionsPage />);
+    expect(await screen.findAllByText("ETH-USDT-PERP")).not.toHaveLength(0);
+    expect(screen.queryByText("BTC-USDT-PERP")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("强平风险")).toHaveValue("DANGER");
+    expect(screen.getByLabelText("排序")).toHaveValue("liquidation-asc");
+    expect(document.getElementById("position-p2-mobile")).toHaveClass("ring-2");
   });
 
   it("renders history and sorts filtered page results by net PnL", async () => {
@@ -903,8 +973,10 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("累计净收益")).not.toHaveLength(0);
     expect(screen.getByText("历史仓位总盈利 − 历史仓位总亏损")).toBeInTheDocument();
     expect(screen.getAllByText("当前持仓收益")).not.toHaveLength(0);
-    expect(screen.getByText("低风险")).toBeInTheDocument();
+    expect(screen.getByText("高风险")).toBeInTheDocument();
     expect(screen.getAllByText(/BTCUSDT/)).not.toHaveLength(0);
+    expect(screen.getByText("最近强平仓位 · Top 3")).toBeInTheDocument();
+    expect(screen.getByText(/ETH-USDT-PERP · 做空/)).toBeInTheDocument();
     expect(screen.getByText("数据异常检查")).toBeInTheDocument();
     expect(screen.getByText("最近一次同步检查通过。")).toBeInTheDocument();
   });
