@@ -16,6 +16,7 @@ import { PositionLabel } from "@/components/position-label";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, EmptyState, ErrorState, ExchangeMark, Skeleton } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { categoryAxisInterval, compactAxisMoney } from "@/lib/chart";
 import { connectionDisplayName, dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
 import type { DashboardBootstrapData, DashboardData, EquityCurveData, EquityCurveRange, Position, RiskData } from "@/lib/types";
 
@@ -28,12 +29,6 @@ const riskLevelLabel = { LOW: "低风险", MEDIUM: "中风险", HIGH: "高风险
 type Tone = "positive" | "negative" | "warning" | "neutral";
 type BriefItem = { title: string; detail: string; tone: Tone; icon: typeof Activity; href?: string };
 
-function equityAxisLabel(value: number) {
-  const magnitude = Math.abs(value);
-  if (magnitude >= 1_000_000) return `${number(value / 1_000_000, 2)}m`;
-  if (magnitude >= 1_000) return `${number(value / 1_000, 2)}k`;
-  return number(value, 2);
-}
 function signedPercent(value: number | null) {
   return value === null ? "—" : `${value > 0 ? "+" : ""}${number(value, 2)}%`;
 }
@@ -176,6 +171,8 @@ function DashboardContent() {
     grid: { left: 8, right: 12, top: 18, bottom: 24, containLabel: true },
     tooltip: {
       trigger: "axis",
+      triggerOn: "mousemove|click|mousewheel",
+      confine: true,
       backgroundColor: isDark ? "#171b24" : "#ffffff",
       borderColor: isDark ? "#343b49" : "#dfe3ea",
       textStyle: { color: isDark ? "#eef1f6" : "#171a23", fontFamily: "IBM Plex Mono, monospace" },
@@ -191,6 +188,7 @@ function DashboardContent() {
       axisLine: { lineStyle: { color: isDark ? "rgba(205,190,255,.24)" : "#cdd3e1" } },
       axisLabel: {
         color: isDark ? "#c3bad9" : "#687086", hideOverlap: true,
+        interval: categoryAxisInterval(curve?.points.length ?? 0, 7),
         formatter: (value: string) => {
           const current = new Date(value);
           return new Intl.DateTimeFormat("zh-CN", curveRange === "1d" || curveRange === "1w"
@@ -202,7 +200,7 @@ function DashboardContent() {
     yAxis: {
       type: "value", scale: true,
       splitLine: { lineStyle: { color: isDark ? "rgba(205,190,255,.1)" : "rgba(104,112,134,.12)" } },
-      axisLabel: { color: isDark ? "#c3bad9" : "#687086", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${equityAxisLabel(value)}` },
+      axisLabel: { color: isDark ? "#c3bad9" : "#687086", formatter: (value: number) => compactAxisMoney(value, currency) },
     },
     series: [{
       type: "line", smooth: 0.35, symbol: "none",
@@ -213,6 +211,14 @@ function DashboardContent() {
         { offset: 0.62, color: isDark ? "rgba(168,145,255,.08)" : "rgba(113,87,232,.06)" },
         { offset: 1, color: "rgba(113,87,232,0)" },
       ] } },
+    }],
+    media: [{
+      query: { maxWidth: 520 },
+      option: {
+        grid: { left: 2, right: 6, top: 16, bottom: 18, containLabel: true },
+        xAxis: { axisLabel: { fontSize: 10, interval: categoryAxisInterval(curve?.points.length ?? 0, 4), margin: 10 } },
+        yAxis: { axisLabel: { fontSize: 10, margin: 7 } },
+      },
     }],
   }), [currency, curve, curveRange, formatMoney, isDark, usdCnyRate]);
 
@@ -284,7 +290,7 @@ function DashboardContent() {
           <div><p className="section-label">净值曲线</p><p className="muted mt-1 text-xs">底层每 5 分钟采样 · 当前显示精度 {curve.resolution}</p><p className={`mono-number mt-2 text-sm font-semibold ${curve.change.amount === null ? "muted" : toneClass(pnlTone(curve.change.amount))}`}>净值变化：{curve.change.amount === null ? "—" : formatSignedMoney(curve.change.amount)} ({signedPercent(curve.change.percent)})</p></div>
           <div className="inline-flex max-w-full self-start overflow-x-auto rounded-[10px] border p-1" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>{curveRanges.map((item) => <button key={item.value} type="button" aria-pressed={curveRange === item.value} className={`min-h-10 shrink-0 rounded-[7px] px-3 text-xs font-semibold transition ${curveRange === item.value ? "bg-[var(--accent)] text-white" : "muted hover:bg-[var(--surface)] hover:text-[var(--text)]"}`} onClick={() => setCurveRange(item.value)}>{item.label}</button>)}</div>
         </div>
-        <div className="mt-3"><Chart option={equityOption} height={300} /></div>
+        <div className="mt-3"><Chart option={equityOption} height={300} mobileHeight={248} ariaLabel="账户净值曲线" /></div>
       </article>
       <TodayBreakdown data={data} formatMoney={formatSignedMoney} />
     </section>

@@ -92,6 +92,14 @@ body {
   from { opacity: 0; }
 }
 
+@keyframes drawer-backdrop-in {
+  from { opacity: 0; }
+}
+
+@keyframes drawer-panel-in {
+  from { transform: translateX(-100%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
@@ -331,6 +339,33 @@ select:focus-visible {
     letter-spacing: -0.025em;
   }
 
+  .long-data-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .long-data-id,
+  .financial-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+
+  .responsive-chart {
+    height: var(--chart-height);
+    touch-action: pan-y;
+  }
+
+  .drawer-backdrop {
+    animation: drawer-backdrop-in 180ms ease-out;
+  }
+
+  .drawer-panel {
+    animation: drawer-panel-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    overscroll-behavior: contain;
+  }
+
   .page-title {
     font-family: var(--font-display), var(--font-body), sans-serif;
     color: var(--text);
@@ -531,6 +566,10 @@ select:focus-visible {
 }
 
 @media (max-width: 767px) {
+  .responsive-chart {
+    height: var(--chart-mobile-height);
+  }
+
   .metric-value {
     font-size: 0.9375rem;
     line-height: 1.4;

@@ -467,7 +467,7 @@ function Metric({ label, value, tone, hint }: { label: string; value: string; to
         {label}
         {hint ? <CalculationHint label={label} text={hint} /> : null}
       </p>
-      <p className={`mono-number mt-1 break-words text-sm ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
+      <p className={`financial-value mono-number mt-1 text-sm ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );
 }

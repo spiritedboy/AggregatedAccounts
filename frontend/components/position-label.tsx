@@ -1,4 +1,5 @@
 import type { ClosedPosition, Position } from "@/lib/types";
+import { ExpandableText } from "@/components/expandable-text";
 
 type PositionLabelData = Pick<
   Position | ClosedPosition,
@@ -19,7 +20,7 @@ export function PositionLabel({
 }) {
   if (position.exchange !== "POLYMARKET") {
     return (
-      <p className={`font-mono font-semibold ${compact ? "text-sm" : ""}`}>
+      <p className={`long-data-id font-mono font-semibold ${compact ? "text-sm" : ""}`}>
         {position.normalized_symbol}
       </p>
     );
@@ -31,25 +32,21 @@ export function PositionLabel({
 
   return (
     <div className="min-w-0">
-      <p
-        className={`line-clamp-2 font-semibold leading-snug ${compact ? "text-sm" : ""}`}
-        title={position.display_symbol}
-      >
-        {position.display_symbol}
-      </p>
-      {translated && (
-        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-start gap-1.5">
+        {translated ? (
           <span className="shrink-0 rounded-full bg-[var(--aqua-soft)] px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-[var(--aqua)]">
             AI译
           </span>
-          <p
-            className="muted truncate text-[11px]"
-            title={position.original_symbol}
-          >
-            {position.original_symbol}
-          </p>
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <ExpandableText
+            text={position.display_symbol}
+            secondaryText={translated ? position.original_symbol : null}
+            className={`font-semibold leading-snug ${compact ? "text-sm" : ""}`}
+            secondaryClassName="muted text-[11px]"
+          />
         </div>
-      )}
+      </div>
     </div>
   );
 }

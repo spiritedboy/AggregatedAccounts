@@ -101,6 +101,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [rateReady, setRateReady] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const themeTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const drawerPanelRef = useRef<HTMLElement | null>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -111,6 +114,48 @@ export function AppShell({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", nextDark);
     document.documentElement.dataset.theme = nextDark ? "dark" : "light";
   }, []);
+
+  useEffect(() => {
+    if (!drawer) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => drawerCloseRef.current?.focus(), 0);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDrawer(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        drawerPanelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => !element.hasAttribute("hidden"));
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      drawerTriggerRef.current?.focus();
+    };
+  }, [drawer]);
 
   useEffect(() => {
     const savedCurrency = window.localStorage.getItem(CURRENCY_STORAGE_KEY);
@@ -214,6 +259,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }
 
+  function openDrawer(trigger: HTMLElement) {
+    drawerTriggerRef.current = trigger;
+    setDrawer(true);
+  }
+
   const activePage = allNavItems.find((item) => pathname === item.href);
   const moreActive = ["/ledger", "/reconciliation", "/accounts"].includes(pathname);
 
@@ -273,7 +323,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 className="button-secondary h-10 min-h-10 w-10 p-0 lg:hidden"
                 aria-label="打开菜单"
-                onClick={() => setDrawer(true)}
+                aria-expanded={drawer}
+                aria-controls="mobile-navigation-drawer"
+                onClick={(event) => openDrawer(event.currentTarget)}
               >
                 <Menu className="h-[18px] w-[18px]" />
               </button>
@@ -334,8 +386,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-[9px] text-[10px] font-medium transition ${moreActive ? "nav-active" : "muted"}`}
-            onClick={() => setDrawer(true)}
+            onClick={(event) => openDrawer(event.currentTarget)}
             aria-label="更多页面"
+            aria-expanded={drawer}
+            aria-controls="mobile-navigation-drawer"
           >
             <Menu className="h-[18px] w-[18px]" />
             <span>更多</span>
@@ -345,17 +399,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         <BackToTop />
         {drawer && (
           <div
-            className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm lg:hidden"
+            className="drawer-backdrop fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm lg:hidden"
             onClick={() => setDrawer(false)}
           >
             <aside
-              className="h-full w-[84%] max-w-sm border-r p-5"
+              ref={drawerPanelRef}
+              id="mobile-navigation-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-navigation-title"
+              className="drawer-panel h-full w-[84%] max-w-sm overflow-y-auto border-r p-5"
               style={{ background: "var(--surface)", borderColor: "var(--line)" }}
               onClick={(event) => event.stopPropagation()}
             >
+              <h2 id="mobile-navigation-title" className="sr-only">站点导航</h2>
               <div className="flex items-center justify-between">
                 <Brand />
                 <button
+                  ref={drawerCloseRef}
                   type="button"
                   className="button-secondary h-10 min-h-10 w-10 p-0"
                   onClick={() => setDrawer(false)}

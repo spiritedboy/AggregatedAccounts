@@ -18,9 +18,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { Chart } from "@/components/chart";
+import { ExpandableText } from "@/components/expandable-text";
 import { ProtectedPage } from "@/components/protected-page";
 import { EmptyState, ErrorState, LoadingState, MetricCard, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { categoryAxisInterval, compactAxisMoney } from "@/lib/chart";
 import { compactDate, exchangeDisplayName } from "@/lib/format";
 import type {
   BehaviorAnalysis,
@@ -314,22 +316,29 @@ function OverviewPanel({
       grid: { left: 10, right: 16, top: 22, bottom: 24, containLabel: true },
       tooltip: {
         trigger: "axis",
+        triggerOn: "mousemove|click|mousewheel",
+        confine: true,
         backgroundColor: isDark ? "#171b24" : "#ffffff",
         borderColor: isDark ? "#343b49" : "#dfe3ea",
         textStyle: { color: isDark ? "#eef1f6" : "#171a23", fontFamily: "IBM Plex Mono, monospace" },
         extraCssText: "box-shadow:0 8px 24px rgba(0,0,0,.16);border-radius:8px;",
+        formatter: (params: unknown) => {
+          const point = (params as Array<{ axisValue: string; dataIndex: number }>)[0];
+          const sourceValue = daily[point.dataIndex]?.cumulative_return ?? 0;
+          return `${point.axisValue}<br/><b>${formatSignedMoney(sourceValue)}</b>`;
+        },
       },
       xAxis: {
         type: "category",
         boundaryGap: false,
         data: daily.map((point) => compactDate(point.period)),
-        axisLabel: { color: isDark ? "#959dac" : "#697184", interval: 5 },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", hideOverlap: true, interval: categoryAxisInterval(daily.length, 7) },
         axisLine: { lineStyle: { color: isDark ? "#343b49" : "#dfe3ea" } },
       },
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: isDark ? "rgba(149,157,172,.12)" : "rgba(105,113,132,.12)" } },
-        axisLabel: { color: isDark ? "#959dac" : "#697184", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}` },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", formatter: (value: number) => compactAxisMoney(value, currency) },
       },
       series: [{
         type: "line",
@@ -339,8 +348,16 @@ function OverviewPanel({
         lineStyle: { color: isDark ? "#a891ff" : "#7157e8", width: 2.5 },
         areaStyle: { color: isDark ? "rgba(168,145,255,.14)" : "rgba(113,87,232,.12)" },
       }],
+      media: [{
+        query: { maxWidth: 520 },
+        option: {
+          grid: { left: 2, right: 6, top: 18, bottom: 18, containLabel: true },
+          xAxis: { axisLabel: { fontSize: 10, interval: categoryAxisInterval(daily.length, 4), margin: 10 } },
+          yAxis: { axisLabel: { fontSize: 10, margin: 7 } },
+        },
+      }],
     }),
-    [currency, daily, displayValue, isDark],
+    [currency, daily, displayValue, formatSignedMoney, isDark],
   );
   const barOption = useMemo<EChartsOption>(
     () => ({
@@ -348,20 +365,28 @@ function OverviewPanel({
       grid: { left: 8, right: 8, top: 18, bottom: 24, containLabel: true },
       tooltip: {
         trigger: "axis",
+        triggerOn: "mousemove|click|mousewheel",
+        confine: true,
         backgroundColor: isDark ? "#171b24" : "#ffffff",
         borderColor: isDark ? "#343b49" : "#dfe3ea",
         textStyle: { color: isDark ? "#eef1f6" : "#171a23", fontFamily: "IBM Plex Mono, monospace" },
+        extraCssText: "box-shadow:0 8px 24px rgba(0,0,0,.16);border-radius:8px;",
+        formatter: (params: unknown) => {
+          const point = (params as Array<{ axisValue: string; dataIndex: number }>)[0];
+          const sourceValue = selected[point.dataIndex]?.investment_return ?? 0;
+          return `${point.axisValue}<br/><b>${formatSignedMoney(sourceValue)}</b>`;
+        },
       },
       xAxis: {
         type: "category",
         data: selected.map((point) => compactDate(point.period)),
-        axisLabel: { color: isDark ? "#959dac" : "#697184", interval: curvePeriod === "daily" ? 5 : 0 },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", hideOverlap: true, interval: categoryAxisInterval(selected.length, curvePeriod === "daily" ? 7 : 6) },
         axisLine: { lineStyle: { color: isDark ? "#343b49" : "#dfe3ea" } },
       },
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: isDark ? "rgba(149,157,172,.12)" : "rgba(105,113,132,.12)" } },
-        axisLabel: { color: isDark ? "#959dac" : "#697184", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}` },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", formatter: (value: number) => compactAxisMoney(value, currency) },
       },
       series: [{
         type: "bar",
@@ -374,8 +399,16 @@ function OverviewPanel({
           },
         })),
       }],
+      media: [{
+        query: { maxWidth: 520 },
+        option: {
+          grid: { left: 2, right: 4, top: 16, bottom: 18, containLabel: true },
+          xAxis: { axisLabel: { fontSize: 10, interval: categoryAxisInterval(selected.length, 4), margin: 10 } },
+          yAxis: { axisLabel: { fontSize: 10, margin: 7 } },
+        },
+      }],
     }),
-    [currency, curvePeriod, displayValue, isDark, selected],
+    [currency, curvePeriod, displayValue, formatSignedMoney, isDark, selected],
   );
   const metrics = [
     ["已实现毛收益", summary.period_realized_pnl, "历史仓位已实现收益，不含费用", Landmark],
@@ -408,7 +441,7 @@ function OverviewPanel({
         <article className="panel p-5 md:p-6">
           <p className="section-label">累计权益收益曲线</p>
           <p className="muted mt-1 text-xs">当前权益 - 统计期初权益 - 净充值提现</p>
-          <Chart option={curveOption} height={310} />
+          <Chart option={curveOption} height={310} mobileHeight={248} ariaLabel="累计权益收益曲线" />
         </article>
         <article className="panel p-5 md:p-6">
           <div className="flex items-center justify-between gap-3">
@@ -424,7 +457,7 @@ function OverviewPanel({
               ))}
             </div>
           </div>
-          <Chart option={barOption} height={310} />
+          <Chart option={barOption} height={310} mobileHeight={248} ariaLabel="周期收益柱状图" />
         </article>
       </section>
 
@@ -575,7 +608,7 @@ function SymbolAnalysis({ behavior, focusKey, formatMoney }: AnalysisProps) {
               className={`grid gap-4 px-5 py-4 transition md:grid-cols-[minmax(130px,1.4fr)_repeat(6,minmax(80px,1fr))] md:items-center md:px-6 ${focusKey === `symbol-${row.key}` ? "bg-[var(--accent-soft)] ring-1 ring-inset ring-[var(--accent)]" : ""}`}
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-bold" title={row.label}>{row.label}</p>
+                <ExpandableText text={row.label} className="text-sm font-bold" />
                 <p className="muted mt-1 text-xs">{row.trade_count} 笔</p>
               </div>
               <RowMetric label="净收益" value={formatMoney(row.net_pnl)} tone={row.net_pnl >= 0 ? "positive" : "negative"} />
@@ -634,7 +667,7 @@ function MetricGrid({
                 <p className="truncate text-sm font-bold" title={row.label}>{row.label}</p>
                 <p className="muted mt-1 text-xs">{row.trade_count} 笔交易</p>
               </div>
-              <span className={`mono-number max-w-[58%] break-all text-right text-sm font-bold sm:text-base ${row.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.net_pnl)}</span>
+              <span className={`financial-value mono-number max-w-[58%] text-right text-sm font-bold sm:text-base ${row.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.net_pnl)}</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3">
               <RowMetric label="胜率" value={`${row.win_rate.toFixed(1)}%`} />
@@ -655,7 +688,7 @@ function RowMetric({ label, value, tone }: { label: string; value: string; tone?
   return (
     <div className="min-w-0">
       <p className="muted text-[10px] uppercase tracking-wide">{label}</p>
-      <p className={`mono-number mt-1 break-all text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`} title={value}>{value}</p>
+      <p className={`financial-value mono-number mt-1 text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`} title={value}>{value}</p>
     </div>
   );
 }
@@ -664,7 +697,7 @@ function CompactMetric({ label, value, tone }: { label: string; value: string; t
   return (
     <div className="soft-block min-h-20 p-3.5">
       <p className="metric-label">{label}</p>
-      <p className={`mono-number mt-3 break-all text-base font-bold sm:text-lg ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
+      <p className={`financial-value mono-number mt-3 text-base font-bold sm:text-lg ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );
 }
@@ -673,7 +706,7 @@ function SmallMoney({ label, value, formatMoney }: { label: string; value: numbe
   return (
     <div>
       <p className="metric-label">{label}</p>
-      <p className={`mono-number mt-1 break-all text-sm ${value >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(value)}</p>
+      <p className={`financial-value mono-number mt-1 text-sm ${value >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(value)}</p>
     </div>
   );
 }

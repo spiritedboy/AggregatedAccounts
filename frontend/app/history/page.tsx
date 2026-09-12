@@ -374,7 +374,7 @@ function HistoryContent() {
                         text="有可靠本金时显示杠杆收益率；缺少历史杠杆时显示开仓价到平仓价的价格变动，做空仓位按反方向计算。"
                       />
                     </p>
-                    <p className={`mono-number mt-1 break-words text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
+                    <p className={`financial-value mono-number mt-1 text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
                       {formatSignedMoney(position.net_pnl)}
                     </p>
                     <p className="muted mono-number mt-1 text-[11px]">

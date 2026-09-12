@@ -611,6 +611,10 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("集成测试会通过吗？ · 是")).not.toHaveLength(0);
     expect(screen.getAllByText("AI译")).not.toHaveLength(0);
     expect(screen.getAllByText("Will the integration test pass? · Yes")).not.toHaveLength(0);
+    const expandMarketNameButtons = screen.getAllByRole("button", { name: "展开全文" });
+    await user.click(expandMarketNameButtons[0]);
+    expect(expandMarketNameButtons[0]).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByRole("button", { name: "收起" })).not.toHaveLength(0);
     expect(screen.queryByText("LONG")).not.toBeInTheDocument();
     expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /平仓/ })).not.toBeInTheDocument();
@@ -990,7 +994,7 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("funding-source-1")).not.toHaveLength(0);
     const mobileFundingRecord = screen.getByRole("article", { name: "资金费财务记录" });
     expect(mobileFundingRecord).toHaveClass("overflow-hidden");
-    expect(within(mobileFundingRecord).getByText("funding-source-1")).toHaveClass("break-all");
+    expect(within(mobileFundingRecord).getByText("funding-source-1")).toHaveClass("long-data-id");
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
     expect(screen.getByText("8 项完整")).toBeInTheDocument();
 
@@ -1095,6 +1099,32 @@ describe("portfolio pages", () => {
     );
     await screen.findByText("主题测试页面");
     await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
+  });
+
+  it("keeps the mobile navigation drawer modal, keyboard-safe, and focus-contained", async () => {
+    const user = userEvent.setup();
+    installFetch({});
+    render(
+      <AppShell>
+        <div>抽屉交互测试</div>
+      </AppShell>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "更多页面" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "站点导航" });
+    const close = within(dialog).getByRole("button", { name: "关闭菜单" });
+    await waitFor(() => expect(close).toHaveFocus());
+    expect(document.body).toHaveStyle({ overflow: "hidden" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "站点导航" })).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
+    expect(trigger).toHaveFocus();
   });
 
   it("switches monetary values to CNY while keeping the selected unit locally", async () => {

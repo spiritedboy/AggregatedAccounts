@@ -381,7 +381,7 @@ function LedgerContent() {
                     </td>
                     <td>
                       <p
-                        className="muted max-w-52 truncate font-mono text-[11px]"
+                        className="long-data-id muted max-w-52 line-clamp-2 font-mono text-[11px]"
                         title={record.source_record_id}
                       >
                         {record.source_record_id}
@@ -403,17 +403,17 @@ function LedgerContent() {
                   <div className="min-w-0 flex-1">
                     <RecordTypeBadge recordType={record.record_type} />
                     <p className="muted mt-2 break-words text-xs [overflow-wrap:anywhere]">{connectionDisplayName(record.connection_name, record.exchange)} · {exchangeDisplayName(record.exchange)}</p>
-                    {record.subtype !== record.record_type ? <p className="muted mt-1 break-all text-[10px]">{record.subtype}</p> : null}
+                    {record.subtype !== record.record_type ? <p className="long-data-id muted mt-1 text-[10px]">{record.subtype}</p> : null}
                   </div>
-                  <p className={`mono-number max-w-[48%] shrink-0 break-all text-right text-sm font-semibold ${record.signed_amount_usd > 0 ? "text-positive" : record.signed_amount_usd < 0 ? "text-negative" : ""}`}>
+                  <p className={`financial-value mono-number max-w-[48%] shrink-0 text-right text-sm font-semibold ${record.signed_amount_usd > 0 ? "text-positive" : record.signed_amount_usd < 0 ? "text-negative" : ""}`}>
                     {formatSignedMoney(record.signed_amount_usd)}
                   </p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <p className="metric-label">资产 / 交易对</p>
-                    <p className="mono-number mt-1 break-all text-sm font-semibold">{record.asset}</p>
-                    <p className="muted mt-1 break-all text-[11px]">{record.symbol || "账户级"}</p>
+                    <p className="long-data-id mono-number mt-1 text-sm font-semibold">{record.asset}</p>
+                    <p className="long-data-id muted mt-1 text-[11px]">{record.symbol || "账户级"}</p>
                   </div>
                   <div className="min-w-0">
                     <p className="metric-label">发生时间</p>
@@ -422,7 +422,7 @@ function LedgerContent() {
                 </div>
                 <div className="mt-4 min-w-0 border-t pt-3" style={{ borderColor: "var(--line)" }}>
                   <p className="metric-label">来源记录</p>
-                  <p className="muted mt-1 break-all font-mono text-[11px]">{record.source_record_id}</p>
+                  <p className="long-data-id muted mt-1 font-mono text-[11px]">{record.source_record_id}</p>
                 </div>
               </article>
             ))}
@@ -571,7 +571,7 @@ function Metric({
           <Icon className="h-4 w-4" />
         </span>
       </div>
-      <p className="mono-number mt-3 break-all text-lg font-semibold sm:text-xl">{value}</p>
+      <p className="financial-value mono-number mt-3 text-lg font-semibold sm:text-xl">{value}</p>
       {detail && <p className="muted mt-1.5 text-[11px] leading-4">{detail}</p>}
     </article>
   );
