@@ -29,7 +29,7 @@ export function SortButton({
   return (
     <button
       type="button"
-      className="ml-1 inline-flex h-7 w-7 flex-col items-center justify-center rounded-md align-middle leading-[0.5rem] transition hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      className="relative ml-1 inline-flex h-7 w-7 flex-col items-center justify-center rounded-md align-middle leading-[0.5rem] transition after:absolute after:-inset-1.5 after:content-[''] hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       aria-label={description}
       title={description}
       onClick={() => onChange(next)}

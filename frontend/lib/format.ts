@@ -12,6 +12,19 @@ export function money(
   }).format(currency === "CNY" ? value * usdCnyRate : value);
 }
 
+export function signedMoney(
+  value: number,
+  currency: DisplayCurrency = "USD",
+  usdCnyRate = 1,
+): string {
+  const formatted = money(value, currency, usdCnyRate);
+  return value > 0 ? `+${formatted}` : formatted;
+}
+
+export function percent(value: number, digits = 2): string {
+  return `${value > 0 ? "+" : ""}${number(value, digits)}%`;
+}
+
 /** Prices and position notional values intentionally stay denominated in USD. */
 export function usd(value: number): string {
   return money(value, "USD", 1);

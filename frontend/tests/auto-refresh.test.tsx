@@ -45,7 +45,7 @@ describe("automatic data refresh", () => {
         lastUpdatedAt={updatedAt}
       />,
     );
-    expect(screen.getByText("数据已过期，正在自动重试")).toBeInTheDocument();
+    expect(screen.getByText("DEGRADED · 121s")).toBeInTheDocument();
   });
 
   it("refreshes immediately when the status is clicked", async () => {

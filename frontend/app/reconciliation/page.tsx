@@ -37,7 +37,7 @@ function ReconciliationContent() {
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const { formatMoney } = useCurrency();
+  const { formatMoney, formatSignedMoney } = useCurrency();
 
   const load = useCallback(() => {
     setError("");
@@ -71,7 +71,7 @@ function ReconciliationContent() {
       <PageHeader
         eyebrow="资产体检"
         title="风险与收益对账"
-        description="按统一收益公式核对权益变化，并集中查看账户敞口。"
+        description={`对账差额 ${formatSignedMoney(totals.variance)} · 综合风险 ${{ LOW: "低", MEDIUM: "中", HIGH: "高" }[risk.summary.risk_level]} · ${reconciliation.accounts.length} 个账户`}
         action={<AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />}
       />
 
@@ -79,19 +79,19 @@ function ReconciliationContent() {
         <SummaryCard
           icon={ArrowRightLeft}
           label="权益口径收益"
-          value={formatMoney(totals.equity_return)}
+          value={formatSignedMoney(totals.equity_return)}
           detail="当前权益 − 初始权益 − 净资金流"
         />
         <SummaryCard
           icon={Layers3}
           label="累计净收益"
-          value={formatMoney(totals.net_realized_pnl)}
+          value={formatSignedMoney(totals.net_realized_pnl)}
           detail="历史仓位总盈利 − 历史仓位总亏损"
         />
         <SummaryCard
           icon={totals.status === "MATCHED" ? ShieldCheck : CircleAlert}
           label="待解释差额"
-          value={formatMoney(totals.variance)}
+          value={formatSignedMoney(totals.variance)}
           detail={totals.status === "MATCHED" ? "处于允许误差内" : "建议检查接口覆盖和数据源"}
           tone={totals.status === "MATCHED" ? "positive" : "warning"}
           explanation="权益口径收益与对账组成收益超过容差时会产生待解释差额。常见原因包括接口覆盖不完整、同步时间不一致、接入前仓位或交易所数据延迟；可继续查看下方账户明细定位来源。"
@@ -110,14 +110,14 @@ function ReconciliationContent() {
           <p className="section-label">收益组成</p>
           <p className="muted mt-1 text-xs">{reconciliation.notice}</p>
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Breakdown label="充值" value={totals.deposits} formatMoney={formatMoney} />
-            <Breakdown label="提现" value={-totals.withdrawals} formatMoney={formatMoney} />
-            <Breakdown label="已实现毛收益" value={totals.realized_pnl} formatMoney={formatMoney} />
-            <Breakdown label="当前持仓收益" value={totals.current_position_pnl} formatMoney={formatMoney} />
-            <Breakdown label="资金费" value={totals.funding_fee} formatMoney={formatMoney} />
-            <Breakdown label="手续费" value={-totals.trading_fee} formatMoney={formatMoney} />
-            <Breakdown label="接入时持仓收益" value={totals.initial_position_pnl} formatMoney={formatMoney} />
-            <Breakdown label="对账组成收益" value={totals.component_return} formatMoney={formatMoney} />
+            <Breakdown label="充值" value={totals.deposits} formatMoney={formatSignedMoney} />
+            <Breakdown label="提现" value={-totals.withdrawals} formatMoney={formatSignedMoney} />
+            <Breakdown label="已实现毛收益" value={totals.realized_pnl} formatMoney={formatSignedMoney} />
+            <Breakdown label="当前持仓收益" value={totals.current_position_pnl} formatMoney={formatSignedMoney} />
+            <Breakdown label="资金费" value={totals.funding_fee} formatMoney={formatSignedMoney} />
+            <Breakdown label="手续费" value={-totals.trading_fee} formatMoney={formatSignedMoney} />
+            <Breakdown label="接入时持仓收益" value={totals.initial_position_pnl} formatMoney={formatSignedMoney} />
+            <Breakdown label="对账组成收益" value={totals.component_return} formatMoney={formatSignedMoney} />
             <Breakdown label="初始权益" value={totals.initial_equity} formatMoney={formatMoney} />
             <Breakdown label="当前权益" value={totals.current_equity} formatMoney={formatMoney} />
           </div>
@@ -179,7 +179,7 @@ function ReconciliationContent() {
           <p className="section-label">账户对账明细</p>
           <p className="muted mt-1 text-xs">差额超过 1 USD 或当前权益的 0.1% 时标记复核。</p>
         </div>
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto lg:block">
           <table className="data-table min-w-[1040px]">
             <thead>
               <tr>
@@ -199,13 +199,13 @@ function ReconciliationContent() {
                     <p>{formatMoney(item.initial_equity)}</p>
                     <p className="muted mt-1 text-xs">{formatMoney(item.current_equity)}</p>
                   </td>
-                  <td className="mono-number" data-numeric="true">{formatMoney(item.net_cash_flow)}</td>
-                  <td className="mono-number" data-numeric="true">{formatMoney(item.equity_return)}</td>
-                  <td className="mono-number" data-numeric="true">{formatMoney(item.net_realized_pnl)}</td>
-                  <td className="mono-number" data-numeric="true">{formatMoney(item.current_position_pnl)}</td>
-                  <td className="mono-number" data-numeric="true">{formatMoney(item.component_return)}</td>
+                  <td className="mono-number" data-numeric="true">{formatSignedMoney(item.net_cash_flow)}</td>
+                  <td className={`mono-number ${item.equity_return > 0 ? "text-positive" : item.equity_return < 0 ? "text-negative" : ""}`} data-numeric="true">{formatSignedMoney(item.equity_return)}</td>
+                  <td className={`mono-number ${item.net_realized_pnl > 0 ? "text-positive" : item.net_realized_pnl < 0 ? "text-negative" : ""}`} data-numeric="true">{formatSignedMoney(item.net_realized_pnl)}</td>
+                  <td className={`mono-number ${item.current_position_pnl > 0 ? "text-positive" : item.current_position_pnl < 0 ? "text-negative" : ""}`} data-numeric="true">{formatSignedMoney(item.current_position_pnl)}</td>
+                  <td className={`mono-number ${item.component_return > 0 ? "text-positive" : item.component_return < 0 ? "text-negative" : ""}`} data-numeric="true">{formatSignedMoney(item.component_return)}</td>
                   <td className={`mono-number ${Math.abs(item.variance) > item.tolerance ? "text-warning" : "text-positive"}`} data-numeric="true">
-                    {formatMoney(item.variance)}
+                    {formatSignedMoney(item.variance)}
                   </td>
                   <td>
                     <StatusExplanation
@@ -225,6 +225,30 @@ function ReconciliationContent() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="divide-y lg:hidden" style={{ borderColor: "var(--line)" }}>
+          {reconciliation.accounts.map((item) => (
+            <article key={item.account_id} className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{connectionDisplayName(item.connection_name, item.exchange)}</p>
+                  <p className="muted mt-1 text-[11px]">{exchangeDisplayName(item.exchange)} · {dateTime(item.last_synced_at)}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                  <StatusExplanation label={item.data_completeness === "COMPLETE" ? "完整" : "部分"} healthy={item.data_completeness === "COMPLETE"} explanation="部分完整表示至少一类交易所接口覆盖不足。" />
+                  <StatusExplanation label={item.status === "MATCHED" ? "已对平" : "需复核"} healthy={item.status === "MATCHED"} explanation="需复核表示差额超过 1 USD 或当前权益的 0.1%。" />
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                <MobileAccountMetric label="当前权益" value={formatMoney(item.current_equity)} />
+                <MobileAccountMetric label="净资金流" value={formatSignedMoney(item.net_cash_flow)} />
+                <MobileAccountMetric label="权益收益" value={formatSignedMoney(item.equity_return)} tone={item.equity_return} />
+                <MobileAccountMetric label="累计净收益" value={formatSignedMoney(item.net_realized_pnl)} tone={item.net_realized_pnl} />
+                <MobileAccountMetric label="当前持仓收益" value={formatSignedMoney(item.current_position_pnl)} tone={item.current_position_pnl} />
+                <MobileAccountMetric label="待解释差额" value={formatSignedMoney(item.variance)} tone={Math.abs(item.variance) > item.tolerance ? null : item.variance} warning={Math.abs(item.variance) > item.tolerance} />
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 
@@ -374,6 +398,11 @@ function Breakdown({ label, value, formatMoney }: { label: string; value: number
       </p>
     </div>
   );
+}
+
+function MobileAccountMetric({ label, value, tone, warning = false }: { label: string; value: string; tone?: number | null; warning?: boolean }) {
+  const color = warning ? "text-warning" : tone == null ? "" : tone > 0 ? "text-positive" : tone < 0 ? "text-negative" : "";
+  return <div className="min-w-0"><p className="metric-label">{label}</p><p className={`mono-number mt-1 break-words text-sm font-semibold ${color}`}>{value}</p></div>;
 }
 
 function RiskMetric({

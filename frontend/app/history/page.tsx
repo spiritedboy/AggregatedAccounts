@@ -41,7 +41,7 @@ function HistoryContent() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [urlReady, setUrlReady] = useState(false);
-  const { formatMoney } = useCurrency();
+  const { formatMoney, formatSignedMoney } = useCurrency();
 
   const params = useCallback(() => {
     const query = new URLSearchParams({ page: String(page), page_size: "20" });
@@ -115,6 +115,30 @@ function HistoryContent() {
     () => (result?.items ?? []).reduce((total, position) => total + position.net_pnl, 0),
     [result?.items],
   );
+  const activeFilterCount = [
+    exchange,
+    accountId,
+    side,
+    pnlResult,
+    completeness,
+    symbol,
+    start,
+    end,
+    netPnlSort === "none" ? "" : netPnlSort,
+  ].filter(Boolean).length;
+
+  function resetFilters() {
+    setPage(1);
+    setExchange("");
+    setAccountId("");
+    setSide("");
+    setPnlResult("");
+    setCompleteness("");
+    setSymbol("");
+    setStart("");
+    setEnd("");
+    setNetPnlSort("none");
+  }
 
   function exportCsv() {
     const query = params();
@@ -128,7 +152,7 @@ function HistoryContent() {
       <PageHeader
         eyebrow="交易足迹"
         title="历史仓位"
-        description="只展示当前统计周期开始之后关闭的仓位；重建记录会明确标注来源。"
+        description={result ? `${result.total} 条历史记录 · 当前页净收益 ${formatSignedMoney(pageNetPnl)} · 每页 20 条` : "正在读取已关闭仓位…"}
         action={
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto md:justify-end">
             <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
@@ -141,7 +165,8 @@ function HistoryContent() {
       />
 
       <FilterPanel
-        activeCount={[accountId, side, pnlResult, completeness, start, end].filter(Boolean).length}
+        activeCount={activeFilterCount}
+        onReset={resetFilters}
         desktopClassName="md:grid-cols-2 xl:grid-cols-4"
         primary={<>
         <label className="relative">
@@ -195,29 +220,11 @@ function HistoryContent() {
       />
 
       {result && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+        <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
           <p className="muted text-xs">
             共 <span className="mono-number font-semibold text-[var(--text)]">{result.total}</span> 条历史记录
           </p>
-          {(exchange || accountId || side || pnlResult || completeness || symbol || start || end) && (
-            <button
-              type="button"
-              className="text-xs font-semibold text-[var(--accent)]"
-              onClick={() => {
-                setPage(1);
-                setExchange("");
-                setAccountId("");
-                setSide("");
-                setPnlResult("");
-                setCompleteness("");
-                setSymbol("");
-                setStart("");
-                setEnd("");
-              }}
-            >
-              清除筛选
-            </button>
-          )}
+          {activeFilterCount > 0 ? <span className="mono-number text-[10px] text-[var(--accent)]">{activeFilterCount} FILTERS</span> : null}
         </div>
       )}
 
@@ -263,7 +270,7 @@ function HistoryContent() {
                         : ""
                   }`}
                 >
-                  {pageNetPnl > 0 ? "+" : ""}{formatMoney(pageNetPnl)}
+                  {formatSignedMoney(pageNetPnl)}
                 </p>
                 <p className="muted mt-1 text-[11px]">当前页净收益合计，已计入资金费与手续费</p>
               </div>
@@ -315,10 +322,10 @@ function HistoryContent() {
                       <p className="muted mt-1 text-xs">{usd(position.average_exit_price)}</p>
                     </td>
                     <td className="mono-number" data-numeric="true">{number(position.max_position_size)}</td>
-                    <td className={`mono-number ${position.realized_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">{formatMoney(position.realized_pnl)}</td>
-                    <td className="mono-number muted text-xs" data-numeric="true">{formatMoney(position.funding_fee - position.trading_fee)}</td>
+                    <td className={`mono-number ${position.realized_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">{formatSignedMoney(position.realized_pnl)}</td>
+                    <td className="mono-number muted text-xs" data-numeric="true">{formatSignedMoney(position.funding_fee - position.trading_fee)}</td>
                     <td className={`mono-number font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`} data-numeric="true">
-                      {formatMoney(position.net_pnl)}
+                      {formatSignedMoney(position.net_pnl)}
                       <p className="mt-1 text-xs">
                         {historicalReturnLabel(position)}
                       </p>
@@ -368,7 +375,7 @@ function HistoryContent() {
                       />
                     </p>
                     <p className={`mono-number mt-1 break-words text-sm font-semibold ${position.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>
-                      {formatMoney(position.net_pnl)}
+                      {formatSignedMoney(position.net_pnl)}
                     </p>
                     <p className="muted mono-number mt-1 text-[11px]">
                       {historicalReturnLabel(position)}
@@ -383,7 +390,7 @@ function HistoryContent() {
                 <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>
                   <span className="muted">费用（资金费 − 手续费）</span>
                   <span className="mono-number shrink-0 font-semibold">
-                    {formatMoney(position.funding_fee - position.trading_fee)}
+                    {formatSignedMoney(position.funding_fee - position.trading_fee)}
                   </span>
                 </div>
                 <details className="group mt-3 rounded-xl border" style={{ borderColor: "var(--line)" }}>
@@ -395,8 +402,8 @@ function HistoryContent() {
                     <HistoryDetail label="开仓时间" value={dateTime(position.open_time)} />
                     <HistoryDetail label="平仓时间" value={dateTime(position.close_time)} />
                     <HistoryDetail label="最大数量" value={number(position.max_position_size)} mono />
-                    <HistoryDetail label="已实现毛收益" value={formatMoney(position.realized_pnl)} mono />
-                    <HistoryDetail label="资金费" value={formatMoney(position.funding_fee)} mono />
+                    <HistoryDetail label="已实现毛收益" value={formatSignedMoney(position.realized_pnl)} mono />
+                    <HistoryDetail label="资金费" value={formatSignedMoney(position.funding_fee)} mono />
                     <HistoryDetail label="手续费" value={formatMoney(position.trading_fee)} mono />
                     <div className="col-span-2 flex flex-wrap gap-1.5 pt-1">
                       <Badge tone={position.data_source === "EXCHANGE_API" ? "mint" : "warning"}>
@@ -429,7 +436,7 @@ function HistoryContent() {
 }
 
 function historicalReturnLabel(position: ClosedPosition) {
-  if (position.margin_used > 0) return `${number(position.return_percent, 2)}%`;
+  if (position.margin_used > 0) return `${position.return_percent > 0 ? "+" : ""}${number(position.return_percent, 2)}%`;
   if (position.average_entry_price <= 0) return "价格变动 --";
   const direction = position.side === "SHORT" ? -1 : 1;
   const priceChange =

@@ -19,7 +19,7 @@ import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
 import { Chart } from "@/components/chart";
 import { ProtectedPage } from "@/components/protected-page";
-import { Badge, EmptyState, ErrorState, LoadingState, MetricCard, PageHeader } from "@/components/ui";
+import { EmptyState, ErrorState, LoadingState, MetricCard, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { compactDate, exchangeDisplayName } from "@/lib/format";
 import type {
@@ -117,9 +117,10 @@ function PnlContent() {
   const [behaviorPeriod, setBehaviorPeriod] = useState<BehaviorPeriod>("30d");
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [isDark, setIsDark] = useState(true);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const { currency, formatMoney, usdCnyRate } = useCurrency();
+  const { currency, formatMoney, formatSignedMoney, usdCnyRate } = useCurrency();
   const displayValue = useCallback(
     (value: number) => (currency === "CNY" ? value * usdCnyRate : value),
     [currency, usdCnyRate],
@@ -138,6 +139,14 @@ function PnlContent() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setIsDark(root.classList.contains("dark"));
+    const observer = new MutationObserver(syncTheme);
+    syncTheme();
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => observer.disconnect();
+  }, []);
   const autoRefresh = useAutoRefresh(load);
 
   useEffect(() => {
@@ -164,10 +173,10 @@ function PnlContent() {
       <PageHeader
         eyebrow="交易行为"
         title="收益分析"
-        description="不只看赚了多少，更要找出什么样的交易在赚钱、什么样的交易在亏钱。"
+        description={`${data.behavior.trade_count} 笔平仓 · 累计净收益 ${formatSignedMoney(data.summary.period_net_realized_pnl)} · 按北京时间统计`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Badge tone="mint">北京时间 · {data.behavior.trade_count} 笔平仓</Badge>
+            <span className="mono-number text-[10px] font-semibold tracking-[0.06em] text-[var(--muted)]">UTC+8 · {data.behavior.trade_count} TRADES</span>
             <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
           </div>
         }
@@ -190,7 +199,7 @@ function PnlContent() {
               type="button"
               aria-pressed={behaviorPeriod === item.key}
               onClick={() => setBehaviorPeriod(item.key)}
-              className={`min-h-9 rounded-lg px-3 text-xs font-bold transition ${behaviorPeriod === item.key ? "bg-[var(--surface)] text-[var(--accent-strong)] shadow-sm" : "muted hover:text-[var(--text)]"}`}
+              className={`min-h-10 rounded-lg px-3 text-xs font-bold transition ${behaviorPeriod === item.key ? "bg-[var(--surface)] text-[var(--accent-strong)] shadow-sm" : "muted hover:text-[var(--text)]"}`}
             >
               {item.label}
             </button>
@@ -198,7 +207,7 @@ function PnlContent() {
         </div>
       </section>
 
-      <InsightsPanel behavior={data.behavior} formatMoney={formatMoney} onOpen={openInsight} />
+      <InsightsPanel behavior={data.behavior} formatMoney={formatSignedMoney} onOpen={openInsight} />
 
       <nav className="panel mt-4 grid grid-cols-4 gap-1 p-1.5" aria-label="收益分析分组">
         {TABS.map(({ key, label, icon: Icon }) => (
@@ -219,16 +228,16 @@ function PnlContent() {
       </nav>
 
       {activeTab === "overview" ? (
-        <OverviewPanel data={data} currency={currency} displayValue={displayValue} formatMoney={formatMoney} />
+        <OverviewPanel data={data} currency={currency} displayValue={displayValue} formatMoney={formatMoney} formatSignedMoney={formatSignedMoney} isDark={isDark} />
       ) : null}
       {activeTab === "time" ? (
-        <TimeAnalysis behavior={data.behavior} focusKey={focusKey} formatMoney={formatMoney} />
+        <TimeAnalysis behavior={data.behavior} focusKey={focusKey} formatMoney={formatSignedMoney} />
       ) : null}
       {activeTab === "position" ? (
-        <PositionAnalysis behavior={data.behavior} focusKey={focusKey} formatMoney={formatMoney} />
+        <PositionAnalysis behavior={data.behavior} focusKey={focusKey} formatMoney={formatSignedMoney} />
       ) : null}
       {activeTab === "symbol" ? (
-        <SymbolAnalysis behavior={data.behavior} focusKey={focusKey} formatMoney={formatMoney} />
+        <SymbolAnalysis behavior={data.behavior} focusKey={focusKey} formatMoney={formatSignedMoney} />
       ) : null}
     </>
   );
@@ -251,7 +260,7 @@ function InsightsPanel({
             <p className="section-label">交易洞察</p>
             <p className="muted mt-1 text-xs">只使用样本量不少于 {behavior.minimum_insight_sample_size} 笔的确定性统计</p>
           </div>
-          <Badge tone="neutral">{periodRange(behavior)}</Badge>
+          <span className="mono-number text-[10px] text-[var(--muted)]">{periodRange(behavior)}</span>
         </div>
       </div>
       {behavior.insights.length ? (
@@ -286,56 +295,73 @@ function OverviewPanel({
   currency,
   displayValue,
   formatMoney,
+  formatSignedMoney,
+  isDark,
 }: {
   data: PnlBootstrapData;
   currency: "USD" | "CNY";
   displayValue: (value: number) => number;
   formatMoney: (value: number) => string;
+  formatSignedMoney: (value: number) => string;
+  isDark: boolean;
 }) {
   const [curvePeriod, setCurvePeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const { summary, daily, weekly, monthly, by_exchange: byExchange, by_side: bySide, trade_quality: quality } = data;
   const selected = curvePeriod === "daily" ? daily : curvePeriod === "weekly" ? weekly : monthly;
   const curveOption = useMemo<EChartsOption>(
     () => ({
+      textStyle: { fontFamily: "IBM Plex Mono, monospace" },
       grid: { left: 10, right: 16, top: 22, bottom: 24, containLabel: true },
-      tooltip: { trigger: "axis" },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: isDark ? "#171b24" : "#ffffff",
+        borderColor: isDark ? "#343b49" : "#dfe3ea",
+        textStyle: { color: isDark ? "#eef1f6" : "#171a23", fontFamily: "IBM Plex Mono, monospace" },
+        extraCssText: "box-shadow:0 8px 24px rgba(0,0,0,.16);border-radius:8px;",
+      },
       xAxis: {
         type: "category",
         boundaryGap: false,
         data: daily.map((point) => compactDate(point.period)),
-        axisLabel: { color: "#687086", interval: 5 },
-        axisLine: { lineStyle: { color: "#cdd3e1" } },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", interval: 5 },
+        axisLine: { lineStyle: { color: isDark ? "#343b49" : "#dfe3ea" } },
       },
       yAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "rgba(104,112,134,.12)" } },
-        axisLabel: { color: "#687086", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}` },
+        splitLine: { lineStyle: { color: isDark ? "rgba(149,157,172,.12)" : "rgba(105,113,132,.12)" } },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}` },
       },
       series: [{
         type: "line",
         data: daily.map((point) => displayValue(point.cumulative_return)),
         smooth: 0.35,
         symbol: "none",
-        lineStyle: { color: "#7c5cfc", width: 2.5 },
-        areaStyle: { color: "rgba(124,92,252,.14)" },
+        lineStyle: { color: isDark ? "#a891ff" : "#7157e8", width: 2.5 },
+        areaStyle: { color: isDark ? "rgba(168,145,255,.14)" : "rgba(113,87,232,.12)" },
       }],
     }),
-    [currency, daily, displayValue],
+    [currency, daily, displayValue, isDark],
   );
   const barOption = useMemo<EChartsOption>(
     () => ({
+      textStyle: { fontFamily: "IBM Plex Mono, monospace" },
       grid: { left: 8, right: 8, top: 18, bottom: 24, containLabel: true },
-      tooltip: { trigger: "axis" },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: isDark ? "#171b24" : "#ffffff",
+        borderColor: isDark ? "#343b49" : "#dfe3ea",
+        textStyle: { color: isDark ? "#eef1f6" : "#171a23", fontFamily: "IBM Plex Mono, monospace" },
+      },
       xAxis: {
         type: "category",
         data: selected.map((point) => compactDate(point.period)),
-        axisLabel: { color: "#687086", interval: curvePeriod === "daily" ? 5 : 0 },
-        axisLine: { lineStyle: { color: "#cdd3e1" } },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", interval: curvePeriod === "daily" ? 5 : 0 },
+        axisLine: { lineStyle: { color: isDark ? "#343b49" : "#dfe3ea" } },
       },
       yAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "rgba(104,112,134,.12)" } },
-        axisLabel: { color: "#687086", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}` },
+        splitLine: { lineStyle: { color: isDark ? "rgba(149,157,172,.12)" : "rgba(105,113,132,.12)" } },
+        axisLabel: { color: isDark ? "#959dac" : "#697184", formatter: (value: number) => `${currency === "CNY" ? "¥" : "$"}${value}` },
       },
       series: [{
         type: "bar",
@@ -349,7 +375,7 @@ function OverviewPanel({
         })),
       }],
     }),
-    [currency, curvePeriod, displayValue, selected],
+    [currency, curvePeriod, displayValue, isDark, selected],
   );
   const metrics = [
     ["已实现毛收益", summary.period_realized_pnl, "历史仓位已实现收益，不含费用", Landmark],
@@ -365,7 +391,7 @@ function OverviewPanel({
       <section className="grid gap-3 xl:grid-cols-[1.1fr_.9fr]">
         <MetricCard
           label="累计净收益"
-          value={formatMoney(summary.period_net_realized_pnl)}
+          value={formatSignedMoney(summary.period_net_realized_pnl)}
           detail="总盈利 - 总亏损（历史仓位净收益）"
           icon={CircleDollarSign}
           tone={summary.period_net_realized_pnl >= 0 ? "positive" : "negative"}
@@ -373,7 +399,7 @@ function OverviewPanel({
         />
         <div className="grid grid-cols-2 gap-3">
           {metrics.map(([label, value, detail, icon]) => (
-            <MetricCard key={label} label={label} value={formatMoney(value)} detail={detail} icon={icon} tone={value > 0 ? "positive" : value < 0 ? "negative" : "neutral"} />
+            <MetricCard key={label} label={label} value={formatSignedMoney(value)} detail={detail} icon={icon} tone={value > 0 ? "positive" : value < 0 ? "negative" : "neutral"} />
           ))}
         </div>
       </section>
@@ -392,7 +418,7 @@ function OverviewPanel({
             </div>
             <div className="flex rounded-[10px] border bg-[var(--surface-soft)] p-1" style={{ borderColor: "var(--line)" }}>
               {(["daily", "weekly", "monthly"] as const).map((value) => (
-                <button key={value} type="button" onClick={() => setCurvePeriod(value)} className={`min-h-8 rounded-lg px-3 text-xs font-medium ${curvePeriod === value ? "bg-[var(--surface)] text-[var(--accent-strong)] shadow-sm" : "muted"}`}>
+                <button key={value} type="button" onClick={() => setCurvePeriod(value)} className={`min-h-10 rounded-lg px-3 text-xs font-medium ${curvePeriod === value ? "bg-[var(--surface)] text-[var(--accent-strong)] shadow-sm" : "muted"}`}>
                   {{ daily: "日", weekly: "周", monthly: "月" }[value]}
                 </button>
               ))}
@@ -410,8 +436,8 @@ function OverviewPanel({
             <CompactMetric label="平仓笔数" value={`${quality.count} 笔`} />
             <CompactMetric label="胜率" value={`${quality.win_rate.toFixed(1)}%`} />
             <CompactMetric label="盈利因子" value={ratioText(quality.profit_factor, false)} />
-            <CompactMetric label="平均盈利" value={formatMoney(quality.average_win)} tone="positive" />
-            <CompactMetric label="平均亏损" value={formatMoney(quality.average_loss)} tone="negative" />
+            <CompactMetric label="平均盈利" value={formatSignedMoney(quality.average_win)} tone="positive" />
+            <CompactMetric label="平均亏损" value={formatSignedMoney(quality.average_loss)} tone="negative" />
             <CompactMetric label="盈亏比" value={ratioText(quality.payoff_ratio, false)} />
           </div>
         </article>
@@ -419,11 +445,11 @@ function OverviewPanel({
           <p className="section-label">周期表现</p>
           <p className="muted mt-1 text-xs">累计净收益 = 总盈利 - 总亏损</p>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <CompactMetric label="总盈利" value={formatMoney(summary.total_profit)} tone="positive" />
+            <CompactMetric label="总盈利" value={formatSignedMoney(summary.total_profit)} tone="positive" />
             <CompactMetric label="总亏损" value={formatMoney(summary.total_loss)} tone="negative" />
             <CompactMetric label="盈利日占比" value={`${activeDays ? (summary.profitable_days / activeDays * 100).toFixed(1) : "0.0"}%`} />
-            <CompactMetric label="最佳单日" value={formatMoney(summary.best_day)} tone="positive" />
-            <CompactMetric label="最大单日亏损" value={formatMoney(summary.worst_day)} tone="negative" />
+            <CompactMetric label="最佳单日" value={formatSignedMoney(summary.best_day)} tone="positive" />
+            <CompactMetric label="最大单日亏损" value={formatSignedMoney(summary.worst_day)} tone="negative" />
             <CompactMetric label="多空次数比" value={bySide.count_ratio == null ? "—" : `${bySide.count_ratio.toFixed(2)} : 1`} />
           </div>
         </article>
@@ -441,15 +467,15 @@ function OverviewPanel({
               <div>
                 <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
                   <span className="muted">投资收益</span>
-                  <span className={`mono-number font-semibold ${row.investment_return >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.investment_return)}</span>
+                  <span className={`mono-number font-semibold ${row.investment_return >= 0 ? "text-positive" : "text-negative"}`}>{formatSignedMoney(row.investment_return)}</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-soft)]">
-                  <div className={`h-full rounded-full ${row.investment_return >= 0 ? "bg-[var(--positive)]" : "bg-[var(--negative)]"}`} style={{ width: `${Math.max(5, Math.abs(row.investment_return) / maxContribution * 100)}%` }} />
+                  <div className={`h-full rounded-full ${row.investment_return >= 0 ? "bg-[var(--positive)]" : "bg-[var(--negative)]"}`} style={{ width: `${Math.min(100, Math.abs(row.investment_return) / maxContribution * 100)}%` }} />
                 </div>
               </div>
-              <SmallMoney label="已实现毛收益" value={row.realized_pnl} formatMoney={formatMoney} />
-              <SmallMoney label="资金费" value={row.funding_fee} formatMoney={formatMoney} />
-              <SmallMoney label="手续费" value={-row.trading_fee} formatMoney={formatMoney} />
+              <SmallMoney label="已实现毛收益" value={row.realized_pnl} formatMoney={formatSignedMoney} />
+              <SmallMoney label="资金费" value={row.funding_fee} formatMoney={formatSignedMoney} />
+              <SmallMoney label="手续费" value={-row.trading_fee} formatMoney={formatSignedMoney} />
             </div>
           ))}
         </div>
@@ -533,7 +559,7 @@ function SymbolAnalysis({ behavior, focusKey, formatMoney }: AnalysisProps) {
               ["win_rate", "胜率"],
               ["profit_factor", "盈利因子"],
             ] as Array<[SymbolSort, string]>).map(([key, label]) => (
-              <button key={key} type="button" onClick={() => chooseSort(key)} className={`min-h-9 whitespace-nowrap rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-xs font-semibold transition hover:border-[var(--accent)] ${sortBy === key ? "text-[var(--accent-strong)]" : "muted"}`}>
+              <button key={key} type="button" onClick={() => chooseSort(key)} className={`min-h-10 whitespace-nowrap rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-xs font-semibold transition hover:border-[var(--accent)] ${sortBy === key ? "text-[var(--accent-strong)]" : "muted"}`}>
                 {label}{sortBy === key ? (descending ? " ↓" : " ↑") : ""}
               </button>
             ))}

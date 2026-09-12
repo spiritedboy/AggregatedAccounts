@@ -14,15 +14,15 @@ import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-sta
 import { Chart } from "@/components/chart";
 import { PositionLabel } from "@/components/position-label";
 import { ProtectedPage } from "@/components/protected-page";
-import { Badge, EmptyState, ErrorState, ExchangeMark, LoadingState, PageHeader } from "@/components/ui";
+import { Badge, EmptyState, ErrorState, ExchangeMark, Skeleton } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { connectionDisplayName, dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
 import type { DashboardBootstrapData, DashboardData, EquityCurveData, EquityCurveRange, Position, RiskData } from "@/lib/types";
 
 const curveRanges: Array<{ value: EquityCurveRange; label: string }> = [
-  { value: "1d", label: "1日" }, { value: "1w", label: "1周" },
-  { value: "1m", label: "1月" }, { value: "6m", label: "半年" },
-  { value: "1y", label: "1年" },
+  { value: "1d", label: "1D" }, { value: "1w", label: "7D" },
+  { value: "1m", label: "30D" }, { value: "6m", label: "6M" },
+  { value: "1y", label: "1Y" },
 ];
 const riskLevelLabel = { LOW: "低风险", MEDIUM: "中风险", HIGH: "高风险" };
 type Tone = "positive" | "negative" | "warning" | "neutral";
@@ -66,7 +66,7 @@ function buildTodayBrief(data: DashboardData, risk: RiskData, formatMoney: (valu
   const today = data.today;
   if (today.data_available) {
     items.push({
-      title: `今日账户收益 ${today.net_return > 0 ? "+" : ""}${formatMoney(today.net_return)}（${signedPercent(today.return_percent)}）`,
+      title: `今日账户收益 ${formatMoney(today.net_return)}（${signedPercent(today.return_percent)}）`,
       detail: "已剔除充值与提现，收益率以当日期初权益为分母。",
       tone: pnlTone(today.net_return), icon: today.net_return >= 0 ? ArrowUpRight : ArrowDownRight,
     });
@@ -149,7 +149,7 @@ function DashboardContent() {
   const [isDark, setIsDark] = useState(true);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const { currency, formatMoney, usdCnyRate } = useCurrency();
+  const { currency, formatMoney, formatSignedMoney, usdCnyRate } = useCurrency();
 
   const load = useCallback(() => {
     setError("");
@@ -171,10 +171,15 @@ function DashboardContent() {
   const autoRefresh = useAutoRefresh(load);
 
   const equityOption = useMemo<EChartsOption>(() => ({
-    animationDuration: 500,
+    animationDuration: 280,
+    textStyle: { fontFamily: "IBM Plex Mono, monospace" },
     grid: { left: 8, right: 12, top: 18, bottom: 24, containLabel: true },
     tooltip: {
-      trigger: "axis", backgroundColor: "#171b2e", borderColor: "#293047", textStyle: { color: "#f4f6ff" },
+      trigger: "axis",
+      backgroundColor: isDark ? "#171b24" : "#ffffff",
+      borderColor: isDark ? "#343b49" : "#dfe3ea",
+      textStyle: { color: isDark ? "#eef1f6" : "#171a23", fontFamily: "IBM Plex Mono, monospace" },
+      extraCssText: "box-shadow:0 8px 24px rgba(0,0,0,.16);border-radius:8px;",
       formatter: (params: unknown) => {
         const point = (params as Array<{ axisValue: string; value: number }>)[0];
         const source = currency === "CNY" ? point.value / usdCnyRate : point.value;
@@ -202,32 +207,19 @@ function DashboardContent() {
     series: [{
       type: "line", smooth: 0.35, symbol: "none",
       data: curve?.points.map((point) => currency === "CNY" ? point.equity * usdCnyRate : point.equity) ?? [],
-      lineStyle: { color: isDark ? "#62f1d6" : "#7c5cfc", width: isDark ? 3.5 : 3 },
+      lineStyle: { color: isDark ? "#a891ff" : "#7157e8", width: 2.5 },
       areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [
-        { offset: 0, color: isDark ? "rgba(98,241,214,.38)" : "rgba(124,92,252,.32)" },
-        { offset: 0.55, color: isDark ? "rgba(170,140,255,.13)" : "rgba(32,189,169,.12)" },
-        { offset: 1, color: isDark ? "rgba(98,241,214,0)" : "rgba(124,92,252,0)" },
+        { offset: 0, color: isDark ? "rgba(168,145,255,.28)" : "rgba(113,87,232,.2)" },
+        { offset: 0.62, color: isDark ? "rgba(168,145,255,.08)" : "rgba(113,87,232,.06)" },
+        { offset: 1, color: "rgba(113,87,232,0)" },
       ] } },
     }],
   }), [currency, curve, curveRange, formatMoney, isDark, usdCnyRate]);
 
-  const allocationOption = useMemo<EChartsOption>(() => ({
-    tooltip: { trigger: "item", formatter: "{b}<br/>{d}%" },
-    legend: { bottom: 0, textStyle: { color: isDark ? "#c3bad9" : "#687086" }, icon: "circle" },
-    series: [{
-      type: "pie", radius: ["54%", "76%"], center: ["50%", "43%"], avoidLabelOverlap: true,
-      itemStyle: { borderWidth: 4, borderColor: "transparent" }, label: { show: false },
-      data: data?.by_exchange.map((item, index) => ({
-        name: exchangeDisplayName(item.exchange), value: item.equity,
-        itemStyle: { color: ["#7c5cfc", "#20bda9", "#ee6ca8", "#e6a136", "#4b9ff4", "#8f6fba"][index % 6] },
-      })) ?? [],
-    }],
-  }), [data, isDark]);
-
   if (error) return <ErrorState message={error} retry={load} />;
-  if (!data || !risk || !curve) return <><PageHeader eyebrow="TODAY DESK" title="今日驾驶舱" description="正在整理账户、收益与风险数据…" /><LoadingState rows={6} /></>;
+  if (!data || !risk || !curve) return <DashboardLoading />;
 
-  const briefItems = buildTodayBrief(data, risk, formatMoney);
+  const briefItems = buildTodayBrief(data, risk, formatSignedMoney);
   const nearestLiquidation = risk.liquidation_risks[0] ?? null;
   const todayTone = pnlTone(data.today.net_return);
   const dataUpdatedAt = portfolioUpdatedAt(data, lastLoadedAt);
@@ -255,13 +247,13 @@ function DashboardContent() {
         </article>
         <article className="p-5 md:p-7">
           <div className="flex items-center justify-between gap-3"><p className="metric-label">今日净收益</p>{data.today.net_return >= 0 ? <ArrowUpRight className="h-5 w-5 text-positive" /> : <ArrowDownRight className="h-5 w-5 text-negative" />}</div>
-          <p className={`mono-number mt-3 break-all text-[30px] font-bold tracking-[-0.05em] sm:text-[38px] ${toneClass(todayTone)}`}>{data.today.net_return > 0 ? "+" : ""}{formatMoney(data.today.net_return)}</p>
+          <p className={`mono-number mt-3 break-all text-[30px] font-bold tracking-[-0.05em] sm:text-[38px] ${toneClass(todayTone)}`}>{formatSignedMoney(data.today.net_return)}</p>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1"><span className={`mono-number text-xl font-bold ${toneClass(todayTone)}`}>{signedPercent(data.today.return_percent)}</span><span className="muted text-xs">今日收益率</span></div>
           <p className="muted mt-5 border-t pt-4 text-xs leading-5" style={{ borderColor: "var(--line)" }}>{data.today.opening_equity === null ? "今日尚无完整日快照，收益率暂不计算。" : `当日期初权益 ${formatMoney(data.today.opening_equity)}，已剔除净资金流。`}</p>
         </article>
       </div>
       <div className="grid border-t sm:grid-cols-2 xl:grid-cols-5" style={{ borderColor: "var(--line)" }}>
-        <CoreMetric label="当前未实现盈亏" value={formatMoney(data.current_position_pnl)} tone={pnlTone(data.current_position_pnl)} icon={<Activity className="h-4 w-4" />} />
+        <CoreMetric label="当前未实现盈亏" value={formatSignedMoney(data.current_position_pnl)} tone={pnlTone(data.current_position_pnl)} icon={<Activity className="h-4 w-4" />} />
         <CoreMetric label="保证金使用率" value={`${number(risk.summary.margin_utilization_percent, 1)}%`} tone={risk.summary.margin_utilization_percent >= 80 ? "negative" : risk.summary.margin_utilization_percent >= 50 ? "warning" : "neutral"} icon={<Gauge className="h-4 w-4" />} />
         {nearestLiquidation ? (
           <Link href={liquidationPositionHref(nearestLiquidation)} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
@@ -281,7 +273,7 @@ function DashboardContent() {
       </div>
     </section>
 
-    <section className="panel mt-4 overflow-hidden" aria-labelledby="today-brief-title">
+    <section className="panel mt-4 hidden overflow-hidden md:block" aria-labelledby="today-brief-title">
       <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}><div><p id="today-brief-title" className="section-label">今日摘要</p><p className="muted mt-1 text-xs">基于账户收益、当前仓位与风险阈值自动提炼</p></div><Activity className="h-5 w-5 text-[var(--accent)]" /></div>
       <div className="grid lg:grid-cols-2">{briefItems.map((item, index) => { const Icon = item.icon; const content = <><span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] ${toneClass(item.tone)}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className={`text-sm font-semibold ${toneClass(item.tone)}`}>{item.title}</p><p className="muted mt-1 text-xs leading-5">{item.detail}</p></div></>; const className = "flex gap-3 border-b px-5 py-4 last:border-b-0 lg:odd:border-r"; return item.href ? <Link key={`${item.title}-${index}`} href={item.href} className={`${className} transition hover:bg-[var(--surface-soft)]`} style={{ borderColor: "var(--line)" }}>{content}</Link> : <article key={`${item.title}-${index}`} className={className} style={{ borderColor: "var(--line)" }}>{content}</article>; })}</div>
     </section>
@@ -289,17 +281,22 @@ function DashboardContent() {
     <section className="mt-4 grid gap-4 xl:grid-cols-[1.45fr_.72fr]">
       <article className="panel min-w-0 p-5 md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div><p className="section-label">净值曲线</p><p className="muted mt-1 text-xs">底层每 5 分钟采样 · 当前显示精度 {curve.resolution}</p><p className={`mono-number mt-2 text-sm font-semibold ${curve.change.amount === null ? "muted" : toneClass(pnlTone(curve.change.amount))}`}>净值变化：{curve.change.amount === null ? "—" : `${curve.change.amount > 0 ? "+" : ""}${formatMoney(curve.change.amount)}`} ({signedPercent(curve.change.percent)})</p></div>
-          <div className="inline-flex max-w-full self-start overflow-x-auto rounded-xl border p-1" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>{curveRanges.map((item) => <button key={item.value} type="button" aria-pressed={curveRange === item.value} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${curveRange === item.value ? "bg-[var(--accent)] text-white shadow-sm" : "muted hover:bg-[var(--surface)] hover:text-[var(--text)]"}`} onClick={() => setCurveRange(item.value)}>{item.label}</button>)}</div>
+          <div><p className="section-label">净值曲线</p><p className="muted mt-1 text-xs">底层每 5 分钟采样 · 当前显示精度 {curve.resolution}</p><p className={`mono-number mt-2 text-sm font-semibold ${curve.change.amount === null ? "muted" : toneClass(pnlTone(curve.change.amount))}`}>净值变化：{curve.change.amount === null ? "—" : formatSignedMoney(curve.change.amount)} ({signedPercent(curve.change.percent)})</p></div>
+          <div className="inline-flex max-w-full self-start overflow-x-auto rounded-[10px] border p-1" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>{curveRanges.map((item) => <button key={item.value} type="button" aria-pressed={curveRange === item.value} className={`min-h-10 shrink-0 rounded-[7px] px-3 text-xs font-semibold transition ${curveRange === item.value ? "bg-[var(--accent)] text-white" : "muted hover:bg-[var(--surface)] hover:text-[var(--text)]"}`} onClick={() => setCurveRange(item.value)}>{item.label}</button>)}</div>
         </div>
         <div className="mt-3"><Chart option={equityOption} height={300} /></div>
       </article>
-      <TodayBreakdown data={data} formatMoney={formatMoney} />
+      <TodayBreakdown data={data} formatMoney={formatSignedMoney} />
+    </section>
+
+    <section className="data-panel mt-4">
+      <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}><div><p className="section-label">当前主要仓位</p><p className="muted mt-1 text-xs">按绝对仓位价值排序，首页展示前 6 项</p></div><a href="/positions" className="text-xs font-semibold text-[var(--accent)]">查看全部</a></div>
+      {data.positions.length === 0 ? <EmptyState title="当前没有持仓" description="账户同步正常，但目前没有可展示的衍生品或预测市场仓位。" /> : <div className="divide-y" style={{ borderColor: "var(--line)" }}>{data.positions.map((position) => <div key={position.id} className="grid grid-cols-[1fr_auto] gap-4 px-5 py-4 sm:grid-cols-[1.2fr_.72fr_.72fr] sm:items-center"><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><PositionLabel position={position} compact /><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></div><p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)} · {number(position.leverage, 0)}×</p></div><div className="hidden sm:block"><p className="metric-label">仓位价值</p><p className="mono-number mt-1 text-sm">{usd(position.position_value_usd)}</p></div><div className="text-right"><p className="metric-label">当前未实现盈亏</p><p className={`mono-number mt-1 text-sm ${toneClass(pnlTone(position.unrealized_pnl))}`}>{formatSignedMoney(position.unrealized_pnl)}</p></div></div>)}</div>}
     </section>
 
     <section className="panel mt-4 overflow-hidden">
       <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}><div><p className="section-label">风险速览</p><p className="muted mt-1 text-xs">权益回撤、集中度与单仓暴露</p></div><a href="/reconciliation" className="text-xs font-semibold text-[var(--accent)]">查看完整对账 →</a></div>
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4">
         <RiskCard label="最大回撤" value={`${number(risk.summary.max_drawdown_percent, 1)}%`} detail="每日权益口径" />
         <RiskCard label="交易所集中度" value={`${number(risk.summary.largest_exchange_concentration_percent, 1)}%`} detail="最大单一平台权益占比" />
         <RiskCard label="最大单仓暴露" value={`${number(risk.summary.largest_position_exposure_percent, 1)}%`} detail="单一标的仓位价值 ÷ 总权益" />
@@ -307,13 +304,25 @@ function DashboardContent() {
       </div>
     </section>
 
-    <section className="data-panel mt-4">
-      <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}><div><p className="section-label">当前主要仓位</p><p className="muted mt-1 text-xs">按绝对仓位价值排序，首页展示前 6 项</p></div><a href="/positions" className="text-xs font-semibold text-[var(--accent)]">查看全部</a></div>
-      {data.positions.length === 0 ? <EmptyState title="当前没有持仓" description="账户同步正常，但目前没有可展示的衍生品或预测市场仓位。" /> : <div className="divide-y" style={{ borderColor: "var(--line)" }}>{data.positions.map((position) => <div key={position.id} className="grid grid-cols-[1fr_auto] gap-4 px-5 py-4 sm:grid-cols-[1.2fr_.72fr_.72fr] sm:items-center"><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><PositionLabel position={position} compact /><Badge tone={position.side === "LONG" ? "positive" : "negative"}>{positionSideLabel(position.side, position.exchange)}</Badge></div><p className="muted mt-1 text-xs">{exchangeDisplayName(position.exchange)} · {number(position.leverage, 0)}×</p></div><div className="hidden sm:block"><p className="metric-label">仓位价值</p><p className="mono-number mt-1 text-sm">{usd(position.position_value_usd)}</p></div><div className="text-right"><p className="metric-label">当前未实现盈亏</p><p className={`mono-number mt-1 text-sm ${toneClass(pnlTone(position.unrealized_pnl))}`}>{formatMoney(position.unrealized_pnl)}</p></div></div>)}</div>}
-    </section>
-
-    <section className="mt-4 grid gap-4 xl:grid-cols-[.8fr_1.2fr]">
-      <article className="panel min-w-0 p-5 md:p-6"><p className="section-label">资产 / 交易所分布</p><p className="muted mt-1 text-xs">按账户权益占比，不作为收益判断</p><Chart option={allocationOption} height={230} /><div className="mt-3 grid gap-2 border-t pt-4" style={{ borderColor: "var(--line)" }}>{data.by_exchange.map((item) => { const percent = data.estimated_total_equity > 0 ? item.equity / data.estimated_total_equity * 100 : 0; return <div key={`${item.exchange}-${item.connection_name}`} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 truncate font-medium">{exchangeDisplayName(item.exchange)}</span><span className="mono-number whitespace-nowrap text-[var(--muted)]">{formatMoney(item.equity)} · {number(percent, 1)}%</span></div>; })}</div></article>
+    <section className="mt-4 hidden gap-4 md:grid xl:grid-cols-[.8fr_1.2fr]">
+      <article className="panel min-w-0 p-5 md:p-6">
+        <p className="section-label">资产 / 交易所分布</p>
+        <p className="muted mt-1 text-xs">按账户权益占比，不作为收益判断</p>
+        <div className="mt-5 space-y-4">
+          {data.by_exchange.map((item) => {
+            const percent = data.estimated_total_equity > 0 ? item.equity / data.estimated_total_equity * 100 : 0;
+            return <div key={`${item.exchange}-${item.connection_name}`}>
+              <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                <span className="min-w-0 truncate font-medium">{exchangeDisplayName(item.exchange)}</span>
+                <span className="mono-number whitespace-nowrap text-[var(--muted)]">{formatMoney(item.equity)} · {number(percent, 1)}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-soft)]" role="meter" aria-label={`${exchangeDisplayName(item.exchange)} 权益占比`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+                <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, Math.max(0, percent))}%` }} />
+              </div>
+            </div>;
+          })}
+        </div>
+      </article>
       <article className="panel p-5 md:p-6">
         <div className="flex items-center justify-between"><div><p className="section-label">账户数据健康</p><p className="muted mt-1 text-xs">连接状态、数据完整性与未估值资产</p></div><Gauge className="h-5 w-5 text-[var(--aqua)]" /></div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">{data.by_exchange.map((item) => <div key={`${item.exchange}-${item.connection_name}`} className="flex items-center justify-between gap-4 rounded-xl border p-3" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}><div className="flex min-w-0 items-center gap-3"><ExchangeMark exchange={item.exchange} /><div className="min-w-0"><p className="truncate text-sm font-medium">{connectionDisplayName(item.connection_name, item.exchange)}</p><p className="muted mt-0.5 text-xs">{formatMoney(item.equity)}</p></div></div><Badge tone={item.status === "CONNECTED" ? "positive" : "warning"}>{item.completeness === "COMPLETE" ? "完整" : "部分"}</Badge></div>)}</div>
@@ -328,6 +337,31 @@ function DashboardContent() {
 function CoreSubMetric({ label, value }: { label: string; value: string }) {
   return <div><p className="metric-label">{label}</p><p className="mono-number mt-1 break-all text-sm font-semibold sm:text-base">{value}</p></div>;
 }
+
+function DashboardLoading() {
+  return <>
+    <header className="mb-4 flex items-end justify-between gap-4" aria-label="正在加载今日驾驶舱">
+      <div className="space-y-2"><Skeleton className="h-3 w-36" /><Skeleton className="h-9 w-48" /><Skeleton className="h-3 w-64 max-w-full" /></div>
+      <Skeleton className="hidden h-9 w-36 sm:block" />
+    </header>
+    <section className="cockpit-overview overflow-hidden">
+      <div className="grid xl:grid-cols-[1.25fr_.9fr]">
+        <div className="border-b p-5 md:p-7 xl:border-b-0 xl:border-r" style={{ borderColor: "var(--line)" }}>
+          <Skeleton className="h-3 w-16" /><Skeleton className="mt-4 h-11 w-64 max-w-full" />
+          <div className="mt-6 grid grid-cols-2 gap-4 border-t pt-4" style={{ borderColor: "var(--line)" }}><Skeleton className="h-9 w-28" /><Skeleton className="h-9 w-28" /></div>
+        </div>
+        <div className="p-5 md:p-7"><Skeleton className="h-3 w-20" /><Skeleton className="mt-4 h-9 w-48" /><Skeleton className="mt-3 h-5 w-24" /><Skeleton className="mt-6 h-10 w-full" /></div>
+      </div>
+      <div className="grid gap-px border-t bg-[var(--line)] sm:grid-cols-2 xl:grid-cols-5" style={{ borderColor: "var(--line)" }}>
+        {Array.from({ length: 5 }).map((_, index) => <div key={index} className="bg-[var(--surface)] p-4"><Skeleton className="h-3 w-24" /><Skeleton className="mt-3 h-6 w-28" /></div>)}
+      </div>
+    </section>
+    <section className="mt-4 grid gap-4 xl:grid-cols-[1.45fr_.72fr]">
+      <div className="panel p-5 md:p-6"><div className="flex justify-between gap-4"><div><Skeleton className="h-4 w-20" /><Skeleton className="mt-2 h-3 w-44" /></div><Skeleton className="h-9 w-52" /></div><Skeleton className="mt-5 h-[300px] w-full" /></div>
+      <div className="panel p-5 md:p-6"><Skeleton className="h-4 w-28" /><div className="mt-5 space-y-4">{Array.from({ length: 5 }).map((_, index) => <div key={index} className="flex justify-between"><Skeleton className="h-3 w-28" /><Skeleton className="h-4 w-24" /></div>)}</div></div>
+    </section>
+  </>;
+}
 function CoreMetric({ label, value, detail, tone = "neutral", icon, compact = false }: { label: string; value: string; detail?: string; tone?: Tone; icon: ReactNode; compact?: boolean }) {
   return <article className="cockpit-core-metric h-full"><div className="flex items-center justify-between gap-2"><p className="metric-label">{label}</p><span className={tone === "neutral" ? "text-[var(--muted)]" : toneClass(tone)}>{icon}</span></div><p className={`mono-number mt-2 break-words font-semibold ${compact ? "text-sm leading-5" : "text-lg"} ${toneClass(tone)}`}>{value}</p>{detail ? <p className="muted mt-1 text-[10px] leading-4">{detail}</p> : null}</article>;
 }
@@ -340,7 +374,7 @@ function TodayBreakdown({ data, formatMoney }: { data: DashboardData; formatMone
   return <article className="panel min-w-0 p-5 md:p-6">
     <div className="flex items-start justify-between gap-3"><div><p className="section-label">今日收益组成</p><p className="muted mt-1 text-xs">交易记录组成与权益法账户收益并列核对</p></div><CircleDollarSign className="h-5 w-5 text-[var(--accent)]" /></div>
     <div className="mt-4 divide-y" style={{ borderColor: "var(--line)" }}><BreakdownRow label="已实现收益" value={formatMoney(today.realized_pnl)} tone={pnlTone(today.realized_pnl)} /><BreakdownRow label="当前未实现盈亏变化" value={formatMoney(today.unrealized_pnl_change)} tone={pnlTone(today.unrealized_pnl_change)} /><BreakdownRow label="Funding" value={formatMoney(today.funding_fee)} tone={pnlTone(today.funding_fee)} /><BreakdownRow label="Trading Fee" value={formatMoney(-Math.abs(today.trading_fee))} tone={today.trading_fee > 0 ? "negative" : "neutral"} /></div>
-    <div className="mt-3 rounded-xl border p-4" style={{ borderColor: "var(--line-strong)", background: "var(--surface-soft)" }}><div className="flex items-center justify-between gap-4"><span className="text-sm font-semibold">今日账户收益</span><span className={`mono-number text-lg font-bold ${toneClass(pnlTone(today.net_return))}`}>{today.net_return > 0 ? "+" : ""}{formatMoney(today.net_return)}</span></div><p className="muted mt-2 text-[11px] leading-5">当前权益 − 当日期初权益 − 今日净资金流</p></div>
+    <div className="mt-3 rounded-xl border p-4" style={{ borderColor: "var(--line-strong)", background: "var(--surface-soft)" }}><div className="flex items-center justify-between gap-4"><span className="text-sm font-semibold">今日账户收益</span><span className={`mono-number text-lg font-bold ${toneClass(pnlTone(today.net_return))}`}>{formatMoney(today.net_return)}</span></div><p className="muted mt-2 text-[11px] leading-5">当前权益 − 当日期初权益 − 今日净资金流</p></div>
     <div className={`mt-3 rounded-xl p-3 text-xs leading-5 ${today.is_reconciled ? "bg-[var(--positive-soft)] text-[var(--positive)]" : "bg-[var(--warning-soft)] text-[var(--warning)]"}`}>{today.is_reconciled ? <>组成项合计 {formatMoney(today.component_return)}，与账户收益口径已对齐。</> : <>组成项合计 {formatMoney(today.component_return)}，与权益法账户收益相差 {formatMoney(today.reconciliation_difference)}。差额保留展示，未强行合并。</>}{today.net_cash_flow !== 0 && <span className="mt-1 block">今日净资金流 {formatMoney(today.net_cash_flow)} 已从账户收益中剔除。</span>}</div>
   </article>;
 }

@@ -26,7 +26,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { money, type DisplayCurrency } from "@/lib/format";
+import { money, signedMoney, type DisplayCurrency } from "@/lib/format";
 import { BackToTop } from "@/components/back-to-top";
 
 const THEME_STORAGE_KEY = "atlas-theme";
@@ -77,6 +77,7 @@ type CurrencyContextValue = {
   usdCnyRate: number;
   rateDate: string | null;
   formatMoney: (value: number) => string;
+  formatSignedMoney: (value: number) => string;
 };
 
 const CurrencyContext = createContext<CurrencyContextValue>({
@@ -84,6 +85,7 @@ const CurrencyContext = createContext<CurrencyContextValue>({
   usdCnyRate: 1,
   rateDate: null,
   formatMoney: (value) => money(value),
+  formatSignedMoney: (value) => signedMoney(value),
 });
 
 export function useCurrency() {
@@ -199,6 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       usdCnyRate,
       rateDate,
       formatMoney: (value: number) => money(value, currency, usdCnyRate),
+      formatSignedMoney: (value: number) => signedMoney(value, currency, usdCnyRate),
     }),
     [currency, rateDate, usdCnyRate],
   );
@@ -218,11 +221,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <CurrencyContext.Provider value={currencyContext}>
       <div className="min-h-screen lg:grid lg:grid-cols-[224px_1fr]">
         <aside
-          className="sticky top-0 hidden h-screen border-r px-4 py-5 lg:flex lg:flex-col"
+          className="sticky top-0 hidden h-screen border-r bg-[var(--surface)] px-3 py-5 lg:flex lg:flex-col"
           style={{
             borderColor: "var(--line)",
-            background:
-              "linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 72%, var(--surface)) 0%, var(--surface) 34%, color-mix(in srgb, var(--aqua-soft) 45%, var(--surface)) 100%)",
           }}
         >
           <Brand />
@@ -243,19 +244,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           </nav>
 
           <div
-            className="mt-auto overflow-hidden rounded-[20px] border p-4"
+            className="mt-auto overflow-hidden rounded-[12px] border bg-[var(--surface-soft)] p-3"
             style={{
               borderColor: "var(--line)",
-              background:
-                "linear-gradient(135deg, var(--accent-soft), var(--aqua-soft) 62%, var(--warning-soft))",
             }}
           >
             <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              <p className="text-xs font-semibold">资产拼图在线</p>
+              <span className="h-2 w-2 rounded-full bg-[var(--positive)]" />
+              <p className="mono-number text-[10px] font-semibold tracking-[0.08em]">READ ONLY</p>
             </div>
             <p className="muted mt-2 text-[11px] leading-5">
               只读取公开资产视图，不提供交易、划转或提币功能。
@@ -267,9 +263,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <header
             className="sticky top-0 z-30 flex h-16 items-center justify-between border-b px-4 lg:px-7"
             style={{
-              background: "color-mix(in srgb, var(--surface) 86%, transparent)",
+              background: "color-mix(in srgb, var(--surface) 96%, transparent)",
               borderColor: "var(--line)",
-              backdropFilter: "blur(18px)",
+              backdropFilter: "blur(10px)",
             }}
           >
             <div className="flex min-w-0 items-center gap-3">
@@ -292,9 +288,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="mr-1 hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="muted">六个平台 · 60 秒更新</span>
+              <div className="mr-1 hidden items-center gap-2 text-[10px] sm:flex" aria-label="数据同步周期 60 秒">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--positive)]" />
+                <span className="mono-number font-semibold tracking-[0.08em] text-[var(--muted)]">SYNC · 60S</span>
               </div>
               <button
                 type="button"
@@ -317,18 +313,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </header>
 
-          <main className="mx-auto w-full min-w-0 max-w-[1540px] overflow-x-clip px-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] pt-5 md:px-6 md:pb-10 md:pt-7 xl:px-8">
+          <main className="mx-auto w-full min-w-0 max-w-[1540px] overflow-x-clip px-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-4 md:px-6 md:pb-8 md:pt-5 xl:px-8">
             {children}
           </main>
         </div>
 
         <nav
-          className="fixed inset-x-3 bottom-[calc(.75rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-5 rounded-[22px] border p-1.5 lg:hidden"
+          className="fixed inset-x-3 bottom-[calc(.65rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-5 rounded-[14px] border p-1 lg:hidden"
           style={{
             background: "color-mix(in srgb, var(--surface) 94%, transparent)",
             borderColor: "var(--line)",
-            boxShadow: "var(--panel-shadow-hover)",
-            backdropFilter: "blur(18px)",
+            boxShadow: "0 10px 30px -16px rgba(0,0,0,.55)",
+            backdropFilter: "blur(12px)",
           }}
           aria-label="移动端导航"
         >
@@ -337,7 +333,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
           <button
             type="button"
-            className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-medium transition ${moreActive ? "nav-active" : "muted"}`}
+            className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-[9px] text-[10px] font-medium transition ${moreActive ? "nav-active" : "muted"}`}
             onClick={() => setDrawer(true)}
             aria-label="更多页面"
           >
@@ -442,7 +438,7 @@ function NavItem({
         active ? "nav-active" : "muted hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
       }`}
     >
-      {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-white/80" />}
+      {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-[var(--accent)]" />}
       <Icon className="h-[17px] w-[17px]" />
       {item.label}
     </Link>
@@ -454,7 +450,7 @@ function MobileNavItem({ item, active }: { item: NavItemData; active: boolean })
   return (
     <Link
       href={item.href}
-      className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-medium transition ${
+      className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-[9px] text-[10px] font-medium transition ${
         active ? "nav-active" : "muted"
       }`}
     >

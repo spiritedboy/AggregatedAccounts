@@ -6,7 +6,7 @@ import {
   LoaderCircle,
   type LucideIcon,
 } from "lucide-react";
-import { type ReactNode, useId } from "react";
+import { type CSSProperties, type ReactNode, useId } from "react";
 
 export function Badge({
   children,
@@ -43,10 +43,21 @@ export function Skeleton({ className = "" }: { className?: string }) {
 
 export function LoadingState({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="space-y-3" aria-label="正在加载">
-      {Array.from({ length: rows }).map((_, index) => (
-        <Skeleton key={index} className="h-16 w-full" />
-      ))}
+    <div className="panel overflow-hidden" aria-label="正在加载">
+      <div className="grid grid-cols-3 gap-4 border-b bg-[var(--surface-soft)] px-4 py-3" style={{ borderColor: "var(--line)" }}>
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-3 w-16 justify-self-end" />
+        <Skeleton className="h-3 w-20 justify-self-end" />
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--line)" }}>
+        {Array.from({ length: rows }).map((_, index) => (
+          <div key={index} className="grid grid-cols-[1.3fr_.7fr] items-center gap-5 px-4 py-3 sm:grid-cols-3">
+            <div className="space-y-2"><Skeleton className="h-3.5 w-32 max-w-full" /><Skeleton className="h-2.5 w-20" /></div>
+            <Skeleton className="hidden h-3 w-16 justify-self-end sm:block" />
+            <Skeleton className="h-3.5 w-20 justify-self-end" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -58,12 +69,13 @@ export function ErrorState({
   message: string;
   retry?: () => void;
 }) {
+  const safeMessage = message.replace(/\s+/g, " ").slice(0, 180);
   return (
     <div className="panel flex min-h-48 flex-col items-center justify-center gap-3 p-8 text-center">
       <AlertTriangle className="h-8 w-8 text-[var(--warning)]" />
       <div>
         <p className="font-semibold">数据暂时不可用</p>
-        <p className="muted mt-1 text-sm">{message}</p>
+        <p className="muted mt-1 text-sm">{safeMessage}</p>
       </div>
       {retry && (
         <button type="button" className="button-secondary" onClick={retry}>
@@ -102,14 +114,14 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="page-hero mb-5 flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-end">
+    <header className="page-hero mb-4 flex min-w-0 flex-col justify-between gap-3 md:flex-row md:items-center">
       <div className="min-w-0 max-w-full">
         <p className="eyebrow">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--aqua)]" />
           {eyebrow}
         </p>
-        <h1 className="page-title mt-2 text-[30px] font-extrabold tracking-[-0.045em] md:text-[34px]">{title}</h1>
-        <p className="muted mt-1.5 max-w-2xl text-sm leading-6 [overflow-wrap:anywhere]">{description}</p>
+        <h1 className="page-title mt-1 text-[24px] font-bold tracking-[-0.035em] md:text-[27px]">{title}</h1>
+        <p className="muted mt-1 max-w-3xl text-xs leading-5 [overflow-wrap:anywhere]">{description}</p>
       </div>
       {action && <div className="flex w-full min-w-0 max-w-full flex-wrap items-center md:w-auto md:shrink-0 md:justify-end">{action}</div>}
     </header>
@@ -121,15 +133,17 @@ export function FilterPanel({
   secondary,
   activeCount = 0,
   desktopClassName = "sm:grid-cols-2 xl:grid-cols-4",
+  onReset,
 }: {
   primary: ReactNode;
   secondary?: ReactNode;
   activeCount?: number;
   desktopClassName?: string;
+  onReset?: () => void;
 }) {
   const disclosureId = useId();
   return (
-    <section className={`filter-panel responsive-filter-panel ${desktopClassName}`}>
+    <section className={`filter-panel responsive-filter-panel ${desktopClassName}`} aria-label="筛选工具栏">
       <div className="filter-primary">{primary}</div>
       {secondary && (
         <>
@@ -144,6 +158,15 @@ export function FilterPanel({
           <div className="filter-secondary">{secondary}</div>
         </>
       )}
+      {onReset && activeCount > 0 ? (
+        <button
+          type="button"
+          className="min-h-10 rounded-[9px] border border-[var(--line)] px-3 text-xs font-semibold text-[var(--accent-strong)] transition hover:bg-[var(--accent-soft)]"
+          onClick={onReset}
+        >
+          重置筛选
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -177,19 +200,13 @@ export function MetricCard({
       style={
         featured
           ? {
-              background:
-                "linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 68%, var(--surface)) 0%, var(--surface) 48%, color-mix(in srgb, var(--aqua-soft) 58%, var(--surface)) 100%)",
+              background: "color-mix(in srgb, var(--accent-soft) 40%, var(--surface))",
+              borderColor: "color-mix(in srgb, var(--accent) 28%, var(--line))",
+              boxShadow: "var(--panel-shadow)",
             }
           : undefined
       }
     >
-      {featured && (
-        <>
-          <div className="pointer-events-none absolute -right-12 -top-14 h-36 w-36 rounded-full border-[18px] border-[var(--accent)]/10" />
-          <div className="pointer-events-none absolute bottom-5 right-20 h-5 w-5 rounded-full bg-[var(--aqua)]/25" />
-          <div className="pointer-events-none absolute right-10 top-1/2 h-3 w-3 rounded-full bg-pink-400/30" />
-        </>
-      )}
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="metric-label">{label}</p>
@@ -220,13 +237,13 @@ const exchangeNames: Record<string, string> = {
   POLYMARKET: "PM",
 };
 
-const exchangePalette: Record<string, { color: string; background: string; border: string }> = {
-  BINANCE: { color: "#8a6500", background: "#fff4c8", border: "#f3cf55" },
-  OKX: { color: "#5c4fc2", background: "#eeeaff", border: "#c9c1ff" },
-  BITGET: { color: "#087f87", background: "#dcf9f7", border: "#8be2dc" },
-  BYBIT: { color: "#d26018", background: "#fff0df", border: "#f3bd82" },
-  HYPERLIQUID: { color: "#068968", background: "#ddf9ef", border: "#86dfc2" },
-  POLYMARKET: { color: "#bd4679", background: "#ffe7f2", border: "#f6a9c9" },
+const exchangePalette: Record<string, string> = {
+  BINANCE: "#c98d00",
+  OKX: "#765ee5",
+  BITGET: "#07949c",
+  BYBIT: "#d76821",
+  HYPERLIQUID: "#079a72",
+  POLYMARKET: "#b54e7b",
 };
 
 export function ExchangeMark({
@@ -241,19 +258,13 @@ export function ExchangeMark({
     md: "h-9 w-9 rounded-[10px] text-[10px]",
     lg: "h-11 w-11 rounded-xl text-[11px]",
   }[size];
-  const palette = exchangePalette[exchange] ?? {
-    color: "var(--accent-strong)",
-    background: "var(--accent-soft)",
-    border: "var(--line)",
-  };
+  const palette = exchangePalette[exchange] ?? "var(--accent)";
   return (
     <span
-      className={`mono-number inline-grid shrink-0 place-items-center border font-semibold ${dimensions}`}
+      className={`exchange-mark mono-number inline-grid shrink-0 place-items-center border font-semibold ${dimensions}`}
       style={{
-        color: palette.color,
-        background: palette.background,
-        borderColor: palette.border,
-      }}
+        "--mark-color": palette,
+      } as CSSProperties}
       aria-label={exchange}
     >
       {exchangeNames[exchange] ?? exchange.slice(0, 2)}

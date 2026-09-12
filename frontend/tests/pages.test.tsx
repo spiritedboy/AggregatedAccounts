@@ -485,16 +485,17 @@ describe("portfolio pages", () => {
     expect(screen.getByText("最近数据更新时间")).toBeInTheDocument();
     expect(screen.getByText("净值曲线")).toBeInTheDocument();
     expect(screen.getByText("资产 / 交易所分布")).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "Binance 权益占比" })).toHaveAttribute("aria-valuenow", "100");
     expect(screen.getByText(/净值变化：/)).toBeInTheDocument();
-    expect(screen.getByText("1年")).toBeInTheDocument();
+    expect(screen.getByText("1Y")).toBeInTheDocument();
     expect(screen.getByText("做多")).toBeInTheDocument();
     expect(screen.getAllByText("当前未实现盈亏")).not.toHaveLength(0);
-    expect(screen.getByText("组成项合计 US$230.00，与账户收益口径已对齐。")).toBeInTheDocument();
+    expect(screen.getByText("组成项合计 +US$230.00，与账户收益口径已对齐。")).toBeInTheDocument();
     expect(screen.getByText(/LDUSDT · BINANCE/)).toBeInTheDocument();
     expect(screen.getByText(/数量 0.36257566/)).toBeInTheDocument();
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "1年" }));
+    await user.click(screen.getByRole("button", { name: "1Y" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/dashboard/bootstrap?range=1y"),
@@ -591,7 +592,7 @@ describe("portfolio pages", () => {
     expect(await screen.findAllByText("BTC-USDT-PERP")).not.toHaveLength(0);
     expect(screen.getAllByText(/US\$800\.00/)).not.toHaveLength(0);
     expect(screen.getAllByText("本金 US$5,600.00")).not.toHaveLength(0);
-    expect(screen.getAllByText("14.29%")).not.toHaveLength(0);
+    expect(screen.getAllByText("+14.29%")).not.toHaveLength(0);
     expect(screen.getAllByText("距强平 35.7%")).not.toHaveLength(0);
     expect(screen.getAllByText("交易所未提供可靠强平价")).not.toHaveLength(0);
     expect(screen.getByText(/高风险仓位 · 已进入强平危险区间/)).toBeInTheDocument();
@@ -723,7 +724,7 @@ describe("portfolio pages", () => {
     render(<HistoryPage />);
     expect(await screen.findAllByText("交易所成交 API")).not.toHaveLength(0);
     expect(screen.getAllByText("部分完整")).not.toHaveLength(0);
-    expect(screen.getAllByText("12.76%")).not.toHaveLength(0);
+    expect(screen.getAllByText("+12.76%")).not.toHaveLength(0);
     expect(screen.getAllByText("价格变动 -1%")).not.toHaveLength(0);
     expect(screen.queryByText("杠杆数据不足")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "历史仓位收益率计算说明" })).not.toHaveLength(0);

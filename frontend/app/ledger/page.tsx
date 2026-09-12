@@ -76,7 +76,7 @@ function LedgerContent() {
     useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [urlReady, setUrlReady] = useState(false);
-  const { formatMoney } = useCurrency();
+  const { formatSignedMoney } = useCurrency();
 
   const params = useCallback(() => {
     const query = new URLSearchParams({ page: String(page), page_size: "30" });
@@ -136,6 +136,22 @@ function LedgerContent() {
       return financialImpactSort === "asc" ? difference : -difference;
     });
   }, [financialImpactSort, records?.items]);
+  const activeFilterCount = [
+    exchange,
+    recordType,
+    start,
+    end,
+    financialImpactSort === "none" ? "" : financialImpactSort,
+  ].filter(Boolean).length;
+
+  function resetFilters() {
+    setPage(1);
+    setExchange("");
+    setRecordType("");
+    setStart("");
+    setEnd("");
+    setFinancialImpactSort("none");
+  }
 
   function exportCsv() {
     const query = params();
@@ -149,7 +165,7 @@ function LedgerContent() {
       <PageHeader
         eyebrow="每笔来往"
         title="账务流水"
-        description="集中查看已实现毛收益、资金费、交易手续费与资金流，并按统一公式汇总累计净收益。"
+        description={records ? `${records.total} 条流水 · 累计净收益 ${formatSignedMoney(records.summary.net_realized_pnl)} · 每页 30 条` : "正在读取账务流水…"}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
@@ -166,35 +182,35 @@ function LedgerContent() {
           <Metric
             icon={ShieldCheck}
             label="累计净收益"
-            value={formatMoney(records.summary.net_realized_pnl)}
+            value={formatSignedMoney(records.summary.net_realized_pnl)}
             tone={records.summary.net_realized_pnl >= 0 ? "positive" : "negative"}
             detail="已实现毛收益 + 资金费 − 手续费"
           />
           <Metric
             icon={BadgeDollarSign}
             label="已实现毛收益"
-            value={formatMoney(records.summary.realized_pnl)}
+            value={formatSignedMoney(records.summary.realized_pnl)}
             tone={records.summary.realized_pnl >= 0 ? "positive" : "negative"}
             detail="取自历史仓位的已实现收益"
           />
           <Metric
             icon={Landmark}
             label="资金费"
-            value={formatMoney(records.summary.funding_fee)}
+            value={formatSignedMoney(records.summary.funding_fee)}
             tone={records.summary.funding_fee >= 0 ? "positive" : "negative"}
             detail="正数收入，负数支出"
           />
           <Metric
             icon={ReceiptText}
             label="手续费"
-            value={formatMoney(-records.summary.trading_fee)}
+            value={formatSignedMoney(-records.summary.trading_fee)}
             tone="warning"
             detail="作为累计净收益的扣减项"
           />
           <Metric
             icon={ArrowDownToLine}
             label="净资金流"
-            value={formatMoney(records.summary.net_cash_flow)}
+            value={formatSignedMoney(records.summary.net_cash_flow)}
             tone={records.summary.net_cash_flow >= 0 ? "positive" : "negative"}
             detail="充值 − 提现，不计入收益"
           />
@@ -202,7 +218,8 @@ function LedgerContent() {
       )}
 
       <FilterPanel
-        activeCount={[recordType, start, end].filter(Boolean).length}
+        activeCount={activeFilterCount}
+        onReset={resetFilters}
         desktopClassName="md:grid-cols-2 xl:grid-cols-4"
         primary={
         <Select
@@ -360,7 +377,7 @@ function LedgerContent() {
                       }`}
                       data-numeric="true"
                     >
-                      {formatMoney(record.signed_amount_usd)}
+                      {formatSignedMoney(record.signed_amount_usd)}
                     </td>
                     <td>
                       <p
@@ -384,7 +401,7 @@ function LedgerContent() {
                     <p className="muted mt-2 text-xs">{connectionDisplayName(record.connection_name, record.exchange)} · {exchangeDisplayName(record.exchange)}</p>
                   </div>
                   <p className={`mono-number text-sm font-semibold ${record.signed_amount_usd > 0 ? "text-positive" : record.signed_amount_usd < 0 ? "text-negative" : ""}`}>
-                    {formatMoney(record.signed_amount_usd)}
+                    {formatSignedMoney(record.signed_amount_usd)}
                   </p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">

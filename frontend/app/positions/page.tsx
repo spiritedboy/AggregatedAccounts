@@ -42,7 +42,7 @@ function PositionsContent() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [urlReady, setUrlReady] = useState(false);
-  const { formatMoney } = useCurrency();
+  const { formatMoney, formatSignedMoney } = useCurrency();
 
   const load = useCallback(() => {
     const params = new URLSearchParams();
@@ -159,6 +159,24 @@ function PositionsContent() {
     sortField && sortDirection !== "none"
       ? `${sortField}-${sortDirection}`
       : "none";
+  const activeFilterCount = [
+    exchange,
+    accountId,
+    side,
+    symbol,
+    liquidationRisk,
+    mobileSortValue !== "none" ? mobileSortValue : "",
+  ].filter(Boolean).length;
+  const resetFilters = () => {
+    setExchange("");
+    setAccountId("");
+    setSide("");
+    setSymbol("");
+    setLiquidationRisk("");
+    setSortField(null);
+    setSortDirection("none");
+    setFocusPositionId("");
+  };
   const lastUpdatedAt =
     positions.reduce<string | null>(
       (latest, position) =>
@@ -167,13 +185,21 @@ function PositionsContent() {
           : latest,
       null,
     ) ?? lastLoadedAt;
+  const grossExposure = positions.reduce(
+    (total, position) => total + Math.abs(position.position_value_usd),
+    0,
+  );
+  const currentPnl = positions.reduce(
+    (total, position) => total + position.unrealized_pnl,
+    0,
+  );
 
   return (
     <>
       <PageHeader
         eyebrow="仓位雷达"
         title="当前仓位"
-        description="统一查看各交易所当前敞口。页面没有平仓、杠杆调整或任何交易操作。"
+        description={result ? `${positions.length} 个仓位 · Gross ${usd(grossExposure)} · PnL ${formatSignedMoney(currentPnl)}` : "正在读取各交易所当前敞口…"}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Badge tone="mint">
@@ -186,7 +212,8 @@ function PositionsContent() {
       />
 
       <FilterPanel
-        activeCount={[exchange, accountId, side, symbol, liquidationRisk, mobileSortValue !== "none" ? mobileSortValue : ""].filter(Boolean).length}
+        activeCount={activeFilterCount}
+        onReset={resetFilters}
         desktopClassName="md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
         primary={<>
         <label className="relative">
@@ -245,26 +272,11 @@ function PositionsContent() {
       />
 
       {result && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+        <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
           <p className="muted text-xs">
             当前显示 <span className="mono-number font-semibold text-[var(--text)]">{positions.length}</span> 个仓位
           </p>
-          {(exchange || accountId || side || symbol || liquidationRisk) && (
-            <button
-              type="button"
-              className="text-xs font-semibold text-[var(--accent)]"
-              onClick={() => {
-                setExchange("");
-                setAccountId("");
-                setSide("");
-                setSymbol("");
-                setLiquidationRisk("");
-                setFocusPositionId("");
-              }}
-            >
-              清除筛选
-            </button>
-          )}
+          {activeFilterCount > 0 ? <span className="mono-number text-[10px] text-[var(--accent)]">{activeFilterCount} FILTERS</span> : null}
         </div>
       )}
 
@@ -365,16 +377,10 @@ function PositionsContent() {
                     </td>
                     <td data-numeric="true">
                       <p className={`mono-number font-semibold ${position.unrealized_pnl >= 0 ? "text-positive" : "text-negative"}`}>
-                        {formatMoney(position.unrealized_pnl)}
+                        {formatSignedMoney(position.unrealized_pnl)}
                       </p>
-                      <p
-                        className={`mono-number mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          position.unrealized_pnl_percent >= 0
-                            ? "bg-[var(--positive-soft)] text-positive"
-                            : "bg-[var(--negative-soft)] text-negative"
-                        }`}
-                      >
-                        {number(position.unrealized_pnl_percent, 2)}%
+                      <p className={`mono-number mt-1 text-xs font-semibold ${position.unrealized_pnl_percent >= 0 ? "text-positive" : "text-negative"}`}>
+                        {position.unrealized_pnl_percent > 0 ? "+" : ""}{number(position.unrealized_pnl_percent, 2)}%
                       </p>
                     </td>
                   </tr>
@@ -407,7 +413,7 @@ function PositionsContent() {
                 </div>
                 <div className="mt-4 grid min-w-0 grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd)} />
-                  <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatMoney(position.unrealized_pnl)} · ${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
+                  <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatSignedMoney(position.unrealized_pnl)} · ${position.unrealized_pnl_percent > 0 ? "+" : ""}${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
                   <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
                   <Metric label="杠杆 / 本金" hint="本金 = 入场价 × 仓位数量 ÷ 杠杆倍数。" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
                   <div className="col-span-2 rounded-xl border p-3" style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}>

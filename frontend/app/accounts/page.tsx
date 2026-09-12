@@ -78,7 +78,7 @@ function AccountsContent() {
       <PageHeader
         eyebrow="伙伴连接"
         title="交易所账户"
-        description="账户由服务器配置文件统一管理；此页面仅展示连接与同步状态。"
+        description={accounts ? `${accounts.length} 个账户 · ${syncStatus?.summary.healthy_accounts ?? 0} 个同步正常 · 服务器配置只读` : "正在读取交易所连接状态…"}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Badge tone="mint">
@@ -215,7 +215,7 @@ function AccountsContent() {
                       <h2 className="truncate font-semibold">{connectionDisplayName(account.connection_name, account.exchange)}</h2>
                       {account.is_demo && <Badge tone="mint">演示</Badge>}
                     </div>
-                    <p className="muted mt-1 font-mono text-xs">
+                    <p className="muted mt-1 truncate font-mono text-xs">
                       {account.masked_identifier}
                     </p>
                   </div>

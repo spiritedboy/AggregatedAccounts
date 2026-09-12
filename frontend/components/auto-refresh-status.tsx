@@ -86,6 +86,17 @@ export function AutoRefreshStatus({
 }) {
   const stale = isDataStale(lastUpdatedAt, state.now);
   const seconds = Math.max(0, Math.ceil((state.nextRefreshAt - state.now) / 1_000));
+  const updatedAt = lastUpdatedAt ? Date.parse(lastUpdatedAt) : Number.NaN;
+  const ageSeconds = Number.isFinite(updatedAt)
+    ? Math.max(0, Math.floor((state.now - updatedAt) / 1_000))
+    : null;
+  const statusText = stale
+    ? `DEGRADED · ${ageSeconds ?? "—"}s`
+    : state.refreshing
+      ? "SYNCING"
+      : ageSeconds === null
+        ? `NEXT SYNC · ${seconds}s`
+        : `LAST SYNC · ${ageSeconds}s`;
 
   return (
     <button
@@ -97,7 +108,7 @@ export function AutoRefreshStatus({
       }`}
       onClick={() => void state.refreshNow()}
       disabled={state.refreshing}
-      title="立即刷新数据"
+      title={lastUpdatedAt ? `立即刷新 · 最近更新 ${dateTime(lastUpdatedAt)}` : "立即刷新数据"}
       aria-live="polite"
       aria-label={state.refreshing ? "正在刷新数据" : "立即刷新数据"}
     >
@@ -106,8 +117,7 @@ export function AutoRefreshStatus({
       ) : (
         <RefreshCw className={`h-3.5 w-3.5 ${state.refreshing ? "animate-spin" : ""}`} />
       )}
-      <span>{stale ? "数据已过期，正在自动重试" : state.refreshing ? "正在刷新" : `${seconds} 秒后刷新`}</span>
-      {lastUpdatedAt && <span className="auto-refresh-updated opacity-75">更新于 {dateTime(lastUpdatedAt)}</span>}
+      <span className="mono-number font-semibold tracking-[0.04em]">{statusText}</span>
     </button>
   );
 }

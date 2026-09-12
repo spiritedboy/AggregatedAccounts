@@ -7,58 +7,58 @@
   --font-body: "Noto Sans SC Variable";
   --font-display: "Manrope Variable";
   --font-data: "IBM Plex Mono";
-  --bg: #e9e5f0;
-  --surface: rgba(248, 246, 252, 0.97);
-  --surface-solid: #f8f6fc;
-  --surface-soft: #ebe6f3;
-  --surface-raised: #fbf9fd;
-  --line: rgba(79, 59, 137, 0.2);
-  --line-strong: rgba(79, 59, 137, 0.34);
-  --text: #2c2742;
-  --muted: #78718f;
-  --accent: #7c5cfc;
-  --accent-strong: #6545e8;
-  --accent-soft: #eee9ff;
-  --aqua: #20bda9;
-  --aqua-soft: #e5faf6;
-  --positive: #0a9d76;
-  --positive-soft: #e7faf3;
-  --negative: #ee5877;
-  --negative-soft: #fff0f4;
-  --warning: #d58a20;
-  --warning-soft: #fff5df;
-  --hero-start: rgba(250, 248, 253, 0.98);
-  --hero-end: rgba(235, 229, 247, 0.97);
-  --panel-shadow: 0 14px 34px -24px rgba(67, 48, 119, 0.4), 0 2px 8px rgba(67, 48, 119, 0.06);
-  --panel-shadow-hover: 0 20px 44px -24px rgba(77, 53, 150, 0.48), 0 3px 10px rgba(67, 48, 119, 0.08);
+  --bg: #f1f3f7;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --surface-soft: #f6f7f9;
+  --surface-raised: #ffffff;
+  --line: #dfe3ea;
+  --line-strong: #cbd1dc;
+  --text: #171a23;
+  --muted: #697184;
+  --accent: #7157e8;
+  --accent-strong: #5d43d4;
+  --accent-soft: #f0edff;
+  --aqua: #168b82;
+  --aqua-soft: #e9f7f5;
+  --positive: #07865f;
+  --positive-soft: #e9f7f1;
+  --negative: #d83f5b;
+  --negative-soft: #fcedf0;
+  --warning: #ad7008;
+  --warning-soft: #fbf3df;
+  --hero-start: #ffffff;
+  --hero-end: #f7f5ff;
+  --panel-shadow: 0 1px 2px rgba(18, 24, 38, 0.05), 0 6px 18px -16px rgba(18, 24, 38, 0.22);
+  --panel-shadow-hover: 0 8px 24px -18px rgba(38, 29, 82, 0.34);
 }
 
 .dark {
   color-scheme: dark;
-  --bg: #0f0c19;
-  --surface: rgba(35, 30, 53, 0.97);
-  --surface-solid: #231e35;
-  --surface-soft: #332b4b;
-  --surface-raised: #2b253f;
-  --line: rgba(219, 208, 255, 0.19);
-  --line-strong: rgba(219, 208, 255, 0.34);
-  --text: #faf7ff;
-  --muted: #b1a9c8;
-  --accent: #aa8cff;
-  --accent-strong: #c0aaff;
-  --accent-soft: rgba(156, 121, 255, 0.17);
-  --aqua: #55ddc8;
-  --aqua-soft: rgba(46, 200, 177, 0.14);
-  --positive: #4bd4a6;
-  --positive-soft: rgba(35, 188, 133, 0.14);
-  --negative: #ff7f9a;
-  --negative-soft: rgba(238, 88, 119, 0.14);
-  --warning: #ffc463;
-  --warning-soft: rgba(227, 156, 49, 0.15);
-  --hero-start: rgba(42, 35, 64, 0.98);
-  --hero-end: rgba(52, 40, 80, 0.96);
-  --panel-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.88), 0 2px 10px rgba(0, 0, 0, 0.3);
-  --panel-shadow-hover: 0 24px 52px -24px rgba(0, 0, 0, 0.94), 0 3px 12px rgba(0, 0, 0, 0.38);
+  --bg: #0d1016;
+  --surface: #151922;
+  --surface-solid: #151922;
+  --surface-soft: #1b202b;
+  --surface-raised: #1a1f29;
+  --line: #2a303d;
+  --line-strong: #3a4252;
+  --text: #eef1f6;
+  --muted: #959dac;
+  --accent: #9a84ff;
+  --accent-strong: #b1a1ff;
+  --accent-soft: #282440;
+  --aqua: #56c9be;
+  --aqua-soft: #172d2d;
+  --positive: #45c99a;
+  --positive-soft: #163129;
+  --negative: #f06f87;
+  --negative-soft: #371e27;
+  --warning: #e8ad4c;
+  --warning-soft: #352a18;
+  --hero-start: #171b25;
+  --hero-end: #1c1b2d;
+  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 20px -18px rgba(0, 0, 0, 0.85);
+  --panel-shadow-hover: 0 10px 26px -18px rgba(0, 0, 0, 0.9);
 }
 
 * {
@@ -92,6 +92,28 @@ body {
   from { opacity: 0; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 1ms;
+  }
+
+  html.theme-transitioning body,
+  html.theme-transitioning .panel,
+  html.theme-transitioning .panel-solid,
+  html.theme-transitioning .data-panel,
+  html.theme-transitioning .filter-panel,
+  html.theme-transitioning .table-shell,
+  html.theme-transitioning input,
+  html.theme-transitioning select,
+  html.theme-transitioning button,
+  html.theme-transitioning aside,
+  html.theme-transitioning header,
+  html.theme-transitioning nav {
+    transition-duration: 1ms;
+  }
+}
+
 html.theme-transitioning body,
 html.theme-transitioning .panel,
 html.theme-transitioning .panel-solid,
@@ -111,30 +133,12 @@ html.theme-transitioning nav {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 8% 4%, rgba(150, 110, 255, 0.12), transparent 30rem),
-    radial-gradient(circle at 94% 12%, rgba(60, 218, 197, 0.1), transparent 28rem),
-    radial-gradient(circle at 76% 94%, rgba(255, 111, 168, 0.08), transparent 30rem),
-    radial-gradient(circle, color-mix(in srgb, var(--accent) 10%, transparent) 1px, transparent 1.4px),
-    var(--bg);
-  background-attachment: fixed;
-  background-size: auto, auto, auto, 28px 28px, auto;
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body), "MiSans VF", "HarmonyOS Sans SC", "PingFang SC",
     ui-sans-serif, system-ui, sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-}
-
-.dark body {
-  background:
-    radial-gradient(circle at 8% 4%, rgba(135, 98, 238, 0.1), transparent 30rem),
-    radial-gradient(circle at 94% 12%, rgba(48, 178, 161, 0.07), transparent 28rem),
-    radial-gradient(circle at 76% 94%, rgba(207, 76, 132, 0.06), transparent 30rem),
-    radial-gradient(circle, rgba(170, 140, 255, 0.07) 1px, transparent 1.4px),
-    var(--bg);
-  background-attachment: fixed;
-  background-size: auto, auto, auto, 28px 28px, auto;
 }
 
 button,
@@ -167,36 +171,22 @@ select:focus-visible {
 
 @layer components {
   .page-hero {
-    @apply relative isolate overflow-hidden rounded-[26px] border px-5 py-5 md:px-7 md:py-6;
-    background:
-      linear-gradient(112deg, var(--hero-start) 0%, var(--hero-end) 68%, color-mix(in srgb, var(--aqua-soft) 84%, var(--surface)) 100%);
-    border-color: var(--line-strong);
-    box-shadow: var(--panel-shadow), inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
+    @apply border-b pb-4;
+    border-color: var(--line);
   }
 
   .page-hero::before {
-    content: "";
-    @apply pointer-events-none absolute -right-10 -top-20 -z-10 h-52 w-52 rounded-full;
-    border: 26px solid color-mix(in srgb, var(--accent) 13%, transparent);
+    display: none;
   }
 
   .page-hero::after {
-    content: "";
-    @apply pointer-events-none absolute bottom-5 right-[28%] -z-10 h-3 w-3 rounded-full;
-    background: var(--aqua);
-    box-shadow: 34px -27px 0 color-mix(in srgb, #ec6ea9 64%, transparent), 68px 8px 0 color-mix(in srgb, var(--accent) 52%, transparent);
-    opacity: 0.5;
-  }
-
-  .dark .page-hero {
-    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    display: none;
   }
 
   .panel {
-    @apply rounded-[22px] border backdrop-blur-xl transition duration-200;
+    @apply rounded-[14px] border;
     background: var(--surface);
     border-color: var(--line);
-    box-shadow: var(--panel-shadow);
   }
 
   .panel,
@@ -204,7 +194,7 @@ select:focus-visible {
   .data-panel,
   .filter-panel,
   .table-shell {
-    box-shadow: var(--panel-shadow), inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
+    box-shadow: none;
   }
 
   .dark .panel,
@@ -212,27 +202,34 @@ select:focus-visible {
   .dark .data-panel,
   .dark .filter-panel,
   .dark .table-shell {
-    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    box-shadow: none;
   }
 
   .panel:hover {
-    border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+    transform: none;
+  }
+
+  .interactive-panel {
+    @apply transition duration-150;
+  }
+
+  .interactive-panel:hover {
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
     box-shadow: var(--panel-shadow-hover);
-    transform: translateY(-1px);
   }
 
   .panel-solid {
-    @apply rounded-[22px] border;
+    @apply rounded-[14px] border;
     background: var(--surface-solid);
     border-color: var(--line);
-    box-shadow: var(--panel-shadow);
+    box-shadow: none;
   }
 
   .cockpit-overview {
-    @apply relative isolate overflow-hidden rounded-[22px] border;
+    @apply relative isolate overflow-hidden rounded-[16px] border;
     background: var(--surface-solid);
     border-color: var(--line-strong);
-    box-shadow: var(--panel-shadow), inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
+    box-shadow: var(--panel-shadow);
   }
 
   .cockpit-overview::before {
@@ -242,7 +239,7 @@ select:focus-visible {
   }
 
   .dark .cockpit-overview {
-    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    box-shadow: var(--panel-shadow);
   }
 
   .cockpit-primary {
@@ -251,7 +248,7 @@ select:focus-visible {
   }
 
   .cockpit-core-metric {
-    @apply min-w-0 border-b p-4 sm:border-r xl:border-b-0;
+    @apply min-w-0 border-b p-3 sm:border-r xl:border-b-0;
     border-color: var(--line);
     background: color-mix(in srgb, var(--surface-soft) 32%, var(--surface-solid));
   }
@@ -277,10 +274,10 @@ select:focus-visible {
   }
 
   .data-panel {
-    @apply overflow-hidden rounded-[22px] border backdrop-blur-xl;
+    @apply overflow-hidden rounded-[14px] border;
     background: var(--surface);
     border-color: var(--line);
-    box-shadow: var(--panel-shadow);
+    box-shadow: none;
   }
 
   .muted {
@@ -288,7 +285,7 @@ select:focus-visible {
   }
 
   .input {
-    @apply h-10 min-w-0 w-full rounded-xl border px-3 text-sm outline-none transition;
+    @apply h-10 min-w-0 w-full rounded-[9px] border px-3 text-sm outline-none transition;
     background: var(--surface-raised);
     border-color: var(--line);
   }
@@ -303,18 +300,17 @@ select:focus-visible {
   }
 
   .button-primary {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition duration-200 disabled:cursor-not-allowed disabled:opacity-50;
-    background: linear-gradient(120deg, #7658f6, #b45bea 56%, #f06da9);
-    box-shadow: 0 10px 24px -16px color-mix(in srgb, var(--accent) 75%, transparent);
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-[9px] px-4 text-sm font-semibold text-white transition duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+    background: var(--accent);
+    box-shadow: none;
   }
 
   .button-primary:hover {
-    filter: saturate(1.08) brightness(1.03);
-    transform: translateY(-1px);
+    background: var(--accent-strong);
   }
 
   .button-secondary {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-[9px] border px-4 text-sm font-medium transition;
     background: var(--surface);
     border-color: var(--line);
   }
@@ -325,9 +321,8 @@ select:focus-visible {
   }
 
   .eyebrow {
-    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em];
+    @apply inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em];
     color: var(--accent);
-    background: var(--accent-soft);
   }
 
   .mono-number {
@@ -338,15 +333,13 @@ select:focus-visible {
 
   .page-title {
     font-family: var(--font-display), var(--font-body), sans-serif;
-    background: linear-gradient(110deg, var(--text) 10%, var(--accent) 64%, #ec6ea9);
-    background-clip: text;
-    color: transparent;
+    color: var(--text);
   }
 
   .nav-active {
-    color: white;
-    background: linear-gradient(110deg, #7658f6, #a45fe8 60%, #e465a5);
-    box-shadow: 0 12px 26px -18px rgba(118, 88, 246, 0.95);
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+    box-shadow: none;
   }
 
   .brand-bubble {
@@ -355,22 +348,32 @@ select:focus-visible {
     box-shadow: 0 12px 26px -18px color-mix(in srgb, var(--accent) 85%, transparent);
   }
 
+  .exchange-mark {
+    color: color-mix(in srgb, var(--mark-color) 72%, #111827);
+    background: color-mix(in srgb, var(--mark-color) 12%, var(--surface));
+    border-color: color-mix(in srgb, var(--mark-color) 32%, var(--line));
+  }
+
+  .dark .exchange-mark {
+    color: color-mix(in srgb, var(--mark-color) 60%, white);
+    background: color-mix(in srgb, var(--mark-color) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--mark-color) 35%, var(--line));
+  }
+
   .filter-panel {
-    @apply relative mb-4 grid gap-3 overflow-hidden rounded-[22px] border p-3 pl-4 backdrop-blur-xl;
-    background: color-mix(in srgb, var(--surface) 91%, var(--accent-soft));
-    border-color: var(--line-strong);
-    box-shadow: var(--panel-shadow);
+    @apply relative mb-3 grid gap-2 rounded-[12px] border p-2;
+    background: var(--surface);
+    border-color: var(--line);
+    box-shadow: none;
   }
 
   .filter-panel::before {
-    content: "";
-    @apply absolute inset-y-3 left-0 w-1 rounded-r-full;
-    background: linear-gradient(180deg, var(--accent), #ec6ea9 52%, var(--aqua));
+    display: none;
   }
 
   .filter-primary,
   .filter-secondary {
-    @apply grid gap-3;
+    @apply grid gap-2;
   }
 
   .filter-secondary {
@@ -378,7 +381,7 @@ select:focus-visible {
   }
 
   .filter-disclosure-button {
-    @apply flex min-h-10 cursor-pointer items-center justify-between rounded-xl border px-3 text-sm font-semibold;
+    @apply flex min-h-10 cursor-pointer items-center justify-between rounded-[9px] border px-3 text-sm font-semibold;
     border-color: var(--line);
     background: var(--surface-soft);
   }
@@ -403,10 +406,10 @@ select:focus-visible {
   }
 
   .table-shell {
-    @apply overflow-x-auto rounded-[22px] border backdrop-blur-xl;
+    @apply overflow-x-auto rounded-[14px] border;
     background: var(--surface);
     border-color: var(--line);
-    box-shadow: var(--panel-shadow);
+    box-shadow: none;
   }
 
   .table-shell-sticky {
@@ -422,13 +425,13 @@ select:focus-visible {
 
   .data-table thead {
     color: color-mix(in srgb, var(--text) 74%, var(--muted));
-    background: color-mix(in srgb, var(--accent-soft) 65%, var(--surface));
+    background: var(--surface-soft);
   }
 
   .data-table th {
-    @apply sticky top-0 z-20 whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold tracking-wide;
-    background: color-mix(in srgb, var(--accent-soft) 65%, var(--surface));
-    border-bottom: 1px solid var(--line-strong);
+    @apply sticky top-0 z-20 whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.06em];
+    background: var(--surface-soft);
+    border-bottom: 1px solid var(--line);
   }
 
   .data-table th:hover,
@@ -437,7 +440,7 @@ select:focus-visible {
   }
 
   .data-table td {
-    @apply px-4 py-3.5;
+    @apply px-3 py-2.5;
     border-bottom: 1px solid var(--line);
   }
 
@@ -450,15 +453,15 @@ select:focus-visible {
   }
 
   .data-table tbody tr:hover {
-    background: color-mix(in srgb, var(--accent-soft) 68%, transparent);
+    background: color-mix(in srgb, var(--accent-soft) 44%, transparent);
   }
 
   .data-table tbody tr:nth-child(even) {
-    background: color-mix(in srgb, var(--surface-soft) 34%, transparent);
+    background: transparent;
   }
 
   .data-table tbody tr:nth-child(even):hover {
-    background: color-mix(in srgb, var(--accent-soft) 68%, transparent);
+    background: color-mix(in srgb, var(--accent-soft) 44%, transparent);
   }
 
   .section-label {
@@ -479,7 +482,7 @@ select:focus-visible {
   }
 
   .soft-block {
-    @apply rounded-2xl border;
+    @apply rounded-[10px] border;
     background: var(--surface-soft);
     border-color: var(--line-strong);
   }
@@ -497,18 +500,11 @@ select:focus-visible {
   }
 
   .metric-card::after {
-    content: "";
-    @apply absolute inset-x-5 top-0 h-[3px] rounded-b-full;
-    background: linear-gradient(90deg, var(--accent), #ec6ea9 52%, var(--aqua));
-    opacity: 0.78;
-  }
-
-  .metric-card:hover::after {
-    opacity: 1;
+    display: none;
   }
 
   .calculation-tooltip {
-    @apply fixed z-50 rounded-xl border p-3;
+    @apply fixed z-50 rounded-[10px] border p-3;
     background: var(--surface-solid);
     border-color: var(--line-strong);
     box-shadow: 0 18px 48px -14px rgba(20, 14, 38, 0.5), 0 0 0 1px color-mix(in srgb, var(--surface-solid) 86%, transparent);
@@ -529,14 +525,9 @@ select:focus-visible {
 }
 
 @media (max-width: 767px) {
-  body {
-    background-size: auto, auto, auto, 24px 24px, auto;
-  }
-
   .page-hero {
-    border-radius: 22px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    margin-bottom: 0.875rem;
   }
 
   .page-hero::after {
@@ -544,13 +535,12 @@ select:focus-visible {
   }
 
   .page-hero .page-title {
-    margin-top: 0.45rem;
-    font-size: 1.65rem;
+    margin-top: 0.25rem;
+    font-size: 1.375rem;
     line-height: 1.18;
   }
 
   .page-hero .eyebrow {
-    padding: 0.3rem 0.65rem;
     font-size: 0.625rem;
   }
 

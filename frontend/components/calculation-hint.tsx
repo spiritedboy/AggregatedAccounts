@@ -72,7 +72,7 @@ export function CalculationHint({ label, text }: { label: string; text: string }
         type="button"
         aria-label={`${label}计算说明`}
         aria-expanded={open}
-        className="muted rounded-full p-0.5 transition hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        className="muted relative rounded-full p-0.5 transition after:absolute after:-inset-3 after:content-[''] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         onClick={() => setOpen((current) => !current)}
       >
         <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
