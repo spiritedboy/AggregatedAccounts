@@ -467,7 +467,7 @@ function OverviewPanel({
               <div>
                 <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
                   <span className="muted">投资收益</span>
-                  <span className={`mono-number font-semibold ${row.investment_return >= 0 ? "text-positive" : "text-negative"}`}>{formatSignedMoney(row.investment_return)}</span>
+                  <span className={`mono-number max-w-[62%] break-all text-right font-semibold ${row.investment_return >= 0 ? "text-positive" : "text-negative"}`}>{formatSignedMoney(row.investment_return)}</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-soft)]">
                   <div className={`h-full rounded-full ${row.investment_return >= 0 ? "bg-[var(--positive)]" : "bg-[var(--negative)]"}`} style={{ width: `${Math.min(100, Math.abs(row.investment_return) / maxContribution * 100)}%` }} />
@@ -634,7 +634,7 @@ function MetricGrid({
                 <p className="truncate text-sm font-bold" title={row.label}>{row.label}</p>
                 <p className="muted mt-1 text-xs">{row.trade_count} 笔交易</p>
               </div>
-              <span className={`mono-number text-base font-bold ${row.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.net_pnl)}</span>
+              <span className={`mono-number max-w-[58%] break-all text-right text-sm font-bold sm:text-base ${row.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.net_pnl)}</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3">
               <RowMetric label="胜率" value={`${row.win_rate.toFixed(1)}%`} />
@@ -655,7 +655,7 @@ function RowMetric({ label, value, tone }: { label: string; value: string; tone?
   return (
     <div className="min-w-0">
       <p className="muted text-[10px] uppercase tracking-wide">{label}</p>
-      <p className={`mono-number mt-1 truncate text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`} title={value}>{value}</p>
+      <p className={`mono-number mt-1 break-all text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`} title={value}>{value}</p>
     </div>
   );
 }
@@ -664,7 +664,7 @@ function CompactMetric({ label, value, tone }: { label: string; value: string; t
   return (
     <div className="soft-block min-h-20 p-3.5">
       <p className="metric-label">{label}</p>
-      <p className={`mono-number mt-3 text-lg font-bold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
+      <p className={`mono-number mt-3 break-all text-base font-bold sm:text-lg ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`}>{value}</p>
     </div>
   );
 }
@@ -673,7 +673,7 @@ function SmallMoney({ label, value, formatMoney }: { label: string; value: numbe
   return (
     <div>
       <p className="metric-label">{label}</p>
-      <p className={`mono-number mt-1 text-sm ${value >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(value)}</p>
+      <p className={`mono-number mt-1 break-all text-sm ${value >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(value)}</p>
     </div>
   );
 }

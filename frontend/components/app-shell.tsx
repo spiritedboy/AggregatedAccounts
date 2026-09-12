@@ -47,8 +47,8 @@ const navGroups: Array<{ label: string; items: NavItemData[] }> = [
     label: "资产",
     items: [
       { href: "/dashboard", label: "今日驾驶舱", shortLabel: "今日", icon: LayoutDashboard },
-      { href: "/positions", label: "当前仓位", shortLabel: "仓位", icon: Orbit },
-      { href: "/history", label: "历史仓位", shortLabel: "历史", icon: History },
+      { href: "/positions", label: "当前仓位", shortLabel: "当前仓位", icon: Orbit },
+      { href: "/history", label: "历史仓位", shortLabel: "历史仓位", icon: History },
     ],
   },
   {
@@ -69,7 +69,7 @@ const navGroups: Array<{ label: string; items: NavItemData[] }> = [
 
 const allNavItems = navGroups.flatMap((group) => group.items);
 const mobileNavItems = allNavItems.filter((item) =>
-  ["/dashboard", "/positions", "/pnl", "/ledger"].includes(item.href),
+  ["/dashboard", "/positions", "/history", "/pnl"].includes(item.href),
 );
 
 type CurrencyContextValue = {
@@ -215,7 +215,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const activePage = allNavItems.find((item) => pathname === item.href);
-  const moreActive = ["/history", "/reconciliation", "/accounts"].includes(pathname);
+  const moreActive = ["/ledger", "/reconciliation", "/accounts"].includes(pathname);
 
   return (
     <CurrencyContext.Provider value={currencyContext}>

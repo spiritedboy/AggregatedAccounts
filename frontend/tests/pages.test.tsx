@@ -596,6 +596,10 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("距强平 35.7%")).not.toHaveLength(0);
     expect(screen.getAllByText("交易所未提供可靠强平价")).not.toHaveLength(0);
     expect(screen.getByText(/高风险仓位 · 已进入强平危险区间/)).toBeInTheDocument();
+    const mobilePosition = document.getElementById("position-p1-mobile");
+    expect(mobilePosition).not.toBeNull();
+    expect(within(mobilePosition!).getByText("当前未实现盈亏").closest(".col-span-2")).not.toBeNull();
+    expect(within(mobilePosition!).getByText("强平风险").closest(".col-span-2")).toBeNull();
     expect(screen.getAllByRole("button", { name: "仓位价值计算说明" })).not.toHaveLength(0);
     expect(screen.getAllByRole("button", { name: "仓位本金计算说明" })).not.toHaveLength(0);
     expect(document.querySelector(".table-shell-sticky")).toBeInTheDocument();
@@ -838,7 +842,7 @@ describe("portfolio pages", () => {
           period_investment_return: 120,
           period_realized_pnl: 100,
           period_net_realized_pnl: 95,
-          current_position_pnl: 18,
+          current_position_pnl: 123456.78,
           period_unrealized_pnl_change: 25,
           period_funding_fee: -2,
           period_trading_fee: 3,
@@ -888,6 +892,7 @@ describe("portfolio pages", () => {
     expect(screen.getByText("总盈利 - 总亏损（历史仓位净收益）")).toBeInTheDocument();
     expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
     expect(screen.getByText("当前仓位未实现盈亏求和")).toBeInTheDocument();
+    expect(screen.getByText("+US$123,456.78")).toHaveClass("metric-value");
     expect(screen.getByText("交易质量")).toBeInTheDocument();
     expect(screen.getByText("总盈利")).toBeInTheDocument();
     expect(screen.getByText("总亏损")).toBeInTheDocument();
@@ -982,7 +987,10 @@ describe("portfolio pages", () => {
     expect(screen.getByText("累计净收益")).toBeInTheDocument();
     expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
     expect(screen.getAllByText("已实现毛收益")).not.toHaveLength(0);
-    expect(screen.getByText("funding-source-1")).toBeInTheDocument();
+    expect(screen.getAllByText("funding-source-1")).not.toHaveLength(0);
+    const mobileFundingRecord = screen.getByRole("article", { name: "资金费财务记录" });
+    expect(mobileFundingRecord).toHaveClass("overflow-hidden");
+    expect(within(mobileFundingRecord).getByText("funding-source-1")).toHaveClass("break-all");
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
     expect(screen.getByText("8 项完整")).toBeInTheDocument();
 
@@ -1029,7 +1037,10 @@ describe("portfolio pages", () => {
     });
     render(<AccountsPage />);
     expect(await screen.findAllByText("主账户只读")).not.toHaveLength(0);
-    expect(screen.getByRole("navigation", { name: "移动端导航" })).toBeInTheDocument();
+    const mobileNavigation = screen.getByRole("navigation", { name: "移动端导航" });
+    expect(within(mobileNavigation).getByRole("link", { name: "当前仓位" })).toHaveAttribute("href", "/positions");
+    expect(within(mobileNavigation).getByRole("link", { name: "历史仓位" })).toHaveAttribute("href", "/history");
+    expect(within(mobileNavigation).queryByRole("link", { name: "流水" })).not.toBeInTheDocument();
     expect(screen.getAllByText(/账户由服务器配置文件统一管理/)).not.toHaveLength(0);
     expect(screen.getByText("逐资产余额")).toBeInTheDocument();
     expect(screen.getByText("USDT")).toBeInTheDocument();

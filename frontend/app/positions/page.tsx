@@ -413,10 +413,7 @@ function PositionsContent() {
                 </div>
                 <div className="mt-4 grid min-w-0 grid-cols-2 gap-4">
                   <Metric label="仓位价值" value={usd(position.position_value_usd)} />
-                  <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatSignedMoney(position.unrealized_pnl)} · ${position.unrealized_pnl_percent > 0 ? "+" : ""}${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
-                  <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
-                  <Metric label="杠杆 / 本金" hint="本金 = 入场价 × 仓位数量 ÷ 杠杆倍数。" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
-                  <div className="col-span-2 rounded-xl border p-3" style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}>
+                  <div className="min-w-0">
                     <p className="metric-label mb-2">强平风险</p>
                     <LiquidationRiskDisplay
                       liquidationPrice={position.liquidation_price}
@@ -425,6 +422,11 @@ function PositionsContent() {
                       marginMode={position.margin_mode}
                       compact
                     />
+                  </div>
+                  <Metric label="入场 / 标记" value={`${usd(position.entry_price)} / ${usd(position.mark_price)}`} />
+                  <Metric label="杠杆 / 本金" hint="本金 = 入场价 × 仓位数量 ÷ 杠杆倍数。" value={`${number(position.leverage, 1)}× / ${formatMoney(position.margin_used)}`} />
+                  <div className="col-span-2 rounded-[10px] border p-3" style={{ borderColor: "var(--line-strong)", background: "var(--surface-soft)" }}>
+                    <Metric label="当前未实现盈亏" hint="收益率 = 当前未实现盈亏 ÷ 仓位本金 × 100%，已包含杠杆影响。" value={`${formatSignedMoney(position.unrealized_pnl)} · ${position.unrealized_pnl_percent > 0 ? "+" : ""}${number(position.unrealized_pnl_percent, 2)}%`} tone={position.unrealized_pnl >= 0 ? "positive" : "negative"} />
                   </div>
                 </div>
               </article>

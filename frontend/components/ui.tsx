@@ -210,7 +210,7 @@ export function MetricCard({
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="metric-label">{label}</p>
-          <div className={`metric-value ${featured ? "text-3xl md:text-4xl" : ""} ${toneClass}`}>
+          <div className={`metric-value ${featured ? "metric-value-featured" : ""} ${toneClass}`}>
             {value}
           </div>
           {detail && <div className="muted mt-2 text-xs leading-5">{detail}</div>}
