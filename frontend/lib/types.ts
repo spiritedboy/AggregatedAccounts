@@ -104,6 +104,7 @@ export type ClosedPosition = {
 };
 
 export type DashboardData = {
+  schema_version: number;
   estimated_total_equity: number;
   available_balance: number;
   margin_used: number;
@@ -111,6 +112,21 @@ export type DashboardData = {
   cumulative_net_pnl: number;
   unrealized_pnl_change: number;
   today_pnl: number;
+  today: {
+    date: string;
+    data_available: boolean;
+    opening_equity: number | null;
+    net_return: number;
+    return_percent: number | null;
+    realized_pnl: number;
+    unrealized_pnl_change: number;
+    funding_fee: number;
+    trading_fee: number;
+    net_cash_flow: number;
+    component_return: number;
+    reconciliation_difference: number;
+    is_reconciled: boolean;
+  };
   cumulative_pnl: number;
   unvalued_asset_count: number;
   unvalued_assets: Array<{
@@ -123,6 +139,7 @@ export type DashboardData = {
   }>;
   tracking_started_at: string | null;
   last_updated_at: string | null;
+  positions_updated_at: string | null;
   by_exchange: Array<{
     exchange: string;
     connection_name: string;
@@ -134,6 +151,10 @@ export type DashboardData = {
   }>;
   equity_curve: Array<{ date: string; pnl: number; equity: number }>;
   positions: Position[];
+  position_highlights: {
+    largest_winner: Position | null;
+    largest_loser: Position | null;
+  };
   notice: string;
   demo_mode: boolean;
 };
@@ -171,6 +192,7 @@ export type PnlPoint = {
   cumulative_unrealized_pnl_change: number;
   funding_fee: number;
   trading_fee: number;
+  net_cash_flow: number;
   equity: number;
 };
 

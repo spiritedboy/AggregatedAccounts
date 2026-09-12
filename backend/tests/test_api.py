@@ -21,6 +21,23 @@ def test_dashboard_bootstrap_returns_homepage_payloads(client):
     data = response.json()["data"]
     assert {"dashboard", "risk", "equity_curve"} == set(data)
     assert data["dashboard"]["by_exchange"]
+    assert data["dashboard"]["schema_version"] == 2
+    assert {
+        "opening_equity",
+        "net_return",
+        "return_percent",
+        "realized_pnl",
+        "unrealized_pnl_change",
+        "funding_fee",
+        "trading_fee",
+        "net_cash_flow",
+        "component_return",
+        "reconciliation_difference",
+        "is_reconciled",
+    } <= set(data["dashboard"]["today"])
+    assert {"largest_winner", "largest_loser"} == set(
+        data["dashboard"]["position_highlights"]
+    )
     assert data["risk"]["summary"]["risk_level"] in {"LOW", "MEDIUM", "HIGH"}
     assert data["equity_curve"]["range"] == "1w"
 

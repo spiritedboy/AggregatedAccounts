@@ -56,6 +56,7 @@ from app.services.position_math import position_margin_used
 
 router = APIRouter(prefix="/api")
 REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+DASHBOARD_SCHEMA_VERSION = 2
 
 
 def _num(value: Decimal | float | None) -> float:
@@ -310,6 +311,7 @@ def _daily_pnl_points_from_rows(
     normalized_exchange = exchange.upper() if exchange else None
     previous_return: dict[uuid.UUID, float] = {}
     previous_unrealized: dict[uuid.UUID, float] = {}
+    previous_cash_flow: dict[uuid.UUID, float] = {}
     by_date: dict[date, dict[str, float]] = defaultdict(
         lambda: {
             "investment_return": 0.0,
@@ -317,6 +319,7 @@ def _daily_pnl_points_from_rows(
             "unrealized_pnl_change": 0.0,
             "funding_fee": 0.0,
             "trading_fee": 0.0,
+            "net_cash_flow": 0.0,
             "equity": 0.0,
         }
     )
@@ -326,6 +329,7 @@ def _daily_pnl_points_from_rows(
         account_id = row.exchange_account_id
         cumulative_return = _num(row.investment_return)
         cumulative_unrealized = _num(row.unrealized_pnl_change)
+        cumulative_cash_flow = _num(row.net_cash_flow)
         point = by_date[row.snapshot_date]
         point["investment_return"] += cumulative_return - previous_return.get(account_id, 0.0)
         point["unrealized_pnl_change"] += cumulative_unrealized - previous_unrealized.get(
@@ -334,9 +338,13 @@ def _daily_pnl_points_from_rows(
         point["realized_pnl"] += _num(row.realized_pnl)
         point["funding_fee"] += _num(row.funding_fee)
         point["trading_fee"] += _num(row.trading_fee)
+        point["net_cash_flow"] += cumulative_cash_flow - previous_cash_flow.get(
+            account_id, 0.0
+        )
         point["equity"] += _num(row.equity_usd)
         previous_return[account_id] = cumulative_return
         previous_unrealized[account_id] = cumulative_unrealized
+        previous_cash_flow[account_id] = cumulative_cash_flow
 
     cumulative_return = 0.0
     cumulative_unrealized = 0.0
@@ -386,6 +394,7 @@ def _bucket_pnl_points(
                 "unrealized_pnl_change": 0.0,
                 "funding_fee": 0.0,
                 "trading_fee": 0.0,
+                "net_cash_flow": 0.0,
                 "equity": 0.0,
                 "cumulative_return": 0.0,
                 "cumulative_unrealized_pnl_change": 0.0,
@@ -397,6 +406,7 @@ def _bucket_pnl_points(
             "unrealized_pnl_change",
             "funding_fee",
             "trading_fee",
+            "net_cash_flow",
         ):
             aggregate[field] += point[field]
         for field in (
@@ -456,6 +466,67 @@ async def _latest_asset_rows(
     ).all()
 
 
+def _dashboard_today_metrics(
+    daily_rows: list[dict[str, Any]],
+    *,
+    report_date: date | None = None,
+) -> dict[str, Any]:
+    """Build today's cash-flow-neutral account return and its attributable parts.
+
+    Daily investment return is the authoritative accounting value:
+    ending equity - opening equity - net cash flow.  Trading components are shown
+    separately and are never forced to equal the equity method when source data is
+    incomplete or valuation movements create a reconciliation difference.
+    """
+    current_date = report_date or datetime.now(UTC).astimezone(REPORT_TIMEZONE).date()
+    period = str(current_date)
+    row = next((item for item in daily_rows if item["period"] == period), None)
+    if row is None:
+        return {
+            "date": period,
+            "data_available": False,
+            "opening_equity": None,
+            "net_return": 0.0,
+            "return_percent": None,
+            "realized_pnl": 0.0,
+            "unrealized_pnl_change": 0.0,
+            "funding_fee": 0.0,
+            "trading_fee": 0.0,
+            "net_cash_flow": 0.0,
+            "component_return": 0.0,
+            "reconciliation_difference": 0.0,
+            "is_reconciled": False,
+        }
+
+    net_return = _num(row.get("investment_return"))
+    net_cash_flow = _num(row.get("net_cash_flow"))
+    ending_equity = _num(row.get("equity"))
+    opening_equity = ending_equity - net_cash_flow - net_return
+    realized_pnl = _num(row.get("realized_pnl"))
+    unrealized_change = _num(row.get("unrealized_pnl_change"))
+    funding_fee = _num(row.get("funding_fee"))
+    trading_fee = _num(row.get("trading_fee"))
+    component_return = realized_pnl + unrealized_change + funding_fee - trading_fee
+    difference = net_return - component_return
+    return {
+        "date": period,
+        "data_available": True,
+        "opening_equity": opening_equity,
+        "net_return": net_return,
+        "return_percent": (
+            net_return / opening_equity * 100 if opening_equity > 0 else None
+        ),
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl_change": unrealized_change,
+        "funding_fee": funding_fee,
+        "trading_fee": trading_fee,
+        "net_cash_flow": net_cash_flow,
+        "component_return": component_return,
+        "reconciliation_difference": difference,
+        "is_reconciled": abs(difference) <= 0.01,
+    }
+
+
 async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     latest = await _latest_balances(db)
     pnl_data = await _pnl_bootstrap_data(db)
@@ -474,15 +545,26 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
             item.side,
         ),
     )[:6]
-    translations = await _polymarket_translation_map(db, dashboard_positions)
+    profitable_positions = [item for item in current_positions if _num(item.unrealized_pnl) > 0]
+    losing_positions = [item for item in current_positions if _num(item.unrealized_pnl) < 0]
+    largest_winner = max(
+        profitable_positions, key=lambda item: _num(item.unrealized_pnl), default=None
+    )
+    largest_loser = min(
+        losing_positions, key=lambda item: _num(item.unrealized_pnl), default=None
+    )
+    translation_targets = [
+        *dashboard_positions,
+        *[item for item in (largest_winner, largest_loser) if item is not None],
+    ]
+    translations = await _polymarket_translation_map(db, translation_targets)
     daily_rows = pnl_data["daily"]
+    today = _dashboard_today_metrics(daily_rows)
     total_equity = sum(_num(row.total_equity_usd) for row, _ in latest)
     available = sum(_num(row.available_balance_usd) for row, _ in latest)
     margin = sum(_num(row.margin_balance_usd) for row, _ in latest)
     cumulative_net_pnl = _num(pnl_summary["period_net_realized_pnl"])
     current_position_pnl = _num(pnl_summary["current_position_pnl"])
-    today_key = str(datetime.now(UTC).astimezone(REPORT_TIMEZONE).date())
-    today_return = sum(row["investment_return"] for row in daily_rows if row["period"] == today_key)
     account_by_id = {account.id: account for _, account in latest}
     unvalued_assets = [
         {
@@ -497,11 +579,13 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
         if row.value_usd is None and (_num(row.available) or _num(row.locked))
     ]
     return {
+        "schema_version": DASHBOARD_SCHEMA_VERSION,
         "estimated_total_equity": total_equity,
         "available_balance": available,
         "margin_used": margin,
         "current_position_pnl": current_position_pnl,
-        "today_pnl": today_return,
+        "today_pnl": today["net_return"],
+        "today": today,
         "cumulative_net_pnl": cumulative_net_pnl,
         # Compatibility aliases for older read-only clients.
         "unrealized_pnl_change": current_position_pnl,
@@ -554,6 +638,24 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
             )
             for item in dashboard_positions
         ],
+        "position_highlights": {
+            "largest_winner": (
+                _position_dict(
+                    largest_winner,
+                    translations.get(_polymarket_asset_id(largest_winner) or ""),
+                )
+                if largest_winner is not None
+                else None
+            ),
+            "largest_loser": (
+                _position_dict(
+                    largest_loser,
+                    translations.get(_polymarket_asset_id(largest_loser) or ""),
+                )
+                if largest_loser is not None
+                else None
+            ),
+        },
         "notice": "仅统计添加 API Key 后产生的数据",
         "demo_mode": any(account.is_demo for _, account in latest),
     }
@@ -561,7 +663,9 @@ async def _calculate_dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
 
 async def _dashboard_summary_data(db: AsyncSession) -> dict[str, Any]:
     cached = await get_operational_read_model(db, DASHBOARD_SCOPE)
-    return cached if cached is not None else await _calculate_dashboard_summary_data(db)
+    if cached is not None and cached.get("schema_version") == DASHBOARD_SCHEMA_VERSION:
+        return cached
+    return await _calculate_dashboard_summary_data(db)
 
 
 @router.get("/dashboard/summary")
@@ -1405,7 +1509,11 @@ async def _calculate_pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
 
 async def _pnl_bootstrap_data(db: AsyncSession) -> dict[str, Any]:
     cached = await get_pnl_read_model(db)
-    return cached if cached is not None else await _calculate_pnl_bootstrap_data(db)
+    if cached is not None:
+        daily = cached.get("daily") or []
+        if not daily or "net_cash_flow" in daily[0]:
+            return cached
+    return await _calculate_pnl_bootstrap_data(db)
 
 
 @router.get("/pnl/bootstrap")

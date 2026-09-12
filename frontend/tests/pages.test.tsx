@@ -297,6 +297,7 @@ describe("portfolio pages", () => {
     installFetch({
       "/api/dashboard/bootstrap": {
         dashboard: {
+          schema_version: 2,
           estimated_total_equity: 100000,
           available_balance: 62000,
           margin_used: 18000,
@@ -304,6 +305,21 @@ describe("portfolio pages", () => {
           cumulative_net_pnl: 4200,
           unrealized_pnl_change: 520,
           today_pnl: 230,
+          today: {
+            date: "2026-07-26",
+            data_available: true,
+            opening_equity: 99770,
+            net_return: 230,
+            return_percent: 0.23053022,
+            realized_pnl: 200,
+            unrealized_pnl_change: 40,
+            funding_fee: -5,
+            trading_fee: 5,
+            net_cash_flow: 0,
+            component_return: 230,
+            reconciliation_difference: 0,
+            is_reconciled: true,
+          },
           cumulative_pnl: 4200,
           unvalued_asset_count: 1,
           unvalued_assets: [
@@ -318,6 +334,7 @@ describe("portfolio pages", () => {
           ],
           tracking_started_at: "2026-07-01T00:00:00Z",
           last_updated_at: "2026-07-26T00:00:00Z",
+          positions_updated_at: "2026-07-26T00:00:00Z",
           by_exchange: [
             {
               exchange: "BINANCE",
@@ -331,6 +348,10 @@ describe("portfolio pages", () => {
           ],
           equity_curve: [{ date: "2026-07-26", pnl: 4200, equity: 100000 }],
           positions: [position],
+          position_highlights: {
+            largest_winner: position,
+            largest_loser: null,
+          },
           notice: "仅统计添加 API Key 后产生的数据",
           demo_mode: true,
         },
@@ -368,17 +389,23 @@ describe("portfolio pages", () => {
       },
     });
     render(<DashboardPage />);
-    expect(await screen.findByText("估算总权益")).toBeInTheDocument();
+    expect(await screen.findByText("总权益")).toBeInTheDocument();
+    expect(screen.getAllByText("今日驾驶舱")).not.toHaveLength(0);
     expect(screen.getByText(/当前为演示数据/)).toBeInTheDocument();
+    expect(screen.getByText("今日摘要")).toBeInTheDocument();
+    expect(screen.getByText("今日收益组成")).toBeInTheDocument();
+    expect(screen.getByText("今日收益率")).toBeInTheDocument();
+    expect(screen.getAllByText(/当日期初权益/)).not.toHaveLength(0);
+    expect(screen.getByText("最近强平距离")).toBeInTheDocument();
+    expect(screen.getByText("总持仓敞口 / Notional")).toBeInTheDocument();
+    expect(screen.getByText("最近数据更新时间")).toBeInTheDocument();
     expect(screen.getByText("净值曲线")).toBeInTheDocument();
-    expect(screen.getByText("资产分布")).toBeInTheDocument();
+    expect(screen.getByText("资产 / 交易所分布")).toBeInTheDocument();
     expect(screen.getByText(/净值变化：/)).toBeInTheDocument();
     expect(screen.getByText("1年")).toBeInTheDocument();
     expect(screen.getByText("做多")).toBeInTheDocument();
-    expect(screen.getByText("累计净收益")).toBeInTheDocument();
-    expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
-    expect(screen.getByText("当前持仓收益")).toBeInTheDocument();
-    expect(screen.getByText("当前仓位“当前未实现盈亏”求和")).toBeInTheDocument();
+    expect(screen.getAllByText("当前未实现盈亏")).not.toHaveLength(0);
+    expect(screen.getByText("组成项合计 US$230.00，与账户收益口径已对齐。")).toBeInTheDocument();
     expect(screen.getByText(/LDUSDT · BINANCE/)).toBeInTheDocument();
     expect(screen.getByText(/数量 0.36257566/)).toBeInTheDocument();
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
@@ -390,6 +417,80 @@ describe("portfolio pages", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("degrades the dashboard safely without positions, liquidation prices, or a daily snapshot", async () => {
+    installFetch({
+      "/api/dashboard/bootstrap": {
+        dashboard: {
+          schema_version: 2,
+          estimated_total_equity: 1000,
+          available_balance: 1000,
+          margin_used: 0,
+          current_position_pnl: 0,
+          cumulative_net_pnl: 0,
+          unrealized_pnl_change: 0,
+          today_pnl: 0,
+          cumulative_pnl: 0,
+          today: {
+            date: "2026-07-26",
+            data_available: false,
+            opening_equity: null,
+            net_return: 0,
+            return_percent: null,
+            realized_pnl: 0,
+            unrealized_pnl_change: 0,
+            funding_fee: 0,
+            trading_fee: 0,
+            net_cash_flow: 0,
+            component_return: 0,
+            reconciliation_difference: 0,
+            is_reconciled: false,
+          },
+          unvalued_asset_count: 0,
+          unvalued_assets: [],
+          tracking_started_at: null,
+          last_updated_at: null,
+          positions_updated_at: null,
+          by_exchange: [],
+          equity_curve: [],
+          positions: [],
+          position_highlights: { largest_winner: null, largest_loser: null },
+          notice: "仅统计添加 API Key 后产生的数据",
+          demo_mode: false,
+        },
+        risk: {
+          ...riskData,
+          summary: {
+            ...riskData.summary,
+            total_equity: 1000,
+            total_position_value: 0,
+            largest_exchange_concentration_percent: 0,
+            largest_position_exposure_percent: 0,
+            margin_utilization_percent: 0,
+            nearest_liquidation_distance_percent: null,
+          },
+          exchange_concentration: [],
+          top_exposures: [],
+          liquidation_risks: [],
+        },
+        equity_curve: {
+          range: "1d",
+          sample_interval: "5m",
+          resolution: "5m",
+          from: "2026-07-25T00:00:00Z",
+          to: "2026-07-26T00:00:00Z",
+          points: [],
+          change: { amount: null, percent: null },
+        },
+      },
+    });
+
+    render(<DashboardPage />);
+    expect(await screen.findByText("暂无可用强平价")).toBeInTheDocument();
+    expect(screen.getByText("当前没有持仓")).toBeInTheDocument();
+    expect(screen.getByText("今日组成数据待生成")).toBeInTheDocument();
+    expect(screen.getByText("今日收益数据尚未形成")).toBeInTheDocument();
   });
 
   it("renders localized position sides and sorts current positions by value and PnL", async () => {

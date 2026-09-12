@@ -46,7 +46,7 @@ const navGroups: Array<{ label: string; items: NavItemData[] }> = [
   {
     label: "资产",
     items: [
-      { href: "/dashboard", label: "资产总览", shortLabel: "总览", icon: LayoutDashboard },
+      { href: "/dashboard", label: "今日驾驶舱", shortLabel: "今日", icon: LayoutDashboard },
       { href: "/positions", label: "当前仓位", shortLabel: "仓位", icon: Orbit },
       { href: "/history", label: "历史仓位", shortLabel: "历史", icon: History },
     ],

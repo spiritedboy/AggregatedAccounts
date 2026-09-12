@@ -7,6 +7,7 @@ from app.api import (
     _bucket_pnl_points,
     _daily_pnl_points,
     _dashboard_summary_data,
+    _dashboard_today_metrics,
     _pnl_summary_data,
 )
 from app.database import SessionLocal
@@ -188,6 +189,64 @@ async def test_daily_and_weekly_returns_use_deltas_not_sum_of_cumulative_values(
     weekly = _bucket_pnl_points(daily, "week")
     assert weekly[0]["investment_return"] == 12
     assert weekly[0]["cumulative_return"] == 12
+
+
+def test_dashboard_today_metrics_exclude_cash_flow_and_reconcile_components():
+    result = _dashboard_today_metrics(
+        [
+            {
+                "period": "2026-09-12",
+                "equity": 112,
+                "investment_return": 12,
+                "net_cash_flow": 10,
+                "realized_pnl": 15,
+                "unrealized_pnl_change": -1,
+                "funding_fee": -2,
+                "trading_fee": 0,
+            }
+        ],
+        report_date=date(2026, 9, 12),
+    )
+
+    assert result["opening_equity"] == 90
+    assert result["net_return"] == 12
+    assert result["return_percent"] == pytest.approx(13.3333333333)
+    assert result["component_return"] == 12
+    assert result["reconciliation_difference"] == 0
+    assert result["is_reconciled"] is True
+
+
+def test_dashboard_today_metrics_degrade_when_daily_snapshot_is_missing():
+    result = _dashboard_today_metrics([], report_date=date(2026, 9, 12))
+
+    assert result["data_available"] is False
+    assert result["opening_equity"] is None
+    assert result["return_percent"] is None
+    assert result["is_reconciled"] is False
+
+
+def test_dashboard_today_metrics_keep_unreconciled_difference_visible():
+    result = _dashboard_today_metrics(
+        [
+            {
+                "period": "2026-09-12",
+                "equity": 10,
+                "investment_return": 10,
+                "net_cash_flow": 0,
+                "realized_pnl": 7,
+                "unrealized_pnl_change": 0,
+                "funding_fee": 0,
+                "trading_fee": 0,
+            }
+        ],
+        report_date=date(2026, 9, 12),
+    )
+
+    assert result["opening_equity"] == 0
+    assert result["return_percent"] is None
+    assert result["component_return"] == 7
+    assert result["reconciliation_difference"] == 3
+    assert result["is_reconciled"] is False
 
 
 @pytest.mark.asyncio

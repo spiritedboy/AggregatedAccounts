@@ -228,6 +228,54 @@ select:focus-visible {
     box-shadow: var(--panel-shadow);
   }
 
+  .cockpit-overview {
+    @apply relative isolate overflow-hidden rounded-[22px] border;
+    background: var(--surface-solid);
+    border-color: var(--line-strong);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
+  }
+
+  .cockpit-overview::before {
+    content: "";
+    @apply absolute inset-x-0 top-0 z-10 h-[3px];
+    background: var(--accent);
+  }
+
+  .dark .cockpit-overview {
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  }
+
+  .cockpit-primary {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface-solid));
+  }
+
+  .cockpit-core-metric {
+    @apply min-w-0 border-b p-4 sm:border-r xl:border-b-0;
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--surface-soft) 32%, var(--surface-solid));
+  }
+
+  .cockpit-core-metric:nth-last-child(-n + 1) {
+    border-bottom: 0;
+  }
+
+  .cockpit-core-metric:last-child {
+    @apply sm:col-span-2 xl:col-span-1;
+  }
+
+  @media (min-width: 640px) and (max-width: 1279px) {
+    .cockpit-core-metric:nth-child(even) {
+      border-right: 0;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .cockpit-core-metric:last-child {
+      border-right: 0;
+    }
+  }
+
   .data-panel {
     @apply overflow-hidden rounded-[22px] border backdrop-blur-xl;
     background: var(--surface);
