@@ -28,6 +28,8 @@ backup_dir="${BACKUP_DIR:-$project_dir/../backups}"
 webhook_url="${FEISHU_HEALTH_WEBHOOK_URL:-}"
 warning_disk_percent="${HEALTH_CHECK_WARNING_DISK_PERCENT:-80}"
 critical_disk_percent="${HEALTH_CHECK_CRITICAL_DISK_PERCENT:-90}"
+expected_core_read_models=5
+expected_behavior_read_models=4
 balance_stale_seconds=$(( ${SYNC_BALANCE_SECONDS:-60} * 3 ))
 position_stale_seconds=$(( ${SYNC_POSITION_SECONDS:-15} * 4 ))
 closed_stale_seconds=$(( ${SYNC_CLOSED_POSITION_SECONDS:-600} * 2 ))
@@ -179,9 +181,20 @@ else
           OR coalesce(data_completeness_details->>'fees', 'UNKNOWN') <> 'UNSUPPORTED'
           OR coalesce(data_completeness_details->>'cash_flows', 'UNKNOWN') <> 'UNSUPPORTED'
         )),
-      (SELECT count(*) FROM operational_read_models),
+      (SELECT count(*) FROM operational_read_models
+        WHERE scope IN ('DASHBOARD_SUMMARY', 'RECONCILIATION', 'RISK_METRICS',
+          'SYNC_STATUS', 'DATA_COMPLETENESS')),
+      (SELECT count(*) FROM operational_read_models
+        WHERE scope IN ('PNL_BEHAVIOR_7D', 'PNL_BEHAVIOR_30D',
+          'PNL_BEHAVIOR_90D', 'PNL_BEHAVIOR_ALL')),
       (SELECT coalesce(extract(epoch FROM (now() - min(calculated_at)))::bigint, -1)
-        FROM operational_read_models),
+        FROM operational_read_models
+        WHERE scope IN ('DASHBOARD_SUMMARY', 'RECONCILIATION', 'RISK_METRICS',
+          'SYNC_STATUS', 'DATA_COMPLETENESS')),
+      (SELECT coalesce(extract(epoch FROM (now() - min(calculated_at)))::bigint, -1)
+        FROM operational_read_models
+        WHERE scope IN ('PNL_BEHAVIOR_7D', 'PNL_BEHAVIOR_30D',
+          'PNL_BEHAVIOR_90D', 'PNL_BEHAVIOR_ALL')),
       (SELECT count(*) FROM accounting_daily_summaries),
       (SELECT count(*) FROM app_settings
         WHERE key = 'daily_pnl_reporting_calendar'
@@ -210,7 +223,8 @@ else
     daily_assets daily_positions current_positions closed_positions \
     equity_lag_seconds equity_point_count sync_job_count latest_at \
     balance_lag_seconds position_lag_seconds closed_lag_seconds history_lag_seconds \
-    read_model_count read_model_lag_seconds accounting_summary_count calendar_marker_count \
+    core_read_model_count behavior_read_model_count core_read_model_lag_seconds \
+    behavior_read_model_lag_seconds accounting_summary_count calendar_marker_count \
     position_jobs history_jobs closed_jobs balance_jobs <<< "$db_result"
   db_megabytes=$((db_bytes / 1024 / 1024))
   if (( jobs_24h > 0 )); then
@@ -224,7 +238,11 @@ else
   data_details+=("今日快照：账户 ${daily_accounts}、资产 ${daily_assets}、持仓 ${daily_positions}")
   data_details+=("同步流：余额 ${balance_lag_seconds}秒、仓位 ${position_lag_seconds}秒、平仓 ${closed_lag_seconds}秒、账务 ${history_lag_seconds}秒")
   data_details+=("24小时分流任务：余额 ${balance_jobs}、仓位 ${position_jobs}、平仓 ${closed_jobs}、账务 ${history_jobs}")
-  data_details+=("读取模型：${read_model_count}/5，最旧延迟 ${read_model_lag_seconds}秒；财务日汇总 ${accounting_summary_count} 条")
+  read_model_lag_seconds="$core_read_model_lag_seconds"
+  if (( behavior_read_model_lag_seconds > read_model_lag_seconds )); then
+    read_model_lag_seconds="$behavior_read_model_lag_seconds"
+  fi
+  data_details+=("读取模型：基础 ${core_read_model_count}/${expected_core_read_models}、行为分析 ${behavior_read_model_count}/${expected_behavior_read_models}，最旧延迟 ${read_model_lag_seconds}秒；财务日汇总 ${accounting_summary_count} 条")
   if [[ "$equity_lag_seconds" =~ ^[0-9]+$ ]]; then
     data_details+=("净值曲线：${equity_point_count} 点，延迟 $((equity_lag_seconds / 60)) 分钟")
   else
@@ -250,10 +268,17 @@ else
   if (( history_lag_seconds < 0 || history_lag_seconds > history_stale_seconds )); then
     critical "账务历史同步流已延迟 ${history_lag_seconds} 秒"
   fi
-  if (( read_model_count != 5 )); then
-    critical "读取模型数量异常：${read_model_count}/5"
-  elif (( read_model_lag_seconds < 0 || read_model_lag_seconds > 300 )); then
-    critical "读取模型最旧数据已延迟 ${read_model_lag_seconds} 秒"
+  if (( core_read_model_count != expected_core_read_models )); then
+    critical "基础读取模型缺失：${core_read_model_count}/${expected_core_read_models}"
+  fi
+  if (( behavior_read_model_count != expected_behavior_read_models )); then
+    critical "行为分析读取模型缺失：${behavior_read_model_count}/${expected_behavior_read_models}"
+  fi
+  if (( core_read_model_lag_seconds < 0 || core_read_model_lag_seconds > 300 )); then
+    critical "基础读取模型最旧数据已延迟 ${core_read_model_lag_seconds} 秒"
+  fi
+  if (( behavior_read_model_lag_seconds < 0 || behavior_read_model_lag_seconds > 300 )); then
+    critical "行为分析读取模型最旧数据已延迟 ${behavior_read_model_lag_seconds} 秒"
   fi
   if (( accounting_summary_count == 0 )); then
     critical "财务日汇总为空"
