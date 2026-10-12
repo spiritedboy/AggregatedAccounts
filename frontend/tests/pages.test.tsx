@@ -17,8 +17,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next/link", () => ({
-  default: ({ href, children, ...props }: { href: string; children: ReactNode }) => (
-    <a href={href} {...props}>
+  default: ({
+    href,
+    children,
+    prefetch,
+    ...props
+  }: {
+    href: string;
+    children: ReactNode;
+    prefetch?: boolean;
+  }) => (
+    <a href={href} data-prefetch={String(prefetch)} {...props}>
       {children}
     </a>
   ),
@@ -678,55 +687,57 @@ describe("portfolio pages", () => {
   it("renders history and sorts filtered page results by net PnL", async () => {
     const user = userEvent.setup();
     installFetch({
-      "/api/exchange-accounts": [account],
-      "/api/positions/history": {
-        total: 2,
-        items: [
-          {
-            id: "c1",
-            exchange: "HYPERLIQUID",
-            symbol: "xyz:CXMT",
-            normalized_symbol: "CXMT-USDT-PERP",
-            side: "SHORT",
-            open_time: "2026-07-01T00:00:00Z",
-            close_time: "2026-07-02T00:00:00Z",
-            average_entry_price: 3800,
-            average_exit_price: 3700,
-            max_position_size: 2,
-            realized_pnl: 200,
-            funding_fee: -2,
-            trading_fee: 4,
-            net_pnl: 194,
-            leverage: 5,
-            margin_used: 1520,
-            return_percent: 12.76,
-            data_source: "EXCHANGE_FILLS",
-            data_completeness: "PARTIAL",
-            tracking_started_at: "2026-07-01T00:00:00Z",
-          },
-          {
-            id: "c2",
-            exchange: "BINANCE",
-            symbol: "ETHUSDT",
-            normalized_symbol: "ETH-USDT-PERP",
-            side: "LONG",
-            open_time: "2026-07-03T00:00:00Z",
-            close_time: "2026-07-04T00:00:00Z",
-            average_entry_price: 2500,
-            average_exit_price: 2475,
-            max_position_size: 1,
-            realized_pnl: -25,
-            funding_fee: 0,
-            trading_fee: 1,
-            net_pnl: -26,
-            leverage: 0,
-            margin_used: 0,
-            return_percent: -20.8,
-            data_source: "EXCHANGE_API",
-            data_completeness: "COMPLETE",
-            tracking_started_at: "2026-07-01T00:00:00Z",
-          },
-        ],
+      "/api/positions/history/bootstrap": {
+        accounts: [account],
+        history: {
+          total: 2,
+          items: [
+            {
+              id: "c1",
+              exchange: "HYPERLIQUID",
+              symbol: "xyz:CXMT",
+              normalized_symbol: "CXMT-USDT-PERP",
+              side: "SHORT",
+              open_time: "2026-07-01T00:00:00Z",
+              close_time: "2026-07-02T00:00:00Z",
+              average_entry_price: 3800,
+              average_exit_price: 3700,
+              max_position_size: 2,
+              realized_pnl: 200,
+              funding_fee: -2,
+              trading_fee: 4,
+              net_pnl: 194,
+              leverage: 5,
+              margin_used: 1520,
+              return_percent: 12.76,
+              data_source: "EXCHANGE_FILLS",
+              data_completeness: "PARTIAL",
+              tracking_started_at: "2026-07-01T00:00:00Z",
+            },
+            {
+              id: "c2",
+              exchange: "BINANCE",
+              symbol: "ETHUSDT",
+              normalized_symbol: "ETH-USDT-PERP",
+              side: "LONG",
+              open_time: "2026-07-03T00:00:00Z",
+              close_time: "2026-07-04T00:00:00Z",
+              average_entry_price: 2500,
+              average_exit_price: 2475,
+              max_position_size: 1,
+              realized_pnl: -25,
+              funding_fee: 0,
+              trading_fee: 1,
+              net_pnl: -26,
+              leverage: 0,
+              margin_used: 0,
+              return_percent: -20.8,
+              data_source: "EXCHANGE_API",
+              data_completeness: "COMPLETE",
+              tracking_started_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        },
       },
     });
     render(<HistoryPage />);
@@ -743,6 +754,9 @@ describe("portfolio pages", () => {
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
     expect(screen.queryByText("LONG")).not.toBeInTheDocument();
     expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
+    const requestedPaths = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+    expect(requestedPaths.some((path) => path.includes("/api/positions/history/bootstrap"))).toBe(true);
+    expect(requestedPaths.some((path) => path.includes("/api/exchange-accounts"))).toBe(false);
     const pageSummary = screen.getByRole("region", { name: "当前页盈亏汇总" });
     expect(within(pageSummary).getByText("本页汇总")).toBeInTheDocument();
     expect(within(pageSummary).getByText("第 1 页 · 本页 2 笔 · 筛选后共 2 笔")).toBeInTheDocument();
@@ -802,12 +816,14 @@ describe("portfolio pages", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input), "http://localhost");
         if (url.pathname.includes("/api/auth/status")) return envelope({ authenticated: true });
-        if (url.pathname.includes("/api/exchange-accounts")) return envelope([account]);
-        if (url.pathname.includes("/api/positions/history")) {
+        if (url.pathname.includes("/api/positions/history/bootstrap")) {
           const filtered = url.searchParams.get("exchange") === "OKX";
           return envelope({
-            total: filtered ? 1 : 2,
-            items: filtered ? [losingPosition] : [profitablePosition, losingPosition],
+            accounts: [account],
+            history: {
+              total: filtered ? 1 : 2,
+              items: filtered ? [losingPosition] : [profitablePosition, losingPosition],
+            },
           });
         }
         return envelope({});
@@ -1044,6 +1060,7 @@ describe("portfolio pages", () => {
     const mobileNavigation = screen.getByRole("navigation", { name: "移动端导航" });
     expect(within(mobileNavigation).getByRole("link", { name: "当前仓位" })).toHaveAttribute("href", "/positions");
     expect(within(mobileNavigation).getByRole("link", { name: "历史仓位" })).toHaveAttribute("href", "/history");
+    expect(screen.getAllByRole("link").every((link) => link.dataset.prefetch === "false")).toBe(true);
     expect(within(mobileNavigation).queryByRole("link", { name: "流水" })).not.toBeInTheDocument();
     expect(screen.getAllByText(/账户由服务器配置文件统一管理/)).not.toHaveLength(0);
     expect(screen.getByText("逐资产余额")).toBeInTheDocument();

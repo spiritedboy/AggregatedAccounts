@@ -16,6 +16,10 @@ import { dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@
 import type { ClosedPosition, ExchangeAccount } from "@/lib/types";
 
 type HistoryResult = { items: ClosedPosition[]; total: number };
+type HistoryBootstrapResult = {
+  history: HistoryResult;
+  accounts: ExchangeAccount[];
+};
 
 export default function HistoryPage() {
   return (
@@ -58,9 +62,10 @@ function HistoryContent() {
 
   const load = useCallback(() => {
     setError("");
-    return apiFetch<HistoryResult>(`/api/positions/history?${params()}`)
-      .then((nextResult) => {
-        setResult(nextResult);
+    return apiFetch<HistoryBootstrapResult>(`/api/positions/history/bootstrap?${params()}`)
+      .then((payload) => {
+        setResult(payload.history);
+        setAccounts(payload.accounts);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => setError(reason.message));
@@ -87,9 +92,6 @@ function HistoryContent() {
   useEffect(() => {
     if (urlReady) void load();
   }, [load, urlReady]);
-  useEffect(() => {
-    void apiFetch<ExchangeAccount[]>("/api/exchange-accounts").then(setAccounts);
-  }, []);
   const autoRefresh = useAutoRefresh(load);
   useUrlFilterSync("/history", urlReady, {
     exchange,

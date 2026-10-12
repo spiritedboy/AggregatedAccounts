@@ -494,6 +494,7 @@ function NavItem({
   return (
     <Link
       href={item.href}
+      prefetch={false}
       onClick={onClick}
       className={`relative flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm font-medium transition ${
         active ? "nav-active" : "muted hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
@@ -511,6 +512,7 @@ function MobileNavItem({ item, active }: { item: NavItemData; active: boolean })
   return (
     <Link
       href={item.href}
+      prefetch={false}
       className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-[9px] text-[10px] font-medium transition ${
         active ? "nav-active" : "muted"
       }`}

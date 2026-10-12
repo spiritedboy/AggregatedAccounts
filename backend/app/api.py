@@ -1064,6 +1064,39 @@ async def position_history(
     _: AppSession = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    return envelope(
+        await _position_history_data(
+            db,
+            exchange=exchange,
+            account_id=account_id,
+            tracking_period_id=tracking_period_id,
+            symbol=symbol,
+            side=side,
+            pnl_result=pnl_result,
+            completeness=completeness,
+            start_time=start_time,
+            end_time=end_time,
+            page=page,
+            page_size=page_size,
+        )
+    )
+
+
+async def _position_history_data(
+    db: AsyncSession,
+    *,
+    exchange: str | None = None,
+    account_id: uuid.UUID | None = None,
+    tracking_period_id: uuid.UUID | None = None,
+    symbol: str | None = None,
+    side: str | None = None,
+    pnl_result: str | None = None,
+    completeness: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
     query = _history_query(
         exchange,
         account_id,
@@ -1085,12 +1118,49 @@ async def position_history(
         )
     ).all()
     translations = await _polymarket_translation_map(db, rows)
+    return {
+        "items": [
+            _closed_dict(row, translations.get(_polymarket_asset_id(row) or "")) for row in rows
+        ],
+        "total": total,
+    }
+
+
+@router.get("/positions/history/bootstrap")
+async def position_history_bootstrap(
+    exchange: str | None = None,
+    account_id: uuid.UUID | None = None,
+    tracking_period_id: uuid.UUID | None = None,
+    symbol: str | None = None,
+    side: str | None = None,
+    pnl_result: str | None = Query(default=None, pattern="^(PROFIT|LOSS|BREAKEVEN)$"),
+    completeness: str | None = Query(default=None, pattern="^(COMPLETE|PARTIAL)$"),
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    _: AppSession = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    accounts = await _account_rows(db)
+    history = await _position_history_data(
+        db,
+        exchange=exchange,
+        account_id=account_id,
+        tracking_period_id=tracking_period_id,
+        symbol=symbol,
+        side=side,
+        pnl_result=pnl_result,
+        completeness=completeness,
+        start_time=start_time,
+        end_time=end_time,
+        page=page,
+        page_size=page_size,
+    )
     return envelope(
         {
-            "items": [
-                _closed_dict(row, translations.get(_polymarket_asset_id(row) or "")) for row in rows
-            ],
-            "total": total,
+            "history": history,
+            "accounts": await _account_list_data(db, accounts),
         }
     )
 

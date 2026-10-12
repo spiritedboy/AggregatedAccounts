@@ -229,6 +229,16 @@ def test_history_filters_and_csv_export(authenticated):
         item["data_completeness"] == "COMPLETE"
         for item in response.json()["data"]["items"]
     )
+    bootstrap = client.get(
+        "/api/positions/history/bootstrap"
+        f"?account_id={account_id}&side=LONG&pnl_result=PROFIT"
+        "&completeness=COMPLETE&page_size=5"
+    )
+    assert bootstrap.status_code == 200
+    bootstrap_data = bootstrap.json()["data"]
+    assert {"history", "accounts"} == set(bootstrap_data)
+    assert bootstrap_data["accounts"]
+    assert bootstrap_data["history"] == response.json()["data"]
     exported = client.get("/api/positions/history/export")
     assert exported.status_code == 200
     assert exported.headers["content-type"].startswith("text/csv")
