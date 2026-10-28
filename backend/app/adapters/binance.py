@@ -22,6 +22,8 @@ class BinanceAdapter(ExchangeAdapter):
     spot_base = "https://api.binance.com"
     futures_base = "https://fapi.binance.com"
     history_streams = frozenset({"income", "funding", "fees", "cash_flows"})
+    closed_position_lookback = timedelta(days=89)
+    trade_query_window = timedelta(days=7)
 
     def _signed(self, params: dict[str, Any] | None = None) -> tuple[str, dict[str, str]]:
         payload = {
@@ -202,32 +204,72 @@ class BinanceAdapter(ExchangeAdapter):
         start_time: datetime,
         end_time: datetime,
     ) -> list[dict[str, Any]]:
-        query_start = max(start_time - timedelta(days=7), end_time - timedelta(days=7))
-        params: dict[str, Any] = {
-            "symbol": symbol,
-            "startTime": int(query_start.timestamp() * 1000),
-            "endTime": int(end_time.timestamp() * 1000),
-            "limit": 1000,
-        }
+        del start_time
+        query_start = end_time - self.closed_position_lookback
         rows_by_id: dict[str, dict[str, Any]] = {}
-        for page_number in range(20):
-            page = await self._signed_get(
-                self.futures_base, "/fapi/v1/userTrades", params
+        window_start = query_start
+        while window_start <= end_time:
+            window_end = min(
+                end_time,
+                window_start + self.trade_query_window - timedelta(milliseconds=1),
             )
-            for row in page:
-                rows_by_id[str(row.get("id"))] = row
-            if len(page) < 1000:
-                break
-            last_id = max(int(row.get("id") or 0) for row in page)
-            if not last_id:
-                break
-            params = {"symbol": symbol, "fromId": last_id + 1, "limit": 1000}
-            if page_number == 19:
-                break
+            params: dict[str, Any] = {
+                "symbol": symbol,
+                "startTime": int(window_start.timestamp() * 1000),
+                "endTime": int(window_end.timestamp() * 1000),
+                "limit": 1000,
+            }
+            for _ in range(20):
+                page = await self._signed_get(
+                    self.futures_base, "/fapi/v1/userTrades", params
+                )
+                page_in_window = [
+                    row
+                    for row in page
+                    if int(window_start.timestamp() * 1000)
+                    <= int(row.get("time") or 0)
+                    <= int(window_end.timestamp() * 1000)
+                ]
+                for row in page_in_window:
+                    rows_by_id[str(row.get("id"))] = row
+                if len(page) < 1000 or len(page_in_window) < len(page):
+                    break
+                last_id = max(int(row.get("id") or 0) for row in page)
+                if not last_id:
+                    break
+                params = {"symbol": symbol, "fromId": last_id + 1, "limit": 1000}
+            window_start = window_end + timedelta(milliseconds=1)
         return sorted(
             rows_by_id.values(),
             key=lambda row: (int(row.get("time") or 0), int(row.get("id") or 0)),
         )
+
+    async def _funding_rows(
+        self,
+        symbol: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        del start_time
+        query_start = end_time - self.closed_position_lookback
+        params = {
+            "symbol": symbol,
+            "incomeType": "FUNDING_FEE",
+            "startTime": int(query_start.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000),
+            "limit": 1000,
+        }
+        rows: list[dict[str, Any]] = []
+        for page_number in range(1, 21):
+            page = await self._signed_get(
+                self.futures_base,
+                "/fapi/v1/income",
+                {**params, "page": page_number},
+            )
+            rows.extend(page)
+            if len(page) < 1000:
+                break
+        return rows
 
     @staticmethod
     def _aggregate_order_fills(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -510,7 +552,11 @@ class BinanceAdapter(ExchangeAdapter):
         cycles: list[dict[str, Any]],
         start_time: datetime,
         end_time: datetime,
+        funding_rows: dict[str, list[dict[str, Any]]] | None = None,
+        funding_eligible_symbols: set[str] | None = None,
     ) -> list[dict[str, Any]]:
+        funding_rows = funding_rows or {}
+        funding_eligible_symbols = funding_eligible_symbols or set()
         positions: list[dict[str, Any]] = []
         for cycle in cycles:
             if not start_time <= cycle["close_time"] <= end_time:
@@ -529,6 +575,17 @@ class BinanceAdapter(ExchangeAdapter):
             )
             realized_pnl = float(cycle["realized_pnl"])
             trading_fee = float(cycle["trading_fee"])
+            funding_fee = 0.0
+            if cycle["symbol"] in funding_eligible_symbols:
+                funding_fee = sum(
+                    float(row.get("income") or 0)
+                    for row in funding_rows.get(cycle["symbol"], [])
+                    if cycle["open_time"]
+                    <= datetime.fromtimestamp(int(row.get("time") or 0) / 1000, tz=UTC)
+                    <= cycle["close_time"]
+                    and str(row.get("asset") or "USDT").upper()
+                    in {"USD", "USDT", "USDC", "FDUSD"}
+                )
             initial_notional = entry_price * float(cycle["max_position_size"])
             positions.append(
                 {
@@ -545,9 +602,9 @@ class BinanceAdapter(ExchangeAdapter):
                     "average_exit_price": exit_price,
                     "max_position_size": cycle["max_position_size"],
                     "realized_pnl": realized_pnl,
-                    "funding_fee": 0.0,
+                    "funding_fee": funding_fee,
                     "trading_fee": trading_fee,
-                    "net_pnl": realized_pnl - trading_fee,
+                    "net_pnl": realized_pnl + funding_fee - trading_fee,
                     "return_percent": (
                         realized_pnl / initial_notional * 100 if initial_notional else 0
                     ),
@@ -560,6 +617,48 @@ class BinanceAdapter(ExchangeAdapter):
                 }
             )
         return positions
+
+    async def _closed_positions_for_symbols(
+        self,
+        symbols: list[str],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict[str, Any]]:
+        symbol_history = await asyncio.gather(
+            *(
+                asyncio.gather(
+                    self._trade_rows(symbol, start_time, end_time),
+                    self._funding_rows(symbol, start_time, end_time),
+                )
+                for symbol in symbols
+            )
+        )
+        trade_pages = [result[0] for result in symbol_history]
+        funding_by_symbol = {
+            symbol: result[1] for symbol, result in zip(symbols, symbol_history, strict=True)
+        }
+        rows = self._aggregate_order_fills([row for page in trade_pages for row in page])
+        hedge_sides_by_symbol: dict[str, set[str]] = {}
+        for row in rows:
+            position_side = str(row.get("positionSide") or "BOTH").upper()
+            if position_side in {"LONG", "SHORT"}:
+                hedge_sides_by_symbol.setdefault(str(row.get("symbol") or ""), set()).add(
+                    position_side
+                )
+        funding_eligible_symbols = {
+            symbol
+            for symbol in symbols
+            if len(hedge_sides_by_symbol.get(symbol, set())) <= 1
+        }
+        cycles = self._closed_cycles_from_hedge_trades(rows, start_time)
+        cycles.extend(self._closed_cycles_from_one_way_trades(rows, start_time))
+        return self._normalize_binance_cycles(
+            cycles,
+            start_time,
+            end_time,
+            funding_by_symbol,
+            funding_eligible_symbols,
+        )
 
     async def get_closed_positions(
         self, start_time: datetime, end_time: datetime
@@ -574,15 +673,11 @@ class BinanceAdapter(ExchangeAdapter):
                 in {"REALIZED_PNL", "COMMISSION"}
             }
         )
-        trade_pages = await asyncio.gather(
-            *(self._trade_rows(symbol, start_time, end_time) for symbol in symbols)
+        return await self._closed_positions_for_symbols(
+            symbols,
+            start_time,
+            end_time,
         )
-        rows = self._aggregate_order_fills(
-            [row for page in trade_pages for row in page]
-        )
-        cycles = self._closed_cycles_from_hedge_trades(rows, start_time)
-        cycles.extend(self._closed_cycles_from_one_way_trades(rows, start_time))
-        return self._normalize_binance_cycles(cycles, start_time, end_time)
 
     async def get_income_history(
         self, start_time: datetime, end_time: datetime

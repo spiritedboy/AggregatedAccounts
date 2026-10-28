@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -50,8 +50,12 @@ async def test_binance_closed_positions_reconstruct_one_way_cycle(monkeypatch):
         assert symbol == "BTCUSDT"
         return rows
 
+    async def fake_funding_rows(*_):
+        return []
+
     monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
     monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    monkeypatch.setattr(adapter, "_funding_rows", fake_funding_rows)
     try:
         positions = await adapter.get_closed_positions(start_time, end_time)
     finally:
@@ -144,8 +148,12 @@ async def test_binance_closed_positions_merge_same_order_fill_fragments(
         assert symbol == "GOOGLUSDT"
         return rows
 
+    async def fake_funding_rows(*_):
+        return []
+
     monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
     monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    monkeypatch.setattr(adapter, "_funding_rows", fake_funding_rows)
     try:
         positions = await adapter.get_closed_positions(start_time, end_time)
     finally:
@@ -159,3 +167,113 @@ async def test_binance_closed_positions_merge_same_order_fill_fragments(
     assert position["realized_pnl"] == pytest.approx(-126.45349997)
     assert position["trading_fee"] == pytest.approx(0.74901028)
     assert position["net_pnl"] == pytest.approx(-127.20251025)
+
+
+@pytest.mark.asyncio
+async def test_binance_closed_positions_include_long_cycle_reductions_and_funding(
+    monkeypatch,
+):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+    start_time = datetime(2026, 10, 28, tzinfo=UTC)
+    end_time = datetime(2026, 10, 28, 1, tzinfo=UTC)
+    opened_at = datetime(2026, 10, 9, 12, tzinfo=UTC)
+    first_reduction_at = datetime(2026, 10, 16, 12, tzinfo=UTC)
+    added_at = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    closed_at = datetime(2026, 10, 28, 0, 30, tzinfo=UTC)
+    rows = [
+        {
+            **_trade(1, "BUY", 20, 100, 0, 1, int(opened_at.timestamp() * 1000)),
+            "positionSide": "LONG",
+        },
+        {
+            **_trade(
+                2,
+                "SELL",
+                5,
+                90,
+                -50,
+                0.25,
+                int(first_reduction_at.timestamp() * 1000),
+            ),
+            "positionSide": "LONG",
+        },
+        {
+            **_trade(3, "BUY", 5, 80, 0, 0.2, int(added_at.timestamp() * 1000)),
+            "positionSide": "LONG",
+        },
+        {
+            **_trade(4, "SELL", 20, 110, 200, 1, int(closed_at.timestamp() * 1000)),
+            "positionSide": "LONG",
+        },
+    ]
+    funding = [
+        {
+            "symbol": "BTCUSDT",
+            "income": "-10",
+            "asset": "USDT",
+            "time": int(datetime(2026, 10, 12, tzinfo=UTC).timestamp() * 1000),
+        },
+        {
+            "symbol": "BTCUSDT",
+            "income": "-5",
+            "asset": "USDT",
+            "time": int(datetime(2026, 10, 25, tzinfo=UTC).timestamp() * 1000),
+        },
+    ]
+
+    async def fake_income_rows(*_):
+        return [{"symbol": "BTCUSDT", "incomeType": "REALIZED_PNL"}]
+
+    async def fake_trade_rows(*_):
+        return rows
+
+    async def fake_funding_rows(*_):
+        return funding
+
+    monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
+    monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    monkeypatch.setattr(adapter, "_funding_rows", fake_funding_rows)
+    try:
+        positions = await adapter.get_closed_positions(start_time, end_time)
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    position = positions[0]
+    assert position["max_position_size"] == pytest.approx(20)
+    assert position["realized_pnl"] == pytest.approx(150)
+    assert position["funding_fee"] == pytest.approx(-15)
+    assert position["trading_fee"] == pytest.approx(2.45)
+    assert position["net_pnl"] == pytest.approx(132.55)
+
+
+@pytest.mark.asyncio
+async def test_binance_trade_history_scans_supported_range_in_seven_day_windows(
+    monkeypatch,
+):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+    end_time = datetime(2026, 10, 28, tzinfo=UTC)
+    old_trade_timestamp = int(
+        (end_time - adapter.closed_position_lookback + timedelta(days=1)).timestamp()
+        * 1000
+    )
+    windows = []
+
+    async def fake_signed_get(_base, path, params):
+        assert path == "/fapi/v1/userTrades"
+        if "startTime" not in params:
+            return []
+        windows.append((params["startTime"], params["endTime"]))
+        if params["startTime"] <= old_trade_timestamp <= params["endTime"]:
+            return [_trade(99, "BUY", 1, 100, 0, 0.01, old_trade_timestamp)]
+        return []
+
+    monkeypatch.setattr(adapter, "_signed_get", fake_signed_get)
+    try:
+        rows = await adapter._trade_rows("BTCUSDT", end_time, end_time)
+    finally:
+        await adapter.close()
+
+    assert [row["id"] for row in rows] == [99]
+    assert len(windows) == 13
+    assert all(end - start < 7 * 24 * 60 * 60 * 1000 for start, end in windows)
