@@ -553,10 +553,8 @@ class BinanceAdapter(ExchangeAdapter):
         start_time: datetime,
         end_time: datetime,
         funding_rows: dict[str, list[dict[str, Any]]] | None = None,
-        funding_eligible_symbols: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         funding_rows = funding_rows or {}
-        funding_eligible_symbols = funding_eligible_symbols or set()
         positions: list[dict[str, Any]] = []
         for cycle in cycles:
             if not start_time <= cycle["close_time"] <= end_time:
@@ -576,16 +574,26 @@ class BinanceAdapter(ExchangeAdapter):
             realized_pnl = float(cycle["realized_pnl"])
             trading_fee = float(cycle["trading_fee"])
             funding_fee = 0.0
-            if cycle["symbol"] in funding_eligible_symbols:
-                funding_fee = sum(
-                    float(row.get("income") or 0)
-                    for row in funding_rows.get(cycle["symbol"], [])
-                    if cycle["open_time"]
-                    <= datetime.fromtimestamp(int(row.get("time") or 0) / 1000, tz=UTC)
-                    <= cycle["close_time"]
+            for row in funding_rows.get(cycle["symbol"], []):
+                funding_time = datetime.fromtimestamp(
+                    int(row.get("time") or 0) / 1000, tz=UTC
+                )
+                matching_cycles = [
+                    candidate
+                    for candidate in cycles
+                    if candidate["symbol"] == cycle["symbol"]
+                    and candidate["open_time"] <= funding_time <= candidate["close_time"]
+                ]
+                # Binance's funding-income response has no position side. Only
+                # attribute a record when one reconstructed cycle owns the time
+                # interval; simultaneous hedge-mode cycles remain unassigned.
+                if (
+                    len(matching_cycles) == 1
+                    and matching_cycles[0] is cycle
                     and str(row.get("asset") or "USDT").upper()
                     in {"USD", "USDT", "USDC", "FDUSD"}
-                )
+                ):
+                    funding_fee += float(row.get("income") or 0)
             initial_notional = entry_price * float(cycle["max_position_size"])
             positions.append(
                 {
@@ -638,18 +646,6 @@ class BinanceAdapter(ExchangeAdapter):
             symbol: result[1] for symbol, result in zip(symbols, symbol_history, strict=True)
         }
         rows = self._aggregate_order_fills([row for page in trade_pages for row in page])
-        hedge_sides_by_symbol: dict[str, set[str]] = {}
-        for row in rows:
-            position_side = str(row.get("positionSide") or "BOTH").upper()
-            if position_side in {"LONG", "SHORT"}:
-                hedge_sides_by_symbol.setdefault(str(row.get("symbol") or ""), set()).add(
-                    position_side
-                )
-        funding_eligible_symbols = {
-            symbol
-            for symbol in symbols
-            if len(hedge_sides_by_symbol.get(symbol, set())) <= 1
-        }
         cycles = self._closed_cycles_from_hedge_trades(rows, start_time)
         cycles.extend(self._closed_cycles_from_one_way_trades(rows, start_time))
         return self._normalize_binance_cycles(
@@ -657,7 +653,6 @@ class BinanceAdapter(ExchangeAdapter):
             start_time,
             end_time,
             funding_by_symbol,
-            funding_eligible_symbols,
         )
 
     async def get_closed_positions(

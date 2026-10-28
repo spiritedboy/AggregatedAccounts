@@ -248,6 +248,72 @@ async def test_binance_closed_positions_include_long_cycle_reductions_and_fundin
 
 
 @pytest.mark.asyncio
+async def test_binance_funding_is_attributed_to_sequential_hedge_cycles(monkeypatch):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+    start_time = datetime(2026, 10, 20, tzinfo=UTC)
+    end_time = datetime(2026, 10, 21, tzinfo=UTC)
+    timestamps = [
+        int(datetime(2026, 10, 20, hour, tzinfo=UTC).timestamp() * 1000)
+        for hour in range(1, 7)
+    ]
+    rows = [
+        {
+            **_trade(1, "BUY", 10, 100, 0, 0.1, timestamps[0]),
+            "positionSide": "LONG",
+        },
+        {
+            **_trade(2, "SELL", 10, 110, 100, 0.1, timestamps[2]),
+            "positionSide": "LONG",
+        },
+        {
+            **_trade(3, "SELL", 5, 120, 0, 0.1, timestamps[3]),
+            "positionSide": "SHORT",
+        },
+        {
+            **_trade(4, "BUY", 5, 110, 50, 0.1, timestamps[5]),
+            "positionSide": "SHORT",
+        },
+    ]
+    funding = [
+        {
+            "symbol": "BTCUSDT",
+            "income": "-2",
+            "asset": "USDT",
+            "time": timestamps[1],
+        },
+        {
+            "symbol": "BTCUSDT",
+            "income": "1",
+            "asset": "USDT",
+            "time": timestamps[4],
+        },
+    ]
+
+    async def fake_income_rows(*_):
+        return [{"symbol": "BTCUSDT", "incomeType": "REALIZED_PNL"}]
+
+    async def fake_trade_rows(*_):
+        return rows
+
+    async def fake_funding_rows(*_):
+        return funding
+
+    monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
+    monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    monkeypatch.setattr(adapter, "_funding_rows", fake_funding_rows)
+    try:
+        positions = await adapter.get_closed_positions(start_time, end_time)
+    finally:
+        await adapter.close()
+
+    by_side = {position["side"]: position for position in positions}
+    assert by_side["LONG"]["funding_fee"] == pytest.approx(-2)
+    assert by_side["LONG"]["net_pnl"] == pytest.approx(97.8)
+    assert by_side["SHORT"]["funding_fee"] == pytest.approx(1)
+    assert by_side["SHORT"]["net_pnl"] == pytest.approx(50.8)
+
+
+@pytest.mark.asyncio
 async def test_binance_trade_history_scans_supported_range_in_seven_day_windows(
     monkeypatch,
 ):
