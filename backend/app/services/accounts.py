@@ -733,7 +733,10 @@ async def _upsert_closed_positions(
         row.side = item["side"]
         row.open_time = item["open_time"]
         row.close_time = item["close_time"]
-        leverage = Decimal(str(item.get("leverage") or 0))
+        # UTA position history does not publish leverage. Keep a previously verified
+        # classic-API value when updating the same Bitget position cycle.
+        retained_leverage = row.leverage if account.exchange == "BITGET" else 0
+        leverage = Decimal(str(item.get("leverage") or retained_leverage or 0))
         margin_used = Decimal(str(item.get("margin_used") or 0))
         if margin_used <= 0 and leverage > 0:
             margin_used = (
@@ -980,8 +983,38 @@ async def _upsert_amount_records(
         )
     ).all()
     existing = {row.source_record_id: row for row in existing_rows}
+    legacy_bitget_cash: list[CashFlowRecord] = []
+    if account.exchange == "BITGET" and model is CashFlowRecord:
+        # Classic v2 recorded the transfer into futures as a cash flow; v3
+        # exposes the preceding external deposit with a different ID/time.
+        # Migrate only an unambiguous matching fact instead of counting both.
+        times = [item["record_time"] for item in valid_records]
+        legacy_bitget_cash = (
+            await db.scalars(
+                select(CashFlowRecord).where(
+                    CashFlowRecord.exchange_account_id == account.id,
+                    CashFlowRecord.tracking_period_id == period.id,
+                    CashFlowRecord.record_time >= min(times) - timedelta(minutes=5),
+                    CashFlowRecord.record_time <= max(times) + timedelta(minutes=5),
+                    ~CashFlowRecord.source_record_id.like("v3:funding:%"),
+                )
+            )
+        ).all()
     for item, source_id in zip(valid_records, source_ids, strict=True):
         row = existing.get(source_id)
+        if row is None and source_id.startswith("v3:funding:") and legacy_bitget_cash:
+            matches = [
+                candidate for candidate in legacy_bitget_cash
+                if candidate.asset == str(item.get("asset") or "USD").upper()
+                and candidate.flow_type == item.get("flow_type")
+                and candidate.amount_usd == Decimal(str(item.get("amount_usd", 0)))
+                and abs((candidate.record_time - item["record_time"]).total_seconds()) <= 300
+            ]
+            if len(matches) == 1:
+                row = matches[0]
+                legacy_bitget_cash.remove(row)
+                row.source_record_id = source_id
+                existing[source_id] = row
         if row is None:
             kwargs: dict[str, Any] = {
                 "exchange": account.exchange,

@@ -139,56 +139,35 @@ async def test_okx_positions_convert_contract_count_to_underlying_quantity(monke
 
 
 @pytest.mark.asyncio
-async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch):
+async def test_bitget_summary_and_positions_use_uta_without_double_counting(monkeypatch):
     adapter = BitgetAdapter(api_key="key", api_secret="secret", passphrase="pass")
 
     async def fake_get(path, params=None):
-        product_type = (params or {}).get("productType")
-        if path.endswith("/account/accounts"):
-            if product_type == "USDT-FUTURES":
-                return [
-                    {
-                        "marginCoin": "USDT",
-                        "usdtEquity": "100",
-                        "accountEquity": "100",
-                        "available": "80",
-                        "crossedMargin": "20",
-                        "unrealizedPL": "2",
-                    }
-                ]
-            return [
-                {
-                    "marginCoin": "USDC",
-                    "usdtEquity": "20",
-                    "accountEquity": "20",
-                    "available": "15",
-                    "crossedMargin": "5",
-                    "unrealizedPL": "1",
-                }
-            ]
         if path.endswith("/account/assets"):
-            return [
-                {"coin": "USDT", "available": "10", "frozen": "0", "locked": "0"},
-                {"coin": "DOGE", "available": "2", "frozen": "0", "locked": "0"},
-            ]
-        if path.endswith("/market/tickers"):
-            return [{"symbol": "DOGEUSDT", "lastPr": "0.05"}]
-        if path.endswith("/position/all-position"):
-            quote = "USDT" if product_type == "USDT-FUTURES" else "USDC"
-            return [
+            return {"accountEquity": "130.1", "imr": "25", "unrealisedPnl": "3", "assets": [
+                {"coin": "USDT", "equity": "100", "available": "80", "usdValue": "100"},
+                {"coin": "USDC", "equity": "20", "available": "15", "usdValue": "20"},
+                {"coin": "DOGE", "equity": "2", "available": "2", "usdValue": "0.1"},
+            ]}
+        if path.endswith("/current-position"):
+            category = (params or {}).get("category")
+            if category == "COIN-FUTURES":
+                return {"list": []}
+            quote = "USDT" if category == "USDT-FUTURES" else "USDC"
+            return {"list": [
                 {
                     "symbol": f"BTC{quote}",
-                    "holdSide": "long",
+                    "posSide": "long",
                     "total": "1",
                     "markPrice": "100",
-                    "openPriceAvg": "90",
+                    "avgPrice": "90",
                     "liquidationPrice": "70",
                     "leverage": "5",
                     "marginMode": "isolated",
-                    "marginSize": "20",
-                    "unrealizedPL": "10",
+                    "positionBalance": "20",
+                    "unrealisedPnl": "10",
                 }
-            ]
+            ]}
         raise AssertionError(path)
 
     monkeypatch.setattr(adapter, "_get", fake_get)
@@ -200,12 +179,10 @@ async def test_bitget_summary_and_positions_cover_spot_usdt_and_usdc(monkeypatch
         await adapter.close()
 
     assert summary["total_equity_usd"] == 130.1
-    assert summary["legacy_excluded_equity_usd"] == 30.1
-    assert {row["account_type"] for row in balances} == {
-        "SPOT",
-        "USDT_FUTURES",
-        "USDC_FUTURES",
-    }
+    assert summary["margin_balance_usd"] == 25
+    assert summary["unrealized_pnl_usd"] == 3
+    assert {row["account_type"] for row in balances} == {"UNIFIED"}
+    assert sum(row["value_usd"] for row in balances) == 120.1
     assert {row["normalized_symbol"] for row in positions} == {
         "BTC-USDT-PERP",
         "BTC-USDC-PERP",
@@ -575,31 +552,32 @@ async def test_bitget_history_bundle_classifies_contract_bills(monkeypatch):
         AsyncMock(
             return_value=[
                 {
-                    "billId": "1",
+                    "id": "1",
                     "coin": "USDT",
                     "amount": "4",
                     "fee": "-0.1",
-                    "businessType": "close_long",
+                    "type": "CLOSE_LONG",
                     "symbol": "BTCUSDT",
-                    "cTime": str(TIME_MS),
+                    "ts": str(TIME_MS),
                 },
                 {
-                    "billId": "2",
+                    "id": "2",
                     "coin": "USDT",
                     "amount": "-0.5",
                     "fee": "0",
-                    "businessType": "contract_settle_fee",
+                    "type": "CONTRACT_MAIN_SETTLE_FEE_USER_OUT",
                     "symbol": "BTCUSDT",
-                    "cTime": str(TIME_MS),
+                    "ts": str(TIME_MS),
                 },
                 {
-                    "billId": "3",
+                    "id": "3",
                     "coin": "USDT",
                     "amount": "-12",
                     "fee": "0",
-                    "businessType": "trans_to_exchange",
+                    "type": "withdraw",
+                    "_funding_account": True,
                     "symbol": "",
-                    "cTime": str(TIME_MS),
+                    "ts": str(TIME_MS),
                 },
             ]
         ),

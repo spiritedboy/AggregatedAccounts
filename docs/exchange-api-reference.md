@@ -54,27 +54,33 @@ Base64 编码，并发送 OKX 的四个认证请求头。
 
 官方资料：
 
-- <https://www.bitget.com/api-doc/common/intro>
-- <https://www.bitget.com/api-doc/spot/account/Get-Account-Assets>
-- <https://www.bitget.com/api-doc/contract/account/Get-Account-List>
-- <https://www.bitget.com/api-doc/classic/contract/position/get-all-position>
-- <https://www.bitget.com/api-doc/classic/contract/position/Get-History-Position>
+- <https://www.bitget.com/legacy-docs/uta/account/Get-Account>
+- <https://www.bitget.com/legacy-docs/uta/account/Get-Account-Info>
+- <https://www.bitget.com/legacy-docs/uta/trade/Get-Position>
+- <https://www.bitget.com/legacy-docs/uta/trade/Get-Position-History>
+- <https://www.bitget.com/legacy-docs/uta/account/Get-Financial-Records>
+- <https://www.bitget.com/legacy-docs/uta/account/Get-Funding-Financial-Records>
 
 使用：
 
-- `GET /api/v2/spot/account/info`：账户权限信息
-- `GET /api/v2/spot/account/assets`：现货资产
-- `GET /api/v2/mix/account/accounts`：合约账户权益
-- `GET /api/v2/mix/position/all-position`：当前合约仓位
-- `GET /api/v2/mix/position/history-position`：USDT 与 USDC 合约历史仓位
-- `GET /api/v2/mix/account/bill`：统计起点后的合约已实现收益、资金费、手续费和
-  合约账户划转；单次时间区间不超过 30 天，接口最多覆盖近 90 天
+- `GET /api/v3/account/info`：通过 `permType=readonly` 核对只读权限
+- `GET /api/v3/account/assets`：统一账户总权益、保证金与逐币种余额；不得再加现货或合约权益
+- `GET /api/v3/position/current-position`：按合约 category 获取当前仓位
+- `GET /api/v3/position/history-position`：按 category 获取历史仓位，使用 `cursor` 分页
+- `GET /api/v3/account/financial-records`：交易损益、资金费和手续费账务
+- `GET /api/v3/account/funding-financial-records`：资金账户的外部充值提现；UTA 内部划转不计作收益
+
+历史与财务接口单次不超过 30 天，在线接口仅提供近 90 天。历史仓位以
+`category + positionId` 为稳定来源 ID，同一 ID 的阶段状态只保留 `updatedTime`
+最新值；`cumRealisedPnl` 是毛收益，`netProfit` 是含费用的净收益。v3 历史接口
+不保证提供杠杆，缺失时不推算；更新已存在的经典账户历史记录时保留原先确认的杠杆。
 
 签名原文为 `timestamp + method + requestPath + body`，使用 HMAC-SHA256 后
 Base64 编码。
 
-历史仓位以 `productType + positionId` 作为稳定来源 ID；若接口重复返回同一个
-`positionId` 的阶段状态，只保留 `utime` 最新的累计记录。
+统一账户升级后不删除旧事实表数据；上线前需先备份并恢复验证，部署后核对账户权益、
+余额、仓位数与同步状态。若同一笔外部充值/提现已被 v2 记为合约划转，v3 首次同步
+会在同币种、同方向、同金额、相差不超过五分钟且只有唯一匹配时复用旧记录，避免双计。
 
 ## Bybit
 
