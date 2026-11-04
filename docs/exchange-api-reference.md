@@ -124,32 +124,32 @@ Log 的 `cashFlow`、`funding` 和 `fee` 为权威来源。Bybit 官方限制美
 
 官方资料：
 
-- <https://docs.polymarket.com/api-reference/introduction>
+- <https://docs.polymarket.com/api-reference/data-api/overview>
+- <https://docs.polymarket.com/migrate/data-api-v1-to-v2>
 - <https://docs.polymarket.com/api-reference/profiles/get-public-profile-by-wallet-address>
-- <https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user>
-- <https://docs.polymarket.com/api-reference/core/get-closed-positions-for-a-user>
-- <https://docs.polymarket.com/api-reference/misc/download-an-accounting-snapshot-zip-of-csvs>
+- <https://docs.polymarket.com/resources/contracts>
 
 Polymarket Data API 使用公开的 User Profile / Proxy Wallet 地址，不需要 API Key。
 
-组合单通过 Data API 的 `/v1/positions/combos` 接口同步。开放组合单按各子市场概率计算当前估值；已结算组合单使用官方结算金额、原始成本和买入费用重建已实现收益。组合单与普通仓位一样进入中文翻译缓存，当前仓位转为历史仓位后复用同一译文。
+组合单通过 Data API v2 的 `/v2/positions/combos` 接口同步。开放组合单按各子市场概率计算当前估值；已结算组合单使用官方结算金额、原始成本和买入费用重建已实现收益。组合单与普通仓位一样进入中文翻译缓存，当前仓位转为历史仓位后复用同一译文。
 账户连接时先通过 Public Profile API 将登录钱包地址解析为实际 Proxy Wallet：
 
 - `GET /public-profile`：解析并验证 Profile / Proxy Wallet 地址
-- `GET /v1/accounting/snapshot`：读取 `cashBalance`、`positionsValue` 和 `equity`
-- `GET /positions`：读取当前预测市场持仓、成本、现价和完整 `cashPnl`
-- `GET /closed-positions`：读取统计起点后关闭的仓位和已实现盈亏
+- `GET /v2/value`：读取普通仓位市值与未结算组合单价值
+- `GET /v2/positions?status=OPEN`：读取当前仓位、成本、现价和未实现盈亏
+- `GET /v2/positions?status=CLOSED`：读取统计区间内关闭的仓位和已实现盈亏
+- Polygon `eth_call`：读取官方 pUSD 合约余额；总权益为持仓价值加可用 pUSD
 
-平台不会请求或保存 Polymarket 私钥、助记词、登录密码或交易凭证。官方已平仓接口
-没有可靠的原始开仓时间，相关历史记录会标记为 `PARTIAL`。公开接口也不能在所有账户
-类型下完整确认外部充值与提现，因此 Polymarket 账户默认显示为统计部分完整。
-已平仓响应中的 `timestamp` 可能变化，平台使用官方响应里的 outcome token `asset`
-作为稳定幂等键，避免同一 outcome 在后续同步中被重复写入。
+Data API v2 使用 `{data, pagination}` 响应和不透明游标分页，续页请求保留原筛选窗口。
+平台使用官方响应里的 outcome `token_id` 作为稳定幂等键，避免同一 outcome 在后续同步
+中被重复写入，并使用 `first_entry_at`、`last_event_at` 记录开仓和最后经济事件时间。
+平台不会请求或保存 Polymarket 私钥、助记词、登录密码或交易凭证。公开接口仍不能在
+所有账户类型下完整确认外部充值与提现，因此 Polymarket 账户默认显示为统计部分完整。
 结算记录可能晚于当前仓位消失才进入官方已平仓接口，因此每轮平仓同步固定回看最近
 72 小时，并按 outcome token 幂等写入；迟到记录会同时修正所属北京时间自然日的收益。
 
 市场标题的简体中文显示使用百度“LLM 大模型翻译”服务，不使用通用机器翻译接口。
-适配器会保存官方 `title`、`outcome`、`conditionId`、`outcomeIndex` 和 outcome token；
+适配器会保存官方 `title`、`outcome`、`condition_id`、`outcome_index` 和 outcome token；
 后端以 outcome token 作为翻译缓存键，将“市场标题 · 结果”译为简体中文。当前与已平仓
 记录共用缓存，因此平仓不触发重复翻译。翻译请求只由后端后台任务发出，读 API 不会
 实时调用第三方服务；第三方不可用时 API 继续返回英文原文。

@@ -1,11 +1,6 @@
-import csv
-import io
 import re
-import zipfile
 from datetime import UTC, datetime
 from typing import Any
-
-import httpx
 
 from app.adapters.base import AdapterError, ExchangeAdapter
 
@@ -16,34 +11,38 @@ def _display_symbol(title: str, outcome: str) -> str:
 
 
 def _normalized_symbol(item: dict[str, Any]) -> str:
-    condition_id = str(item.get("conditionId") or "").removeprefix("0x")
-    asset = str(item.get("asset") or "")
-    outcome_index = int(item.get("outcomeIndex") or 0)
+    condition_id = str(
+        item.get("condition_id") or item.get("conditionId") or ""
+    ).removeprefix("0x")
+    asset = str(item.get("token_id") or item.get("asset") or "")
+    outcome_index = int(item.get("outcome_index") or item.get("outcomeIndex") or 0)
     return f"POLY-{condition_id[:16]}-{outcome_index}-{asset[-12:]}"[:80]
 
 
 def _translation_source(item: dict[str, Any], title: str, outcome: str) -> dict[str, Any]:
     return {
-        "translation_asset_id": str(item.get("asset") or ""),
-        "translation_condition_id": str(item.get("conditionId") or ""),
-        "translation_outcome_index": int(item.get("outcomeIndex") or 0),
+        "translation_asset_id": str(item.get("token_id") or item.get("asset") or ""),
+        "translation_condition_id": str(
+            item.get("condition_id") or item.get("conditionId") or ""
+        ),
+        "translation_outcome_index": int(
+            item.get("outcome_index") or item.get("outcomeIndex") or 0
+        ),
         "translation_source_title": title.strip(),
         "translation_source_outcome": outcome.strip(),
     }
 
 
 def closed_position_source_id(item: dict[str, Any]) -> str:
-    """Build a stable closed-position identity from the outcome token.
+    """Build a stable closed-position identity from the outcome token."""
 
-    Polymarket's ``timestamp`` can move between responses for the same closed
-    outcome, while ``asset`` is the stable outcome-token identifier.
-    """
-
-    asset = str(item.get("asset") or "").strip()
+    asset = str(item.get("token_id") or item.get("asset") or "").strip()
     if asset:
         return f"poly-closed:{asset}"
-    condition_id = str(item.get("conditionId") or "").removeprefix("0x")
-    outcome_index = int(item.get("outcomeIndex") or 0)
+    condition_id = str(
+        item.get("condition_id") or item.get("conditionId") or ""
+    ).removeprefix("0x")
+    outcome_index = int(item.get("outcome_index") or item.get("outcomeIndex") or 0)
     return f"poly-closed:{condition_id}:{outcome_index}"
 
 
@@ -57,6 +56,14 @@ def _parse_combo_time(value: Any) -> datetime | None:
         return None
 
 
+def _timestamp(value: Any) -> datetime | None:
+    try:
+        seconds = int(value or 0)
+    except (TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(seconds, tz=UTC) if seconds > 0 else None
+
+
 def _combo_identity(item: dict[str, Any]) -> str:
     return str(item.get("combo_position_id") or item.get("combo_condition_id") or "")
 
@@ -68,6 +75,7 @@ def _combo_description(item: dict[str, Any]) -> tuple[str, str]:
         event = market.get("event") or {}
         title = str(
             event.get("event_title")
+            or market.get("question")
             or market.get("title")
             or leg.get("leg_condition_id")
             or "Polymarket"
@@ -79,14 +87,15 @@ def _combo_description(item: dict[str, Any]) -> tuple[str, str]:
         ).strip()
         selections.append(f"{title} — {outcome}")
     title = "Combo: " + " + ".join(selections) if selections else "Polymarket Combo"
-    return title, str(item.get("side") or "Yes").title()
+    outcome = str(item.get("outcome_label") or item.get("side") or "Yes").title()
+    return title, outcome
 
 
 def _combo_translation_source(item: dict[str, Any], title: str, outcome: str) -> dict[str, Any]:
     return {
         "translation_asset_id": _combo_identity(item),
         "translation_condition_id": str(item.get("combo_condition_id") or ""),
-        "translation_outcome_index": 0 if outcome.upper() == "YES" else 1,
+        "translation_outcome_index": int(item.get("outcome_index") or 0),
         "translation_source_title": title,
         "translation_source_outcome": outcome,
     }
@@ -95,7 +104,7 @@ def _combo_translation_source(item: dict[str, Any], title: str, outcome: str) ->
 def _combo_mark_price(item: dict[str, Any]) -> float:
     yes_price = 1.0
     for leg in item.get("legs") or []:
-        status = str(leg.get("status") or "").upper()
+        status = str(leg.get("leg_status") or leg.get("status") or "").upper()
         if status == "RESOLVED_WIN":
             price = 1.0
         elif status == "RESOLVED_LOSS":
@@ -105,11 +114,12 @@ def _combo_mark_price(item: dict[str, Any]) -> float:
             if price <= 0:
                 return float(item.get("entry_avg_price_usdc") or 0)
         yes_price *= min(max(price, 0.0), 1.0)
-    return 1.0 - yes_price if str(item.get("side") or "YES").upper() == "NO" else yes_price
+    outcome = str(item.get("outcome_label") or item.get("side") or "YES").upper()
+    return 1.0 - yes_price if outcome == "NO" else yes_price
 
 
 def _combo_original_size(item: dict[str, Any]) -> float:
-    current_size = float(item.get("shares_balance") or 0)
+    current_size = float(item.get("current_size") or item.get("shares_balance") or 0)
     entry_price = float(item.get("entry_avg_price_usdc") or 0)
     gross_cost = float(item.get("gross_entry_cost_usdc") or 0)
     entry_fees = float(item.get("entry_fees_usdc") or 0)
@@ -120,8 +130,13 @@ def _combo_original_size(item: dict[str, Any]) -> float:
 class PolymarketAdapter(ExchangeAdapter):
     """Public-profile-address-only adapter for Polymarket account analytics."""
 
-    data_url = "https://data-api.polymarket.com"
+    data_url = "https://data-api.polymarket.com/v2"
     gamma_url = "https://gamma-api.polymarket.com"
+    polygon_rpc_urls = (
+        "https://polygon-bor-rpc.publicnode.com",
+        "https://polygon-rpc.com",
+    )
+    pusd_contract = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
 
     async def _resolve_profile_address(self) -> str:
         profile = await self._request(
@@ -135,84 +150,114 @@ class PolymarketAdapter(ExchangeAdapter):
         self.wallet_address = proxy_wallet
         return proxy_wallet
 
-    async def _accounting_snapshot(self) -> dict[str, float | str]:
-        try:
-            response = await self.client.get(
-                f"{self.data_url}/v1/accounting/snapshot",
-                params={"user": self.wallet_address},
-            )
-            response.raise_for_status()
-            with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-                with archive.open("equity.csv") as equity_file:
-                    rows = list(csv.DictReader(io.TextIOWrapper(equity_file, encoding="utf-8")))
-        except (httpx.HTTPError, KeyError, OSError, ValueError, zipfile.BadZipFile) as exc:
-            raise AdapterError(
-                f"Polymarket 账户快照读取失败：{type(exc).__name__}"
-            ) from None
-        if not rows:
-            return {
-                "cashBalance": 0.0,
-                "positionsValue": 0.0,
-                "equity": 0.0,
-                "valuationTime": "",
-            }
-        row = rows[-1]
-        return {
-            "cashBalance": float(row.get("cashBalance") or 0),
-            "positionsValue": float(row.get("positionsValue") or 0),
-            "equity": float(row.get("equity") or 0),
-            "valuationTime": row.get("valuationTime") or "",
-        }
+    async def _portfolio_value(self) -> float:
+        payload = await self._request(
+            "GET",
+            f"{self.data_url}/value",
+            params={"user": self.wallet_address},
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            raise AdapterError("Polymarket 资产估值响应格式无效")
+        return float(data.get("value") or 0)
 
-    async def _positions(self) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        limit = 500
-        for offset in range(0, 10_001, limit):
-            page = await self._request(
-                "GET",
-                f"{self.data_url}/positions",
-                params={
-                    "user": self.wallet_address,
-                    "limit": limit,
-                    "offset": offset,
-                    "sizeThreshold": 0.01,
-                    "sortBy": "CURRENT",
-                    "sortDirection": "DESC",
-                },
-            )
-            if not isinstance(page, list):
-                raise AdapterError("Polymarket 当前持仓响应格式无效")
-            rows.extend(page)
-            if len(page) < limit:
-                break
-        return rows
+    async def _cash_balance(self) -> float:
+        address = str(self.wallet_address or "").removeprefix("0x").lower()
+        if not re.fullmatch(r"[a-f0-9]{40}", address):
+            raise AdapterError("Polymarket Proxy Wallet 地址无效")
+        call_data = f"0x70a08231{'0' * 24}{address}"
+        for rpc_url in self.polygon_rpc_urls:
+            try:
+                payload = await self._request(
+                    "POST",
+                    rpc_url,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_call",
+                        "params": [
+                            {"to": self.pusd_contract, "data": call_data},
+                            "latest",
+                        ],
+                    },
+                )
+                result = payload.get("result") if isinstance(payload, dict) else None
+                if isinstance(result, str) and re.fullmatch(r"0x[0-9a-fA-F]+", result):
+                    return int(result, 16) / 1_000_000
+            except AdapterError:
+                continue
+        raise AdapterError("Polymarket pUSD 链上余额读取失败")
 
-    async def _combo_positions(self, statuses: str) -> list[dict[str, Any]]:
+    async def _paginated_rows(
+        self, path: str, params: dict[str, Any], response_name: str
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        limit = 1000
-        for offset in range(0, 100_001, limit):
+        request_params = {**params, "limit": 1000}
+        for _ in range(1000):
             payload = await self._request(
                 "GET",
-                f"{self.data_url}/v1/positions/combos",
-                params={
-                    "user": self.wallet_address,
-                    "status": statuses,
-                    "limit": limit,
-                    "offset": offset,
-                },
+                f"{self.data_url}/{path}",
+                params=request_params,
             )
-            if not isinstance(payload, dict) or not isinstance(payload.get("combos"), list):
-                raise AdapterError("Polymarket 组合单响应格式无效")
-            page = payload["combos"]
+            page = payload.get("data") if isinstance(payload, dict) else None
+            pagination = payload.get("pagination") if isinstance(payload, dict) else None
+            if not isinstance(page, list) or not isinstance(pagination, dict):
+                raise AdapterError(f"Polymarket {response_name}响应格式无效")
             rows.extend(page)
-            pagination = payload.get("pagination") or {}
-            if len(page) < limit or not pagination.get("has_more"):
-                break
-        return rows
+            if not pagination.get("has_more"):
+                return rows
+            cursor = pagination.get("next_cursor")
+            if not cursor:
+                raise AdapterError(f"Polymarket {response_name}分页游标缺失")
+            request_params = {**params, "cursor": cursor}
+        raise AdapterError(f"Polymarket {response_name}分页超过安全上限")
+
+    async def _positions(self) -> list[dict[str, Any]]:
+        return await self._paginated_rows(
+            "positions",
+            {
+                "user": self.wallet_address,
+                "status": "OPEN",
+                "filter_type": "TOKENS",
+                "filter_amount": 0.01,
+                "sort_by": "CURRENT_VALUE",
+                "sort_direction": "DESC",
+            },
+            "当前持仓",
+        )
+
+    async def _closed_positions(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[dict[str, Any]]:
+        return await self._paginated_rows(
+            "positions",
+            {
+                "user": self.wallet_address,
+                "status": "CLOSED",
+                "start": int(start_time.timestamp()),
+                "end": int(end_time.timestamp()),
+                "sort_by": "TIMESTAMP",
+                "sort_direction": "DESC",
+            },
+            "已平仓",
+        )
+
+    async def _combo_positions(self, statuses: str) -> list[dict[str, Any]]:
+        return await self._paginated_rows(
+            "positions/combos",
+            {
+                "user": self.wallet_address,
+                "status": statuses,
+                "sort_by": "FIRST_ENTRY",
+                "sort_direction": "DESC",
+            },
+            "组合单",
+        )
 
     async def test_connection(self) -> bool:
         await self._resolve_profile_address()
-        await self._accounting_snapshot()
+        await self._portfolio_value()
+        await self._cash_balance()
         return True
 
     async def get_permissions(self) -> dict[str, bool | None]:
@@ -226,76 +271,74 @@ class PolymarketAdapter(ExchangeAdapter):
         }
 
     async def get_account_summary(self) -> dict[str, Any]:
-        snapshot = await self._accounting_snapshot()
+        portfolio_value = await self._portfolio_value()
+        cash_balance = await self._cash_balance()
         positions = await self._positions()
         combos = await self._combo_positions("OPEN,PARTIAL")
-        combo_values = [
-            float(row.get("shares_balance") or 0) * _combo_mark_price(row)
+        combo_unrealized = sum(
+            float(row.get("current_size") or 0) * _combo_mark_price(row)
+            - float(row.get("gross_entry_cost_usdc") or 0)
             for row in combos
-        ]
-        combo_costs = [float(row.get("gross_entry_cost_usdc") or 0) for row in combos]
-        combo_value = sum(combo_values)
+        )
         return {
-            "total_equity_usd": float(snapshot["equity"]) + combo_value,
-            "available_balance_usd": snapshot["cashBalance"],
-            "margin_balance_usd": float(snapshot["positionsValue"]) + combo_value,
-            "unrealized_pnl_usd": sum(float(row.get("cashPnl") or 0) for row in positions)
-            + combo_value
-            - sum(combo_costs),
+            "total_equity_usd": portfolio_value + cash_balance,
+            "available_balance_usd": cash_balance,
+            "margin_balance_usd": portfolio_value,
+            "unrealized_pnl_usd": sum(
+                float(row.get("unrealized_pnl") or 0) for row in positions
+            )
+            + combo_unrealized,
             "unvalued_asset_count": 0,
-            "price_source": "POLYMARKET_ACCOUNTING_SNAPSHOT",
+            "price_source": "POLYMARKET_DATA_API_V2",
         }
 
     async def get_balances(self) -> list[dict[str, Any]]:
-        snapshot = await self._accounting_snapshot()
-        combos = await self._combo_positions("OPEN,PARTIAL")
-        combo_value = sum(
-            float(row.get("shares_balance") or 0) * _combo_mark_price(row)
-            for row in combos
-        )
+        portfolio_value = await self._portfolio_value()
+        cash_balance = await self._cash_balance()
         return [
             {
                 "asset": "USD",
                 "account_type": "PREDICTION",
-                "available": snapshot["cashBalance"],
-                "locked": float(snapshot["positionsValue"]) + combo_value,
-                "value_usd": float(snapshot["equity"]) + combo_value,
-                "price_source": "POLYMARKET_ACCOUNTING_SNAPSHOT",
+                "available": cash_balance,
+                "locked": portfolio_value,
+                "value_usd": portfolio_value + cash_balance,
+                "price_source": "POLYMARKET_DATA_API_V2",
             }
         ]
 
     async def get_open_positions(self) -> list[dict[str, Any]]:
         positions: list[dict[str, Any]] = []
         for item in await self._positions():
-            size = float(item.get("size") or 0)
+            size = float(item.get("current_size") or 0)
             if size <= 0:
                 continue
             title = str(item.get("title") or "Polymarket")
-            outcome = str(item.get("outcome") or f"Outcome {item.get('outcomeIndex', 0)}")
+            outcome = str(item.get("outcome") or f"Outcome {item.get('outcome_index', 0)}")
+            token_id = str(item.get("token_id") or item.get("condition_id") or "")
             positions.append(
                 {
                     **_translation_source(item, title, outcome),
-                    "source_record_id": str(item.get("asset") or item.get("conditionId")),
+                    "source_record_id": token_id,
                     "symbol": _display_symbol(title, outcome),
                     "normalized_symbol": _normalized_symbol(item),
                     "market_type": "PREDICTION",
                     "side": "LONG",
                     "position_size": size,
-                    "position_value_usd": float(item.get("currentValue") or 0),
-                    "entry_price": float(item.get("avgPrice") or 0),
-                    "mark_price": float(item.get("curPrice") or 0),
+                    "position_value_usd": float(item.get("current_value") or 0),
+                    "entry_price": float(item.get("avg_price") or 0),
+                    "mark_price": float(item.get("current_price") or 0),
                     "liquidation_price": None,
                     "leverage": 1,
                     "margin_mode": "CASH",
-                    "margin_used": float(item.get("initialValue") or 0),
-                    "unrealized_pnl": float(item.get("cashPnl") or 0),
-                    "unrealized_pnl_percent": float(item.get("percentPnl") or 0),
-                    "realized_pnl": float(item.get("realizedPnl") or 0),
-                    "open_time": None,
+                    "margin_used": float(item.get("entry_cost_usdc") or 0),
+                    "unrealized_pnl": float(item.get("unrealized_pnl") or 0),
+                    "unrealized_pnl_percent": float(item.get("percent_pnl") or 0),
+                    "realized_pnl": float(item.get("realized_pnl") or 0),
+                    "open_time": _timestamp(item.get("first_entry_at")),
                 }
             )
         for item in await self._combo_positions("OPEN,PARTIAL"):
-            size = float(item.get("shares_balance") or 0)
+            size = float(item.get("current_size") or 0)
             if size <= 0:
                 continue
             title, outcome = _combo_description(item)
@@ -333,62 +376,39 @@ class PolymarketAdapter(ExchangeAdapter):
         self, start_time: datetime, end_time: datetime
     ) -> list[dict[str, Any]]:
         positions_by_id: dict[str, dict[str, Any]] = {}
-        limit = 50
-        stop = False
-        for offset in range(0, 100_001, limit):
-            page = await self._request(
-                "GET",
-                f"{self.data_url}/closed-positions",
-                params={
-                    "user": self.wallet_address,
-                    "limit": limit,
-                    "offset": offset,
-                    "sortBy": "TIMESTAMP",
-                    "sortDirection": "DESC",
-                },
-            )
-            if not isinstance(page, list):
-                raise AdapterError("Polymarket 已平仓响应格式无效")
-            for item in page:
-                timestamp = int(item.get("timestamp") or 0)
-                close_time = datetime.fromtimestamp(timestamp, tz=start_time.tzinfo)
-                if close_time < start_time:
-                    stop = True
-                    break
-                if close_time > end_time:
-                    continue
-                bought = float(item.get("totalBought") or 0)
-                entry = float(item.get("avgPrice") or 0)
-                realized = float(item.get("realizedPnl") or 0)
-                title = str(item.get("title") or "Polymarket")
-                outcome = str(item.get("outcome") or f"Outcome {item.get('outcomeIndex', 0)}")
-                source_record_id = closed_position_source_id(item)
-                positions_by_id[source_record_id] = {
-                    **_translation_source(item, title, outcome),
-                    "source_record_id": source_record_id,
-                    "asset_id": str(item.get("asset") or ""),
-                    "symbol": _display_symbol(title, outcome),
-                    "normalized_symbol": _normalized_symbol(item),
-                    "side": "LONG",
-                    "open_time": start_time,
-                    "close_time": close_time,
-                    "average_entry_price": entry,
-                    "average_exit_price": float(item.get("curPrice") or 0),
-                    "max_position_size": bought,
-                    "realized_pnl": realized,
-                    "funding_fee": 0,
-                    "trading_fee": 0,
-                    "net_pnl": realized,
-                    "leverage": 1,
-                    "margin_used": entry * bought,
-                    "return_percent": realized / (entry * bought) * 100
-                    if entry and bought
-                    else 0,
-                    "data_source": "EXCHANGE_API",
-                    "data_completeness": "PARTIAL",
-                }
-            if stop or len(page) < limit:
-                break
+        for item in await self._closed_positions(start_time, end_time):
+            close_time = _timestamp(item.get("last_event_at"))
+            if close_time is None:
+                continue
+            bought = float(item.get("total_size") or 0)
+            entry = float(item.get("avg_price") or 0)
+            realized = float(item.get("realized_pnl") or 0)
+            title = str(item.get("title") or "Polymarket")
+            outcome = str(item.get("outcome") or f"Outcome {item.get('outcome_index', 0)}")
+            source_record_id = closed_position_source_id(item)
+            entry_basis = entry * bought
+            positions_by_id[source_record_id] = {
+                **_translation_source(item, title, outcome),
+                "source_record_id": source_record_id,
+                "asset_id": str(item.get("token_id") or ""),
+                "symbol": _display_symbol(title, outcome),
+                "normalized_symbol": _normalized_symbol(item),
+                "side": "LONG",
+                "open_time": _timestamp(item.get("first_entry_at")) or start_time,
+                "close_time": close_time,
+                "average_entry_price": entry,
+                "average_exit_price": float(item.get("current_price") or 0),
+                "max_position_size": bought,
+                "realized_pnl": realized,
+                "funding_fee": 0,
+                "trading_fee": 0,
+                "net_pnl": realized,
+                "leverage": 1,
+                "margin_used": entry_basis,
+                "return_percent": realized / entry_basis * 100 if entry_basis else 0,
+                "data_source": "EXCHANGE_API",
+                "data_completeness": "PARTIAL",
+            }
         for item in await self._combo_positions(
             "RESOLVED_PARTIAL,RESOLVED_WIN,RESOLVED_LOSS"
         ):
