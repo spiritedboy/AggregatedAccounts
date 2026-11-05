@@ -817,12 +817,18 @@ describe("portfolio pages", () => {
         const url = new URL(String(input), "http://localhost");
         if (url.pathname.includes("/api/auth/status")) return envelope({ authenticated: true });
         if (url.pathname.includes("/api/positions/history/bootstrap")) {
-          const filtered = url.searchParams.get("exchange") === "OKX";
+          const minimum = url.searchParams.get("min_net_pnl");
+          const maximum = url.searchParams.get("max_net_pnl");
+          const positions = [profitablePosition, losingPosition].filter((position) =>
+            (!url.searchParams.get("exchange") || position.exchange === url.searchParams.get("exchange")) &&
+            (minimum === null || position.net_pnl > Number(minimum)) &&
+            (maximum === null || position.net_pnl < Number(maximum)),
+          );
           return envelope({
             accounts: [account],
             history: {
-              total: filtered ? 1 : 2,
-              items: filtered ? [losingPosition] : [profitablePosition, losingPosition],
+              total: positions.length,
+              items: positions,
             },
           });
         }
@@ -830,6 +836,7 @@ describe("portfolio pages", () => {
       }),
     );
 
+    window.history.replaceState({}, "", "/history");
     render(<HistoryPage />);
     let pageSummary = await screen.findByRole("region", { name: "当前页盈亏汇总" });
     expect(within(pageSummary).getByText(/2\.00/)).toHaveClass("text-positive");
@@ -839,6 +846,27 @@ describe("portfolio pages", () => {
       pageSummary = screen.getByRole("region", { name: "当前页盈亏汇总" });
       expect(within(pageSummary).getByText("第 1 页 · 本页 1 笔 · 筛选后共 1 笔")).toBeInTheDocument();
       expect(within(pageSummary).getByText(/8\.00/)).toHaveClass("text-negative");
+    });
+
+    const minimum = screen.getByLabelText("最低净收益（USD，严格大于）");
+    const maximum = screen.getByLabelText("最高净收益（USD，严格小于）");
+    await user.type(minimum, "-9");
+    await waitFor(() => {
+      expect(window.location.search).toContain("min_net_pnl=-9");
+      expect(within(screen.getByRole("region", { name: "当前页盈亏汇总" })).getByText(/8\.00/)).toHaveClass("text-negative");
+    });
+    await user.type(maximum, "-8");
+    await waitFor(() => {
+      expect(screen.getByText("没有历史仓位")).toBeInTheDocument();
+      expect(window.location.search).toContain("max_net_pnl=-8");
+    });
+    await user.clear(maximum);
+    await user.type(maximum, "0");
+    await user.clear(minimum);
+    await waitFor(() => {
+      expect(window.location.search).not.toContain("min_net_pnl");
+      expect(window.location.search).toContain("max_net_pnl=0");
+      expect(within(screen.getByRole("region", { name: "当前页盈亏汇总" })).getByText(/8\.00/)).toHaveClass("text-negative");
     });
   });
 

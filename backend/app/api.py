@@ -996,6 +996,8 @@ def _history_query(
     completeness: str | None,
     start_time: datetime | None,
     end_time: datetime | None,
+    min_net_pnl: Decimal | None = None,
+    max_net_pnl: Decimal | None = None,
 ):
     query = (
         select(ClosedPosition)
@@ -1045,6 +1047,10 @@ def _history_query(
         query = query.where(ClosedPosition.close_time >= start_time)
     if end_time:
         query = query.where(ClosedPosition.close_time <= end_time)
+    if min_net_pnl is not None:
+        query = query.where(ClosedPosition.net_pnl > min_net_pnl)
+    if max_net_pnl is not None:
+        query = query.where(ClosedPosition.net_pnl < max_net_pnl)
     return query
 
 
@@ -1059,6 +1065,8 @@ async def position_history(
     completeness: str | None = Query(default=None, pattern="^(COMPLETE|PARTIAL)$"),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    min_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
+    max_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     _: AppSession = Depends(require_session),
@@ -1076,6 +1084,8 @@ async def position_history(
             completeness=completeness,
             start_time=start_time,
             end_time=end_time,
+            min_net_pnl=min_net_pnl,
+            max_net_pnl=max_net_pnl,
             page=page,
             page_size=page_size,
         )
@@ -1094,6 +1104,8 @@ async def _position_history_data(
     completeness: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    min_net_pnl: Decimal | None = None,
+    max_net_pnl: Decimal | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> dict[str, Any]:
@@ -1106,6 +1118,8 @@ async def _position_history_data(
         completeness,
         start_time,
         end_time,
+        min_net_pnl,
+        max_net_pnl,
     )
     if tracking_period_id:
         query = query.where(ClosedPosition.tracking_period_id == tracking_period_id)
@@ -1137,6 +1151,8 @@ async def position_history_bootstrap(
     completeness: str | None = Query(default=None, pattern="^(COMPLETE|PARTIAL)$"),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    min_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
+    max_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     _: AppSession = Depends(require_session),
@@ -1154,6 +1170,8 @@ async def position_history_bootstrap(
         completeness=completeness,
         start_time=start_time,
         end_time=end_time,
+        min_net_pnl=min_net_pnl,
+        max_net_pnl=max_net_pnl,
         page=page,
         page_size=page_size,
     )
@@ -1181,6 +1199,8 @@ async def export_history(
     completeness: str | None = Query(default=None, pattern="^(COMPLETE|PARTIAL)$"),
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    min_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
+    max_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
     _: AppSession = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
@@ -1195,6 +1215,8 @@ async def export_history(
                 completeness,
                 start_time,
                 end_time,
+                min_net_pnl,
+                max_net_pnl,
             )
             .order_by(ClosedPosition.close_time.desc())
             .limit(10_000)

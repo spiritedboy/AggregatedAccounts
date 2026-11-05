@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Download, Filter, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
 import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
@@ -36,6 +36,8 @@ function HistoryContent() {
   const [accountId, setAccountId] = useState("");
   const [side, setSide] = useState("");
   const [pnlResult, setPnlResult] = useState("");
+  const [minNetPnl, setMinNetPnl] = useState("");
+  const [maxNetPnl, setMaxNetPnl] = useState("");
   const [completeness, setCompleteness] = useState("");
   const [symbol, setSymbol] = useState("");
   const [start, setStart] = useState("");
@@ -45,6 +47,7 @@ function HistoryContent() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [urlReady, setUrlReady] = useState(false);
+  const latestRequest = useRef(0);
   const { formatMoney, formatSignedMoney } = useCurrency();
 
   const params = useCallback(() => {
@@ -53,22 +56,28 @@ function HistoryContent() {
     if (accountId) query.set("account_id", accountId);
     if (side) query.set("side", side);
     if (pnlResult) query.set("pnl_result", pnlResult);
+    if (minNetPnl !== "") query.set("min_net_pnl", minNetPnl);
+    if (maxNetPnl !== "") query.set("max_net_pnl", maxNetPnl);
     if (completeness) query.set("completeness", completeness);
     if (symbol) query.set("symbol", symbol);
     if (start) query.set("start_time", new Date(`${start}T00:00:00`).toISOString());
     if (end) query.set("end_time", new Date(`${end}T23:59:59`).toISOString());
     return query;
-  }, [accountId, completeness, end, exchange, page, pnlResult, side, start, symbol]);
+  }, [accountId, completeness, end, exchange, maxNetPnl, minNetPnl, page, pnlResult, side, start, symbol]);
 
   const load = useCallback(() => {
+    const requestId = ++latestRequest.current;
     setError("");
     return apiFetch<HistoryBootstrapResult>(`/api/positions/history/bootstrap?${params()}`)
       .then((payload) => {
+        if (requestId !== latestRequest.current) return;
         setResult(payload.history);
         setAccounts(payload.accounts);
         setLastLoadedAt(new Date().toISOString());
       })
-      .catch((reason) => setError(reason.message));
+      .catch((reason) => {
+        if (requestId === latestRequest.current) setError(reason.message);
+      });
   }, [params]);
 
   useEffect(() => {
@@ -78,6 +87,8 @@ function HistoryContent() {
       setAccountId(query.get("account") ?? "");
       setSide(query.get("side") ?? "");
       setPnlResult(query.get("result") ?? "");
+      setMinNetPnl(query.get("min_net_pnl") ?? "");
+      setMaxNetPnl(query.get("max_net_pnl") ?? "");
       setCompleteness(query.get("completeness") ?? "");
       setSymbol(query.get("symbol") ?? "");
       setStart(query.get("start") ?? "");
@@ -98,6 +109,8 @@ function HistoryContent() {
     account: accountId,
     side,
     result: pnlResult,
+    min_net_pnl: minNetPnl,
+    max_net_pnl: maxNetPnl,
     completeness,
     symbol,
     start,
@@ -122,6 +135,8 @@ function HistoryContent() {
     accountId,
     side,
     pnlResult,
+    minNetPnl,
+    maxNetPnl,
     completeness,
     symbol,
     start,
@@ -135,6 +150,8 @@ function HistoryContent() {
     setAccountId("");
     setSide("");
     setPnlResult("");
+    setMinNetPnl("");
+    setMaxNetPnl("");
     setCompleteness("");
     setSymbol("");
     setStart("");
@@ -205,6 +222,30 @@ function HistoryContent() {
           <option value="LOSS">亏损</option>
           <option value="BREAKEVEN">持平</option>
         </Select>
+        <label>
+          <span className="sr-only">最低净收益（USD，严格大于）</span>
+          <input
+            className="input mono-number w-full min-w-0"
+            type="number"
+            step="any"
+            inputMode="decimal"
+            value={minNetPnl}
+            onChange={(event) => { setPage(1); setMinNetPnl(event.target.value); }}
+            placeholder="净收益 > 最小值（USD）"
+          />
+        </label>
+        <label>
+          <span className="sr-only">最高净收益（USD，严格小于）</span>
+          <input
+            className="input mono-number w-full min-w-0"
+            type="number"
+            step="any"
+            inputMode="decimal"
+            value={maxNetPnl}
+            onChange={(event) => { setPage(1); setMaxNetPnl(event.target.value); }}
+            placeholder="净收益 < 最大值（USD）"
+          />
+        </label>
         <Select value={completeness} onChange={(value) => { setPage(1); setCompleteness(value); }} label="完整性">
           <option value="">全部完整性</option>
           <option value="COMPLETE">完整</option>

@@ -1,3 +1,7 @@
+import csv
+import io
+
+
 def test_health_is_public_and_redacted(client):
     response = client.get("/api/health")
     assert response.status_code == 200
@@ -247,6 +251,46 @@ def test_history_filters_and_csv_export(authenticated):
     snapshots = client.get("/api/positions/snapshots")
     assert snapshots.status_code == 200
     assert {"items", "total"} <= snapshots.json()["data"].keys()
+
+
+def test_history_net_pnl_bounds_filter_before_pagination_and_export(authenticated):
+    client, _ = authenticated
+    all_positions = client.get("/api/positions/history?page_size=200").json()["data"]
+    all_pnls = [item["net_pnl"] for item in all_positions["items"]]
+    assert len(all_pnls) == all_positions["total"]
+    negative = next(value for value in all_pnls if value < 0)
+    positive = next(value for value in all_pnls if value > 0)
+
+    minimum = client.get(f"/api/positions/history?min_net_pnl={negative}&page_size=200")
+    assert minimum.status_code == 200
+    assert minimum.json()["data"]["total"] == sum(value > negative for value in all_pnls)
+    assert all(item["net_pnl"] > negative for item in minimum.json()["data"]["items"])
+
+    maximum = client.get(f"/api/positions/history?max_net_pnl={negative}&page_size=200")
+    assert maximum.status_code == 200
+    assert maximum.json()["data"]["total"] == sum(value < negative for value in all_pnls)
+    assert all(item["net_pnl"] < negative for item in maximum.json()["data"]["items"])
+
+    bounds = f"min_net_pnl={negative}&max_net_pnl={positive}"
+    expected = [value for value in all_pnls if negative < value < positive]
+    first_page = client.get(f"/api/positions/history?{bounds}&page_size=1")
+    assert first_page.status_code == 200
+    assert first_page.json()["data"]["total"] == len(expected)
+    assert len(first_page.json()["data"]["items"]) == min(len(expected), 1)
+    bootstrap = client.get(f"/api/positions/history/bootstrap?{bounds}&page_size=1")
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["data"]["history"] == first_page.json()["data"]
+    losses = client.get(f"/api/positions/history?{bounds}&pnl_result=LOSS&page_size=200")
+    assert losses.status_code == 200
+    assert losses.json()["data"]["total"] == sum(value < 0 for value in expected)
+    assert all(item["net_pnl"] < 0 for item in losses.json()["data"]["items"])
+    exported = client.get(f"/api/positions/history/export?{bounds}")
+    assert exported.status_code == 200
+    csv_rows = list(csv.DictReader(io.StringIO(exported.text)))
+    assert len(csv_rows) == len(expected)
+    assert all(negative < float(row["net_pnl"]) < positive for row in csv_rows)
+
+    assert client.get("/api/positions/history?min_net_pnl=NaN").status_code == 422
 
 
 def test_api_key_validation_does_not_echo_secret(authenticated):
