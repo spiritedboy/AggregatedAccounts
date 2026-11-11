@@ -72,3 +72,34 @@ sudo cat /etc/cron.d/aggregated-accounts-health-check
 飞书消息采用单列卡片布局，根据正常、关注、异常显示绿色、橙色或红色标题。异常与告警
 优先展示，详细信息按系统、服务、数据库和备份分区，并提供打开资产看板的整行按钮；不使用
 手机端容易挤压的多列字段。
+
+## 每日已平仓收益汇总
+
+`scripts/daily-pnl-report.sh` 在北京时间每天 01:00 汇总**前一自然日**已平仓记录。
+例如 2026-11-11 01:00 推送 2026-11-10 的数据。与历史仓位页一致，按平仓时间筛选，
+每页读取 50 条并继续翻页直到全部获取；不会只统计第一页。消息包含净收益、盈亏笔数、
+盈利/亏损合计与交易所分布，点击可打开当天 `/history?start=YYYY-MM-DD&end=YYYY-MM-DD&page_size=50`。
+这是历史仓位 `net_pnl` 汇总，不包括未平仓收益或充值提现，也不等于账户当日权益变化。
+若数据分页不一致或有缺失金额，脚本失败且不推送不完整的数字。若源数据同步延迟，
+次日 01:00 之后才入库的平仓不在已发日报内，可指定日期手动重发。
+
+在生产机不受 Git 管理的 `.env` 中设置**另一个**飞书机器人 Webhook，不得与健康巡检相同：
+
+```dotenv
+FEISHU_DAILY_PNL_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME
+DAILY_PNL_API_BASE_URL=http://127.0.0.1:8000
+DAILY_PNL_PUBLIC_URL=https://www.bitboy.cn
+```
+
+先只读预览，再安装定时任务：
+
+```bash
+./scripts/daily-pnl-report.sh --no-send
+./scripts/daily-pnl-report.sh --date 2026-11-10 --no-send
+sudo ./scripts/install-daily-pnl-cron.sh
+sudo cat /etc/cron.d/aggregated-accounts-daily-pnl
+```
+
+cron 每小时整点检查一次北京时间，仅 01:00 执行报告，因此宿主机即便是 UTC 时区也能
+准确运行；日志为 `/var/log/aggregated-accounts-daily-pnl.log`，只保留 7 天。手动补发用
+`./scripts/daily-pnl-report.sh --date YYYY-MM-DD`，注意会向飞书再次发送消息。
