@@ -100,10 +100,10 @@ def amount(row: dict, key: str) -> Decimal:
 
 
 def summarize(rows: list[dict]) -> dict:
-    wins = losses = flats = 0
+    wins = losses = 0
     profit = loss = Decimal(0)
     exchanges: dict[str, dict] = defaultdict(lambda: {"count": 0, "net": Decimal(0)})
-    partial = 0
+    other_partial = 0
     for row in rows:
         pnl = amount(row, "net_pnl")
         exchange = str(row.get("exchange") or "未知交易所")
@@ -115,14 +115,12 @@ def summarize(rows: list[dict]) -> dict:
         elif pnl < 0:
             losses += 1
             loss -= pnl
-        else:
-            flats += 1
-        if row.get("data_completeness") == "PARTIAL":
-            partial += 1
+        if row.get("data_completeness") == "PARTIAL" and exchange.upper() != "BINANCE":
+            other_partial += 1
     return {
-        "count": len(rows), "wins": wins, "losses": losses, "flats": flats,
+        "count": len(rows), "wins": wins, "losses": losses,
         "profit": profit, "loss": loss, "net": profit - loss,
-        "exchanges": dict(sorted(exchanges.items())), "partial": partial,
+        "exchanges": dict(sorted(exchanges.items())), "other_partial": other_partial,
     }
 
 
@@ -133,29 +131,52 @@ def money(value: Decimal, *, signed: bool = True) -> str:
 def card(day: date, summary: dict, public_url: str) -> dict:
     net = summary["net"]
     template = "green" if net > 0 else "red" if net < 0 else "blue"
-    lines = [
-        f"**已平仓净收益：{money(net)} USDT**",
-        f"平仓 {summary['count']} 笔｜盈利 {summary['wins']}｜亏损 {summary['losses']}｜持平 {summary['flats']}",
-        f"盈利合计 +{money(summary['profit'], signed=False)}｜亏损合计 -{money(summary['loss'], signed=False)} USDT",
+    icon = "🟢" if net > 0 else "🔴" if net < 0 else "📋"
+    elements: list[dict] = [
+        {"tag": "markdown", "content": (
+            f"{icon} **当日已平仓净收益**\n\n"
+            f"**{money(net)} USDT**\n\n"
+            f"📊 平仓 {summary['count']} 笔 · 盈利 {summary['wins']} 笔 · 亏损 {summary['losses']} 笔"
+        ), "text_align": "left", "text_size": "normal_v2", "margin": "0px 0px 8px 0px"},
+        {"tag": "hr", "margin": "4px 0px"},
+        {"tag": "markdown", "content": (
+            "**💰 盈亏拆解**\n\n"
+            f"盈利合计　+{money(summary['profit'], signed=False)} USDT\n\n"
+            f"亏损合计　-{money(summary['loss'], signed=False)} USDT"
+        ), "text_align": "left", "text_size": "normal_v2", "margin": "8px 0px"},
     ]
     if summary["exchanges"]:
-        lines += ["**按交易所**"]
+        lines = ["**🏦 按交易所**"]
         for exchange, values in summary["exchanges"].items():
-            lines.append(f"{exchange}：{money(values['net'])} USDT（{values['count']} 笔）")
-    if summary["partial"]:
-        lines.append(f"⚠️ {summary['partial']} 笔记录标记为部分完整，金额仅供参考")
-    lines.append("口径：北京时间当日平仓的历史仓位 net_pnl 之和；不含未平仓收益、充值或提现，不等于账户当日权益变化。")
+            lines.append(f"{exchange}　{money(values['net'])} USDT · {values['count']} 笔")
+        elements.extend([
+            {"tag": "hr", "margin": "4px 0px"},
+            {"tag": "markdown", "content": "\n\n".join(lines), "text_align": "left",
+             "text_size": "normal_v2", "margin": "8px 0px"},
+        ])
+    if summary["other_partial"]:
+        elements.append({"tag": "markdown", "content": (
+            f"⚠️ 另有 {summary['other_partial']} 笔非 Binance 记录标记为部分完整，金额仅供参考"
+        ), "text_align": "left", "text_size": "normal_v2", "margin": "8px 0px"})
+    elements.extend([
+        {"tag": "hr", "margin": "4px 0px"},
+        {"tag": "markdown", "content": (
+            "📌 口径：北京时间当日平仓的历史仓位净收益之和；"
+            "不含未平仓收益、充值或提现，不等于账户当日权益变化。"
+        ), "text_align": "left", "text_size": "normal_v2", "margin": "8px 0px"},
+    ])
     history_url = f"{public_url.rstrip('/')}/history?{urlencode({'start': day.isoformat(), 'end': day.isoformat(), 'page_size': PAGE_SIZE})}"
+    elements.append(
+        {"tag": "button", "text": {"tag": "plain_text", "content": "查看当日历史仓位"},
+         "type": "default", "width": "fill", "size": "medium", "margin": "4px 0px 0px 0px",
+         "behaviors": [{"type": "open_url", "default_url": history_url}]}
+    )
     return {
         "msg_type": "interactive",
         "card": {
             "schema": "2.0",
             "header": {"title": {"tag": "plain_text", "content": f"Atlas Ledger 平仓收益日报 · {day.isoformat()}"}, "template": template},
-            "body": {"direction": "vertical", "padding": "12px", "elements": [
-                {"tag": "markdown", "content": "\n".join(f"• {line}" for line in lines), "text_align": "left"},
-                {"tag": "button", "text": {"tag": "plain_text", "content": "查看当日历史仓位"},
-                 "type": "default", "width": "fill", "behaviors": [{"type": "open_url", "default_url": history_url}]},
-            ]},
+            "body": {"direction": "vertical", "padding": "12px", "elements": elements},
         },
     }
 

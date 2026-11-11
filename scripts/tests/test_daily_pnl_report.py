@@ -55,13 +55,20 @@ class DailyPnlReportTests(unittest.TestCase):
         rows = [
             {"net_pnl": "10.25", "exchange": "OKX"},
             {"net_pnl": "-4.50", "exchange": "BINANCE", "data_completeness": "PARTIAL"},
-            {"net_pnl": "0", "exchange": "OKX"},
         ]
         summary = report.summarize(rows)
         self.assertEqual(summary["net"], Decimal("5.75"))
-        self.assertEqual((summary["wins"], summary["losses"], summary["flats"]), (1, 1, 1))
-        self.assertEqual(summary["partial"], 1)
+        self.assertEqual((summary["wins"], summary["losses"]), (1, 1))
+        self.assertEqual(summary["other_partial"], 0)
         self.assertEqual(report.summarize([])["net"], Decimal(0))
+
+    def test_non_binance_partial_still_has_data_notice(self):
+        summary = report.summarize([
+            {"net_pnl": "-1", "exchange": "OKX", "data_completeness": "PARTIAL"},
+        ])
+        self.assertEqual(summary["other_partial"], 1)
+        elements = report.card(date(2026, 11, 10), summary, "https://www.bitboy.cn")["card"]["body"]["elements"]
+        self.assertTrue(any("部分完整" in element.get("content", "") for element in elements))
 
     def test_missing_financial_value_rejected(self):
         with self.assertRaisesRegex(ValueError, "缺少 net_pnl"):
@@ -74,9 +81,21 @@ class DailyPnlReportTests(unittest.TestCase):
         self.assertEqual(payload["card"]["header"]["template"], "red")
         elements = payload["card"]["body"]["elements"]
         self.assertEqual(elements[0]["tag"], "markdown")
-        self.assertIn("已平仓净收益：-12.34", elements[0]["content"])
+        self.assertIn("🔴", elements[0]["content"])
+        self.assertIn("-12.34 USDT", elements[0]["content"])
+        self.assertIn("\n\n", elements[0]["content"])
+        self.assertNotIn("持平", str(payload))
         self.assertIn("start=2026-11-10&end=2026-11-10&page_size=50",
-                      elements[1]["behaviors"][0]["default_url"])
+                      elements[-1]["behaviors"][0]["default_url"])
+
+    def test_profit_card_is_green_and_binance_partial_is_not_warned(self):
+        summary = report.summarize([
+            {"net_pnl": "12.34", "exchange": "BINANCE", "data_completeness": "PARTIAL"},
+        ])
+        payload = report.card(date(2026, 11, 10), summary, "https://www.bitboy.cn")
+        self.assertEqual(payload["card"]["header"]["template"], "green")
+        self.assertIn("🟢", payload["card"]["body"]["elements"][0]["content"])
+        self.assertNotIn("⚠️", str(payload))
 
 
 if __name__ == "__main__":
