@@ -59,16 +59,18 @@ class DailyPnlReportTests(unittest.TestCase):
         summary = report.summarize(rows)
         self.assertEqual(summary["net"], Decimal("5.75"))
         self.assertEqual((summary["wins"], summary["losses"]), (1, 1))
-        self.assertEqual(summary["other_partial"], 0)
         self.assertEqual(report.summarize([])["net"], Decimal(0))
 
-    def test_non_binance_partial_still_has_data_notice(self):
+    def test_all_partial_records_are_counted_without_notice(self):
         summary = report.summarize([
             {"net_pnl": "-1", "exchange": "OKX", "data_completeness": "PARTIAL"},
+            {"net_pnl": "2", "exchange": "BINANCE", "data_completeness": "PARTIAL"},
         ])
-        self.assertEqual(summary["other_partial"], 1)
-        elements = report.card(date(2026, 11, 10), summary, "https://www.bitboy.cn")["card"]["body"]["elements"]
-        self.assertTrue(any("部分完整" in element.get("content", "") for element in elements))
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["net"], Decimal("1"))
+        payload = report.card(date(2026, 11, 10), summary, "https://www.bitboy.cn")
+        self.assertNotIn("部分完整", str(payload))
+        self.assertNotIn("口径", str(payload))
 
     def test_missing_financial_value_rejected(self):
         with self.assertRaisesRegex(ValueError, "缺少 net_pnl"):
@@ -85,6 +87,7 @@ class DailyPnlReportTests(unittest.TestCase):
         self.assertIn("-12.34 USDT", elements[0]["content"])
         self.assertIn("\n\n", elements[0]["content"])
         self.assertNotIn("持平", str(payload))
+        self.assertNotIn("口径", str(payload))
         self.assertIn("start=2026-11-10&end=2026-11-10&page_size=50",
                       elements[-1]["behaviors"][0]["default_url"])
 

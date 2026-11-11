@@ -103,7 +103,6 @@ def summarize(rows: list[dict]) -> dict:
     wins = losses = 0
     profit = loss = Decimal(0)
     exchanges: dict[str, dict] = defaultdict(lambda: {"count": 0, "net": Decimal(0)})
-    other_partial = 0
     for row in rows:
         pnl = amount(row, "net_pnl")
         exchange = str(row.get("exchange") or "未知交易所")
@@ -115,12 +114,10 @@ def summarize(rows: list[dict]) -> dict:
         elif pnl < 0:
             losses += 1
             loss -= pnl
-        if row.get("data_completeness") == "PARTIAL" and exchange.upper() != "BINANCE":
-            other_partial += 1
     return {
         "count": len(rows), "wins": wins, "losses": losses,
         "profit": profit, "loss": loss, "net": profit - loss,
-        "exchanges": dict(sorted(exchanges.items())), "other_partial": other_partial,
+        "exchanges": dict(sorted(exchanges.items())),
     }
 
 
@@ -154,17 +151,6 @@ def card(day: date, summary: dict, public_url: str) -> dict:
             {"tag": "markdown", "content": "\n\n".join(lines), "text_align": "left",
              "text_size": "normal_v2", "margin": "8px 0px"},
         ])
-    if summary["other_partial"]:
-        elements.append({"tag": "markdown", "content": (
-            f"⚠️ 另有 {summary['other_partial']} 笔非 Binance 记录标记为部分完整，金额仅供参考"
-        ), "text_align": "left", "text_size": "normal_v2", "margin": "8px 0px"})
-    elements.extend([
-        {"tag": "hr", "margin": "4px 0px"},
-        {"tag": "markdown", "content": (
-            "📌 口径：北京时间当日平仓的历史仓位净收益之和；"
-            "不含未平仓收益、充值或提现，不等于账户当日权益变化。"
-        ), "text_align": "left", "text_size": "normal_v2", "margin": "8px 0px"},
-    ])
     history_url = f"{public_url.rstrip('/')}/history?{urlencode({'start': day.isoformat(), 'end': day.isoformat(), 'page_size': PAGE_SIZE})}"
     elements.append(
         {"tag": "button", "text": {"tag": "plain_text", "content": "查看当日历史仓位"},
