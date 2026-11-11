@@ -43,6 +43,7 @@ function HistoryContent() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [netPnlSort, setNetPnlSort] = useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
@@ -51,7 +52,7 @@ function HistoryContent() {
   const { formatMoney, formatSignedMoney } = useCurrency();
 
   const params = useCallback(() => {
-    const query = new URLSearchParams({ page: String(page), page_size: "20" });
+    const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (exchange) query.set("exchange", exchange);
     if (accountId) query.set("account_id", accountId);
     if (side) query.set("side", side);
@@ -63,7 +64,7 @@ function HistoryContent() {
     if (start) query.set("start_time", new Date(`${start}T00:00:00`).toISOString());
     if (end) query.set("end_time", new Date(`${end}T23:59:59`).toISOString());
     return query;
-  }, [accountId, completeness, end, exchange, maxNetPnl, minNetPnl, page, pnlResult, side, start, symbol]);
+  }, [accountId, completeness, end, exchange, maxNetPnl, minNetPnl, page, pageSize, pnlResult, side, start, symbol]);
 
   const load = useCallback(() => {
     const requestId = ++latestRequest.current;
@@ -95,6 +96,8 @@ function HistoryContent() {
       setEnd(query.get("end") ?? "");
       const nextPage = Number(query.get("page"));
       if (Number.isInteger(nextPage) && nextPage > 0) setPage(nextPage);
+      const nextPageSize = Number(query.get("page_size"));
+      if ([20, 50, 100].includes(nextPageSize)) setPageSize(nextPageSize);
       const sort = query.get("sort");
       if (sort === "asc" || sort === "desc") setNetPnlSort(sort);
     }
@@ -116,6 +119,7 @@ function HistoryContent() {
     start,
     end,
     page,
+    page_size: pageSize === 20 ? "" : pageSize,
     sort: netPnlSort === "none" ? "" : netPnlSort,
   });
   const sortedItems = useMemo(() => {
@@ -171,7 +175,7 @@ function HistoryContent() {
       <PageHeader
         eyebrow="交易足迹"
         title="历史仓位"
-        description={result ? `${result.total} 条历史记录 · 当前页净收益 ${formatSignedMoney(pageNetPnl)} · 每页 20 条` : "正在读取已关闭仓位…"}
+        description={result ? `${result.total} 条历史记录 · 当前页净收益 ${formatSignedMoney(pageNetPnl)} · 每页 ${pageSize} 条` : "正在读取已关闭仓位…"}
         action={
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto md:justify-end">
             <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
@@ -263,11 +267,26 @@ function HistoryContent() {
       />
 
       {result && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
-          <p className="muted text-xs">
-            共 <span className="mono-number font-semibold text-[var(--text)]">{result.total}</span> 条历史记录
-          </p>
-          {activeFilterCount > 0 ? <span className="mono-number text-[10px] text-[var(--accent)]">{activeFilterCount} FILTERS</span> : null}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="muted text-xs">
+              共 <span className="mono-number font-semibold text-[var(--text)]">{result.total}</span> 条历史记录
+            </p>
+            {activeFilterCount > 0 ? <span className="mono-number text-[10px] text-[var(--accent)]">{activeFilterCount} FILTERS</span> : null}
+          </div>
+          <label className="muted flex items-center gap-2 text-xs">
+            每页
+            <select
+              aria-label="每页条数"
+              className="input mono-number min-h-9 w-20 py-1 text-xs"
+              value={pageSize}
+              onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }}
+            >
+              <option value={20}>20 条</option>
+              <option value={50}>50 条</option>
+              <option value={100}>100 条</option>
+            </select>
+          </label>
         </div>
       )}
 
@@ -466,10 +485,10 @@ function HistoryContent() {
             ))}
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="muted text-xs">第 {page} 页 · 每页 20 条</p>
+            <p className="muted text-xs">第 {page} 页 · 每页 {pageSize} 条</p>
             <div className="flex gap-2">
               <button type="button" className="button-secondary" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
-              <button type="button" className="button-secondary" disabled={page * 20 >= result.total} onClick={() => setPage((value) => value + 1)}>下一页</button>
+              <button type="button" className="button-secondary" disabled={page * pageSize >= result.total} onClick={() => setPage((value) => value + 1)}>下一页</button>
             </div>
           </div>
         </>

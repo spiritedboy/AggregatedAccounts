@@ -750,6 +750,7 @@ describe("portfolio pages", () => {
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("每页条数")).toHaveValue("20");
     expect(screen.getAllByText("做多")).not.toHaveLength(0);
     expect(screen.getAllByText("做空")).not.toHaveLength(0);
     expect(screen.queryByText("LONG")).not.toBeInTheDocument();
@@ -772,6 +773,62 @@ describe("portfolio pages", () => {
     await user.click(screen.getByRole("button", { name: /净收益排序：升序/ }));
     rows = screen.getAllByRole("row").slice(1);
     expect(within(rows[0]).getByText("CXMT-USDT-PERP")).toBeInTheDocument();
+  });
+
+  it("restores history page size from the URL and resets pagination when changed", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/history?page=2&page_size=50&exchange=BINANCE");
+    const sample = {
+      id: "history-page-size",
+      exchange: "BINANCE",
+      symbol: "BTCUSDT",
+      normalized_symbol: "BTC-USDT-PERP",
+      side: "LONG",
+      open_time: "2026-07-01T00:00:00Z",
+      close_time: "2026-07-02T00:00:00Z",
+      average_entry_price: 100,
+      average_exit_price: 110,
+      max_position_size: 1,
+      realized_pnl: 10,
+      funding_fee: 0,
+      trading_fee: 0,
+      net_pnl: 10,
+      leverage: 2,
+      margin_used: 50,
+      return_percent: 20,
+      data_source: "EXCHANGE_API",
+      data_completeness: "COMPLETE",
+      tracking_started_at: "2026-07-01T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.includes("/api/auth/status")) return envelope({ authenticated: true });
+      if (url.pathname.includes("/api/positions/history/bootstrap")) {
+        return envelope({ accounts: [account], history: { items: [sample], total: 75 } });
+      }
+      return envelope({});
+    }));
+
+    render(<HistoryPage />);
+    const selector = await screen.findByLabelText("每页条数");
+    expect(selector).toHaveValue("50");
+    expect(screen.getByText("第 2 页 · 每页 50 条")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+
+    await user.selectOptions(selector, "100");
+    await waitFor(() => {
+      expect(window.location.search).toContain("page_size=100");
+      expect(window.location.search).not.toContain("page=2");
+      expect(window.location.search).toContain("exchange=BINANCE");
+      expect(screen.getByText("第 1 页 · 每页 100 条")).toBeInTheDocument();
+    });
+    await user.selectOptions(selector, "20");
+    await waitFor(() => {
+      expect(window.location.search).not.toContain("page_size=");
+      expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled();
+      const requests = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(requests.some((path) => path.includes("page=1&page_size=20"))).toBe(true);
+    });
   });
 
   it("recalculates the current-page PnL summary after filtering", async () => {
