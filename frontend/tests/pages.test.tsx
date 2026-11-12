@@ -748,6 +748,7 @@ describe("portfolio pages", () => {
     expect(screen.queryByText("杠杆数据不足")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "历史仓位收益率计算说明" })).not.toHaveLength(0);
     expect(screen.getByLabelText("盈亏")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "持平" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("账户")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /导出 CSV/ })).toBeInTheDocument();
     expect(screen.getByLabelText("每页条数")).toHaveValue("20");
@@ -829,6 +830,28 @@ describe("portfolio pages", () => {
       const requests = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
       expect(requests.some((path) => path.includes("page=1&page_size=20"))).toBe(true);
     });
+  });
+
+  it("drops a legacy breakeven URL filter without hiding historical trades", async () => {
+    window.history.replaceState({}, "", "/history?result=BREAKEVEN&page=3&exchange=OKX");
+    installFetch({
+      "/api/positions/history/bootstrap": {
+        accounts: [account],
+        history: { items: [], total: 0 },
+      },
+    });
+
+    render(<HistoryPage />);
+    await waitFor(() => {
+      const requests = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(requests.some((path) => path.includes("/api/positions/history/bootstrap?page=1&page_size=20&exchange=OKX"))).toBe(true);
+      expect(requests.every((path) => !path.includes("pnl_result=BREAKEVEN"))).toBe(true);
+      expect(window.location.search).toContain("exchange=OKX");
+      expect(window.location.search).not.toContain("result=");
+      expect(window.location.search).not.toContain("page=3");
+    });
+    expect(screen.getByLabelText("盈亏")).toHaveValue("");
+    expect(screen.queryByRole("option", { name: "持平" })).not.toBeInTheDocument();
   });
 
   it("recalculates the current-page PnL summary after filtering", async () => {

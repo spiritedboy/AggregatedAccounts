@@ -87,7 +87,9 @@ function HistoryContent() {
       setExchange(query.get("exchange") ?? "");
       setAccountId(query.get("account") ?? "");
       setSide(query.get("side") ?? "");
-      setPnlResult(query.get("result") ?? "");
+      const savedResult = query.get("result") ?? "";
+      const supportedResult = savedResult === "" || savedResult === "PROFIT" || savedResult === "LOSS";
+      setPnlResult(supportedResult ? savedResult : "");
       setMinNetPnl(query.get("min_net_pnl") ?? "");
       setMaxNetPnl(query.get("max_net_pnl") ?? "");
       setCompleteness(query.get("completeness") ?? "");
@@ -95,7 +97,8 @@ function HistoryContent() {
       setStart(query.get("start") ?? "");
       setEnd(query.get("end") ?? "");
       const nextPage = Number(query.get("page"));
-      if (Number.isInteger(nextPage) && nextPage > 0) setPage(nextPage);
+      if (!supportedResult) setPage(1);
+      else if (Number.isInteger(nextPage) && nextPage > 0) setPage(nextPage);
       const nextPageSize = Number(query.get("page_size"));
       if ([20, 50, 100].includes(nextPageSize)) setPageSize(nextPageSize);
       const sort = query.get("sort");
@@ -224,7 +227,6 @@ function HistoryContent() {
           <option value="">全部盈亏</option>
           <option value="PROFIT">盈利</option>
           <option value="LOSS">亏损</option>
-          <option value="BREAKEVEN">持平</option>
         </Select>
         <label>
           <span className="sr-only">最低净收益（USD，严格大于）</span>
