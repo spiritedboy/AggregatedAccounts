@@ -10,10 +10,10 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, desc, exists, func, or_, select, text, true
+from sqlalchemy import and_, desc, exists, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import (
     AccountBalanceSnapshot,
     AppSession,
@@ -62,6 +62,7 @@ from app.services.position_math import position_margin_used
 router = APIRouter(prefix="/api")
 REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 DASHBOARD_SCHEMA_VERSION = 3
+HISTORY_EXPORT_BATCH_SIZE = 500
 
 
 def _num(value: Decimal | float | None) -> float:
@@ -1054,6 +1055,11 @@ def _history_query(
     return query
 
 
+def _history_order():
+    """Use a unique tie-breaker so equal close times never reshuffle between pages."""
+    return (ClosedPosition.close_time.desc(), ClosedPosition.id.desc())
+
+
 @router.get("/positions/history")
 async def position_history(
     exchange: str | None = None,
@@ -1126,7 +1132,7 @@ async def _position_history_data(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
         await db.scalars(
-            query.order_by(ClosedPosition.close_time.desc())
+            query.order_by(*_history_order())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -1202,29 +1208,7 @@ async def export_history(
     min_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
     max_net_pnl: Decimal | None = Query(default=None, allow_inf_nan=False),
     _: AppSession = Depends(require_session),
-    db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    rows = (
-        await db.scalars(
-            _history_query(
-                exchange,
-                account_id,
-                symbol,
-                side,
-                pnl_result,
-                completeness,
-                start_time,
-                end_time,
-                min_net_pnl,
-                max_net_pnl,
-            )
-            .order_by(ClosedPosition.close_time.desc())
-            .limit(10_000)
-        )
-    ).all()
-    translations = await _polymarket_translation_map(db, rows)
-    output = io.StringIO()
-    writer = csv.writer(output)
     headers = [
         "exchange",
         "symbol",
@@ -1237,28 +1221,69 @@ async def export_history(
         "return_percent",
         "data_source",
     ]
-    writer.writerow(headers)
-    for row in rows:
-        item = _closed_dict(
-            row,
-            translations.get(_polymarket_asset_id(row) or ""),
-        )
-        writer.writerow(
-            [
-                _safe_csv(item["exchange"]),
-                _safe_csv(item["display_symbol"]),
-                item["side"],
-                item["open_time"],
-                item["close_time"],
-                item["average_entry_price"],
-                item["average_exit_price"],
-                item["net_pnl"],
-                item["return_percent"],
-                item["data_source"],
-            ]
-        )
+
+    async def csv_chunks():
+        # A dedicated session stays alive until streaming finishes. The repeatable-read
+        # snapshot prevents background syncs from shifting rows between export batches.
+        async with SessionLocal() as db:
+            await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+            base_query = _history_query(
+                exchange,
+                account_id,
+                symbol,
+                side,
+                pnl_result,
+                completeness,
+                start_time,
+                end_time,
+                min_net_pnl,
+                max_net_pnl,
+            )
+            cursor: tuple[datetime, uuid.UUID] | None = None
+            first_batch = True
+            while True:
+                query = base_query
+                if cursor is not None:
+                    query = query.where(
+                        tuple_(ClosedPosition.close_time, ClosedPosition.id) < cursor
+                    )
+                rows = (
+                    await db.scalars(
+                        query.order_by(*_history_order()).limit(HISTORY_EXPORT_BATCH_SIZE)
+                    )
+                ).all()
+                output = io.StringIO()
+                writer = csv.writer(output)
+                if first_batch:
+                    writer.writerow(headers)
+                    first_batch = False
+                translations = await _polymarket_translation_map(db, rows)
+                for row in rows:
+                    item = _closed_dict(
+                        row,
+                        translations.get(_polymarket_asset_id(row) or ""),
+                    )
+                    writer.writerow(
+                        [
+                            _safe_csv(item["exchange"]),
+                            _safe_csv(item["display_symbol"]),
+                            item["side"],
+                            item["open_time"],
+                            item["close_time"],
+                            item["average_entry_price"],
+                            item["average_exit_price"],
+                            item["net_pnl"],
+                            item["return_percent"],
+                            item["data_source"],
+                        ]
+                    )
+                yield output.getvalue()
+                if len(rows) < HISTORY_EXPORT_BATCH_SIZE:
+                    break
+                cursor = (rows[-1].close_time, rows[-1].id)
+
     return StreamingResponse(
-        iter([output.getvalue()]),
+        csv_chunks(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="position-history.csv"'},
     )

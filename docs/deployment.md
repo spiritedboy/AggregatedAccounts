@@ -493,6 +493,26 @@ sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 curl -fsS http://127.0.0.1:8000/api/health | jq .
 curl -fsS https://assets.example.com/api/health | jq .
+curl -fsS -o /dev/null http://127.0.0.1:8000/history
+```
+
+gateway 使用 Docker 内置 DNS 动态解析 frontend 和 backend 容器地址（最多缓存 1 秒）。
+只更新前端时先构建镜像，再替换前端容器；待 frontend 为 `healthy` 后验证 `/history`，
+无需重启 gateway：
+
+```bash
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml build frontend
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --no-build frontend
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+curl -fsS -o /dev/null http://127.0.0.1:8000/history
+```
+
+修改 `gateway/nginx.conf` 时先验证配置，再更新 gateway：
+
+```bash
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml build gateway
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps gateway nginx -t
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --no-build gateway
 ```
 
 不要使用 `git reset --hard`、删除 PostgreSQL 数据目录、重新创建生产数据库或执行
