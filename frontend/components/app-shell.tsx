@@ -27,6 +27,7 @@ import {
   useState,
 } from "react";
 import { money, signedMoney, type DisplayCurrency } from "@/lib/format";
+import { beijingDateKey, millisecondsUntilNextBeijingDay } from "@/lib/report-time";
 import { BackToTop } from "@/components/back-to-top";
 
 const THEME_STORAGE_KEY = "atlas-theme";
@@ -173,10 +174,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     let cancelled = false;
     let midnightTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const localDate = () => {
-      const now = new Date();
-      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    };
     const refreshRate = async () => {
       try {
         const response = await fetch(USD_CNY_RATE_URL, { cache: "no-store" });
@@ -185,7 +182,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         const nextRate = Number(payload.rates?.CNY);
         if (!Number.isFinite(nextRate) || nextRate <= 0) throw new Error("汇率响应无效");
         if (cancelled) return;
-        const nextDate = localDate();
+        const nextDate = beijingDateKey();
         setUsdCnyRate(nextRate);
         setRateReady(true);
         setRateDate(payload.date ?? nextDate);
@@ -196,17 +193,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
     };
     const scheduleMidnightRefresh = () => {
-      const now = new Date();
-      const nextMidnight = new Date(now);
-      nextMidnight.setHours(24, 0, 0, 0);
       midnightTimer = setTimeout(async () => {
         await refreshRate();
         scheduleMidnightRefresh();
-      }, nextMidnight.getTime() - now.getTime());
+      }, millisecondsUntilNextBeijingDay());
     };
 
     const cachedDate = window.localStorage.getItem(USD_CNY_RATE_DATE_STORAGE_KEY);
-    if (cachedDate !== localDate()) void refreshRate();
+    if (cachedDate !== beijingDateKey()) void refreshRate();
     scheduleMidnightRefresh();
     return () => {
       cancelled = true;
@@ -270,6 +264,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <CurrencyContext.Provider value={currencyContext}>
       <div className="min-h-screen lg:grid lg:grid-cols-[224px_1fr]">
+        <a href="#main-content" className="sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[80] focus:not-sr-only focus:rounded-lg focus:bg-[var(--surface)] focus:px-4 focus:py-3 focus:text-[var(--text)] focus:shadow-lg">跳转到主内容</a>
         <aside
           className="sticky top-0 hidden h-screen border-r bg-[var(--surface)] px-3 py-5 lg:flex lg:flex-col"
           style={{
@@ -340,9 +335,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="mr-1 hidden items-center gap-2 text-[10px] sm:flex" aria-label="数据同步周期 60 秒">
+              <div className="mr-1 hidden items-center gap-2 text-[10px] sm:flex" aria-label="页面刷新周期 60 秒">
                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--positive)]" />
-                <span className="mono-number font-semibold tracking-[0.08em] text-[var(--muted)]">SYNC · 60S</span>
+                <span className="mono-number font-semibold tracking-[0.08em] text-[var(--muted)]">REFRESH · 60S</span>
               </div>
               <button
                 type="button"
@@ -365,7 +360,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </header>
 
-          <main className="mx-auto w-full min-w-0 max-w-[1540px] overflow-x-clip px-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-4 md:px-6 md:pb-8 md:pt-5 xl:px-8">
+          <main id="main-content" tabIndex={-1} className="mx-auto w-full min-w-0 max-w-[1540px] overflow-x-clip px-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-4 md:px-6 md:pb-8 md:pt-5 xl:px-8">
             {children}
           </main>
         </div>

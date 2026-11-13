@@ -16,7 +16,7 @@ import { PositionLabel } from "@/components/position-label";
 import { ProtectedPage } from "@/components/protected-page";
 import { Badge, EmptyState, ErrorState, ExchangeMark, Skeleton } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { categoryAxisInterval, compactAxisMoney } from "@/lib/chart";
+import { categoryAxisInterval, compactAxisMoney, numericRange } from "@/lib/chart";
 import { connectionDisplayName, dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
 import type { DashboardBootstrapData, DashboardData, EquityCurveData, EquityCurveRange, Position, RiskData } from "@/lib/types";
 
@@ -41,10 +41,10 @@ function toneClass(tone: Tone) {
 function positionName(position: Position) {
   return position.display_symbol || position.normalized_symbol || position.symbol;
 }
-function portfolioUpdatedAt(data: DashboardData, fallback: string | null) {
+function portfolioUpdatedAt(data: DashboardData) {
   const values = [data.last_updated_at, data.positions_updated_at]
     .filter((value): value is string => Boolean(value));
-  if (values.length === 0) return fallback;
+  if (values.length === 0) return null;
   return values.reduce((oldest, value) => new Date(value) < new Date(oldest) ? value : oldest);
 }
 
@@ -228,7 +228,12 @@ function DashboardContent() {
   const briefItems = buildTodayBrief(data, risk, formatSignedMoney);
   const nearestLiquidation = risk.liquidation_risks[0] ?? null;
   const todayTone = pnlTone(data.today.net_return);
-  const dataUpdatedAt = portfolioUpdatedAt(data, lastLoadedAt);
+  const dataUpdatedAt = portfolioUpdatedAt(data);
+  const equityValues = curve.points.map((point) => point.equity);
+  const equityRange = numericRange(equityValues);
+  const equityDescription = equityValues.length === 0
+    ? "暂无可用净值采样点。"
+    : `共 ${equityValues.length} 个采样点；起点权益 ${formatMoney(equityValues[0])}，终点权益 ${formatMoney(equityValues[equityValues.length - 1])}，最低 ${formatMoney(equityRange!.min)}，最高 ${formatMoney(equityRange!.max)}。`;
   return <>
     {data.demo_mode && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-strong)]"><ShieldAlert className="h-4 w-4" />当前为演示数据，与真实账户数据严格隔离</div>}
 
@@ -238,7 +243,7 @@ function DashboardContent() {
         <h1 className="mt-2 font-[var(--font-display)] text-[30px] font-extrabold tracking-[-0.045em] md:text-[34px]">今日驾驶舱</h1>
         <p className="muted mt-1 text-sm">先看收益与风险，再决定今天需要关注什么。</p>
       </div>
-      <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={dataUpdatedAt} />
+      <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={dataUpdatedAt} lastFetchedAt={lastLoadedAt} />
     </header>
 
     <section className="cockpit-overview" aria-label="今日核心指标">
@@ -290,7 +295,7 @@ function DashboardContent() {
           <div><p className="section-label">净值曲线</p><p className="muted mt-1 text-xs">底层每 5 分钟采样 · 当前显示精度 {curve.resolution}</p><p className={`mono-number mt-2 text-sm font-semibold ${curve.change.amount === null ? "muted" : toneClass(pnlTone(curve.change.amount))}`}>净值变化：{curve.change.amount === null ? "—" : formatSignedMoney(curve.change.amount)} ({signedPercent(curve.change.percent)})</p></div>
           <div className="inline-flex max-w-full self-start overflow-x-auto rounded-[10px] border p-1" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>{curveRanges.map((item) => <button key={item.value} type="button" aria-pressed={curveRange === item.value} className={`min-h-10 shrink-0 rounded-[7px] px-3 text-xs font-semibold transition ${curveRange === item.value ? "bg-[var(--accent)] text-white" : "muted hover:bg-[var(--surface)] hover:text-[var(--text)]"}`} onClick={() => setCurveRange(item.value)}>{item.label}</button>)}</div>
         </div>
-        <div className="mt-3"><Chart option={equityOption} height={300} mobileHeight={248} ariaLabel="账户净值曲线" /></div>
+        <div className="mt-3"><Chart option={equityOption} height={300} mobileHeight={248} ariaLabel="账户净值曲线" description={equityDescription} /></div>
       </article>
       <TodayBreakdown data={data} formatMoney={formatSignedMoney} />
     </section>

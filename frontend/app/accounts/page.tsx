@@ -67,11 +67,11 @@ function AccountsContent() {
     accounts?.reduce<string | null>(
       (latest, account) =>
         account.last_synced_at &&
-        (!latest || Date.parse(account.last_synced_at) > Date.parse(latest))
+        (!latest || Date.parse(account.last_synced_at) < Date.parse(latest))
           ? account.last_synced_at
           : latest,
       null,
-    ) ?? lastLoadedAt;
+    );
 
   return (
     <>
@@ -85,7 +85,7 @@ function AccountsContent() {
               <Eye className="mr-1 h-3 w-3" />
               公开只读
             </Badge>
-            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastUpdatedAt} />
+            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastUpdatedAt} lastFetchedAt={lastLoadedAt} />
           </div>
         }
       />

@@ -180,11 +180,11 @@ function PositionsContent() {
   const lastUpdatedAt =
     positions.reduce<string | null>(
       (latest, position) =>
-        !latest || Date.parse(position.update_time) > Date.parse(latest)
+        !latest || Date.parse(position.update_time) < Date.parse(latest)
           ? position.update_time
           : latest,
       null,
-    ) ?? lastLoadedAt;
+    );
   const grossExposure = positions.reduce(
     (total, position) => total + Math.abs(position.position_value_usd),
     0,
@@ -206,7 +206,7 @@ function PositionsContent() {
               <SlidersHorizontal className="mr-1 h-3 w-3" />
               只读
             </Badge>
-            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastUpdatedAt} />
+            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastUpdatedAt} lastFetchedAt={lastLoadedAt} />
           </div>
         }
       />

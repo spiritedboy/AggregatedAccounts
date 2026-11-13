@@ -22,7 +22,7 @@ import { ExpandableText } from "@/components/expandable-text";
 import { ProtectedPage } from "@/components/protected-page";
 import { EmptyState, ErrorState, LoadingState, MetricCard, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { categoryAxisInterval, compactAxisMoney } from "@/lib/chart";
+import { categoryAxisInterval, compactAxisMoney, numericRange } from "@/lib/chart";
 import { compactDate, exchangeDisplayName } from "@/lib/format";
 import type {
   BehaviorAnalysis,
@@ -179,7 +179,7 @@ function PnlContent() {
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="mono-number text-[10px] font-semibold tracking-[0.06em] text-[var(--muted)]">UTC+8 · {data.behavior.trade_count} TRADES</span>
-            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
+            <AutoRefreshStatus state={autoRefresh} lastFetchedAt={lastLoadedAt} />
           </div>
         }
       />
@@ -418,6 +418,16 @@ function OverviewPanel({
   ] as const;
   const activeDays = summary.profitable_days + summary.losing_days;
   const maxContribution = Math.max(...byExchange.map((item) => Math.abs(item.investment_return)), 1);
+  const cumulativeValues = daily.map((point) => point.cumulative_return);
+  const cumulativeRange = numericRange(cumulativeValues);
+  const cumulativeDescription = cumulativeValues.length === 0
+    ? "暂无累计收益数据。"
+    : `共 ${daily.length} 天；起点 ${formatSignedMoney(cumulativeValues[0])}，终点 ${formatSignedMoney(cumulativeValues[cumulativeValues.length - 1])}，最低 ${formatSignedMoney(cumulativeRange!.min)}，最高 ${formatSignedMoney(cumulativeRange!.max)}。`;
+  const periodValues = selected.map((point) => point.investment_return);
+  const periodValueRange = numericRange(periodValues);
+  const periodDescription = periodValues.length === 0
+    ? "暂无周期收益数据。"
+    : `共 ${periodValues.length} 个${{ daily: "日", weekly: "周", monthly: "月" }[curvePeriod]}周期；盈利 ${periodValues.filter((value) => value > 0).length} 个，亏损 ${periodValues.filter((value) => value < 0).length} 个；最高 ${formatSignedMoney(periodValueRange!.max)}，最低 ${formatSignedMoney(periodValueRange!.min)}。`;
 
   return (
     <div className="mt-4 space-y-4">
@@ -441,7 +451,7 @@ function OverviewPanel({
         <article className="panel p-5 md:p-6">
           <p className="section-label">累计权益收益曲线</p>
           <p className="muted mt-1 text-xs">当前权益 - 统计期初权益 - 净充值提现</p>
-          <Chart option={curveOption} height={310} mobileHeight={248} ariaLabel="累计权益收益曲线" />
+          <Chart option={curveOption} height={310} mobileHeight={248} ariaLabel="累计权益收益曲线" description={cumulativeDescription} />
         </article>
         <article className="panel p-5 md:p-6">
           <div className="flex items-center justify-between gap-3">
@@ -457,7 +467,7 @@ function OverviewPanel({
               ))}
             </div>
           </div>
-          <Chart option={barOption} height={310} mobileHeight={248} ariaLabel="周期收益柱状图" />
+          <Chart option={barOption} height={310} mobileHeight={248} ariaLabel="周期收益柱状图" description={periodDescription} />
         </article>
       </section>
 

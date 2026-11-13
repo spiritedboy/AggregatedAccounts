@@ -45,7 +45,20 @@ describe("automatic data refresh", () => {
         lastUpdatedAt={updatedAt}
       />,
     );
-    expect(screen.getByText("DEGRADED · 121s")).toBeInTheDocument();
+    expect(screen.getByText("DATA STALE · 121s")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "源数据已过期，立即刷新数据" })).not.toHaveAttribute("aria-live");
+  });
+
+  it("labels a successful page fetch separately from source freshness", () => {
+    const now = Date.parse("2026-07-26T00:03:00.000Z");
+    render(
+      <AutoRefreshStatus
+        state={{ nextRefreshAt: now + 30_000, now, refreshing: false, refreshNow: vi.fn() }}
+        lastFetchedAt="2026-07-26T00:02:55.000Z"
+      />,
+    );
+    expect(screen.getByText("FETCH · 5s")).toBeInTheDocument();
+    expect(screen.queryByText(/DATA STALE/)).not.toBeInTheDocument();
   });
 
   it("refreshes immediately when the status is clicked", async () => {

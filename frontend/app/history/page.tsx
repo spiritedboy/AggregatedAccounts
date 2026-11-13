@@ -13,6 +13,7 @@ import { readPageFilters, useUrlFilterSync } from "@/components/use-url-filter-s
 import { Badge, EmptyState, ErrorState, FilterPanel, LoadingState, PageHeader } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { dateTime, exchangeDisplayName, number, positionSideLabel, usd } from "@/lib/format";
+import { beijingDayEnd, beijingDayStart } from "@/lib/report-time";
 import type { ClosedPosition, ExchangeAccount } from "@/lib/types";
 
 type HistoryResult = { items: ClosedPosition[]; total: number };
@@ -61,8 +62,8 @@ function HistoryContent() {
     if (maxNetPnl !== "") query.set("max_net_pnl", maxNetPnl);
     if (completeness) query.set("completeness", completeness);
     if (symbol) query.set("symbol", symbol);
-    if (start) query.set("start_time", new Date(`${start}T00:00:00`).toISOString());
-    if (end) query.set("end_time", new Date(`${end}T23:59:59`).toISOString());
+    if (start) query.set("start_time", beijingDayStart(start));
+    if (end) query.set("end_time", beijingDayEnd(end));
     return query;
   }, [accountId, completeness, end, exchange, maxNetPnl, minNetPnl, page, pageSize, pnlResult, side, start, symbol]);
 
@@ -170,6 +171,8 @@ function HistoryContent() {
     const query = params();
     query.delete("page");
     query.delete("page_size");
+    // This URL returns a CSV attachment, not an internal page for client-side routing.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/api/positions/history/export?${query}`);
   }
 
@@ -181,7 +184,7 @@ function HistoryContent() {
         description={result ? `${result.total} 条历史记录 · 当前页净收益 ${formatSignedMoney(pageNetPnl)} · 每页 ${pageSize} 条` : "正在读取已关闭仓位…"}
         action={
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto md:justify-end">
-            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
+            <AutoRefreshStatus state={autoRefresh} lastFetchedAt={lastLoadedAt} />
             <button type="button" className="button-secondary" onClick={exportCsv}>
               <Download className="h-4 w-4" />
               导出 CSV

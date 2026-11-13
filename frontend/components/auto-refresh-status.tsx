@@ -80,23 +80,36 @@ export function useAutoRefresh(
 export function AutoRefreshStatus({
   state,
   lastUpdatedAt,
+  lastFetchedAt,
 }: {
   state: AutoRefreshState;
   lastUpdatedAt?: string | null;
+  lastFetchedAt?: string | null;
 }) {
   const stale = isDataStale(lastUpdatedAt, state.now);
   const seconds = Math.max(0, Math.ceil((state.nextRefreshAt - state.now) / 1_000));
-  const updatedAt = lastUpdatedAt ? Date.parse(lastUpdatedAt) : Number.NaN;
-  const ageSeconds = Number.isFinite(updatedAt)
-    ? Math.max(0, Math.floor((state.now - updatedAt) / 1_000))
+  const sourceAt = lastUpdatedAt ? Date.parse(lastUpdatedAt) : Number.NaN;
+  const fetchedAt = lastFetchedAt ? Date.parse(lastFetchedAt) : Number.NaN;
+  const sourceAgeSeconds = Number.isFinite(sourceAt)
+    ? Math.max(0, Math.floor((state.now - sourceAt) / 1_000))
+    : null;
+  const fetchedAgeSeconds = Number.isFinite(fetchedAt)
+    ? Math.max(0, Math.floor((state.now - fetchedAt) / 1_000))
     : null;
   const statusText = stale
-    ? `DEGRADED · ${ageSeconds ?? "—"}s`
+    ? `DATA STALE · ${sourceAgeSeconds ?? "—"}s`
     : state.refreshing
-      ? "SYNCING"
-      : ageSeconds === null
-        ? `NEXT SYNC · ${seconds}s`
-        : `LAST SYNC · ${ageSeconds}s`;
+      ? "FETCHING"
+      : sourceAgeSeconds !== null
+        ? `SOURCE · ${sourceAgeSeconds}s`
+        : fetchedAgeSeconds !== null
+          ? `FETCH · ${fetchedAgeSeconds}s`
+          : `NEXT FETCH · ${seconds}s`;
+
+  const timeDescription = [
+    lastFetchedAt ? `页面取数 ${dateTime(lastFetchedAt)}` : null,
+    lastUpdatedAt ? `源数据更新 ${dateTime(lastUpdatedAt)}` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <button
@@ -108,9 +121,8 @@ export function AutoRefreshStatus({
       }`}
       onClick={() => void state.refreshNow()}
       disabled={state.refreshing}
-      title={lastUpdatedAt ? `立即刷新 · 最近更新 ${dateTime(lastUpdatedAt)}` : "立即刷新数据"}
-      aria-live="polite"
-      aria-label={state.refreshing ? "正在刷新数据" : "立即刷新数据"}
+      title={timeDescription ? `立即刷新 · ${timeDescription}` : "立即刷新数据"}
+      aria-label={state.refreshing ? "正在获取页面数据" : stale ? "源数据已过期，立即刷新数据" : "立即刷新数据"}
     >
       {stale ? (
         <AlertTriangle className="h-3.5 w-3.5" />

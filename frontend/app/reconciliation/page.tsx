@@ -72,7 +72,7 @@ function ReconciliationContent() {
         eyebrow="资产体检"
         title="风险与收益对账"
         description={`对账差额 ${formatSignedMoney(totals.variance)} · 综合风险 ${{ LOW: "低", MEDIUM: "中", HIGH: "高" }[risk.summary.risk_level]} · ${reconciliation.accounts.length} 个账户`}
-        action={<AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />}
+        action={<AutoRefreshStatus state={autoRefresh} lastFetchedAt={lastLoadedAt} />}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

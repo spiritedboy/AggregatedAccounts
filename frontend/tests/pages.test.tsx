@@ -11,6 +11,7 @@ import PnlPage from "@/app/pnl/page";
 import PositionsPage from "@/app/positions/page";
 import ReconciliationPage from "@/app/reconciliation/page";
 import { AppShell, useCurrency } from "@/components/app-shell";
+import { beijingDateKey } from "@/lib/report-time";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
@@ -686,6 +687,7 @@ describe("portfolio pages", () => {
 
   it("renders history and sorts filtered page results by net PnL", async () => {
     const user = userEvent.setup();
+    window.history.replaceState({}, "", "/history?start=2026-11-10&end=2026-11-10");
     installFetch({
       "/api/positions/history/bootstrap": {
         accounts: [account],
@@ -758,6 +760,9 @@ describe("portfolio pages", () => {
     expect(screen.queryByText("SHORT")).not.toBeInTheDocument();
     const requestedPaths = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
     expect(requestedPaths.some((path) => path.includes("/api/positions/history/bootstrap"))).toBe(true);
+    const historyRequest = new URL(requestedPaths.find((path) => path.includes("/api/positions/history/bootstrap"))!, "http://localhost");
+    expect(historyRequest.searchParams.get("start_time")).toBe("2026-11-10T00:00:00+08:00");
+    expect(historyRequest.searchParams.get("end_time")).toBe("2026-11-10T23:59:59.999999+08:00");
     expect(requestedPaths.some((path) => path.includes("/api/exchange-accounts"))).toBe(false);
     const pageSummary = screen.getByRole("region", { name: "当前页盈亏汇总" });
     expect(within(pageSummary).getByText("本页汇总")).toBeInTheDocument();
@@ -1061,6 +1066,7 @@ describe("portfolio pages", () => {
 
   it("renders accounting records and sorts filtered page results by financial impact", async () => {
     const user = userEvent.setup();
+    window.history.replaceState({}, "", "/ledger?start=2026-11-10&end=2026-11-10");
     installFetch({
       "/api/accounting/bootstrap": {
         records: {
@@ -1111,6 +1117,9 @@ describe("portfolio pages", () => {
     });
     render(<LedgerPage />);
     expect(await screen.findByText("数据完整性明细")).toBeInTheDocument();
+    const ledgerRequest = new URL(vi.mocked(fetch).mock.calls.find(([input]) => String(input).includes("/api/accounting/bootstrap"))![0].toString(), "http://localhost");
+    expect(ledgerRequest.searchParams.get("start_time")).toBe("2026-11-10T00:00:00+08:00");
+    expect(ledgerRequest.searchParams.get("end_time")).toBe("2026-11-10T23:59:59.999999+08:00");
     expect(screen.getAllByText("资金费").length).toBeGreaterThan(0);
     expect(screen.getByText("累计净收益")).toBeInTheDocument();
     expect(screen.getByText("已实现毛收益 + 资金费 − 手续费")).toBeInTheDocument();
@@ -1168,7 +1177,7 @@ describe("portfolio pages", () => {
     const mobileNavigation = screen.getByRole("navigation", { name: "移动端导航" });
     expect(within(mobileNavigation).getByRole("link", { name: "当前仓位" })).toHaveAttribute("href", "/positions");
     expect(within(mobileNavigation).getByRole("link", { name: "历史仓位" })).toHaveAttribute("href", "/history");
-    expect(screen.getAllByRole("link").every((link) => link.dataset.prefetch === "false")).toBe(true);
+    expect(within(mobileNavigation).getAllByRole("link").every((link) => link.dataset.prefetch === "false")).toBe(true);
     expect(within(mobileNavigation).queryByRole("link", { name: "流水" })).not.toBeInTheDocument();
     expect(screen.getAllByText(/账户由服务器配置文件统一管理/)).not.toHaveLength(0);
     expect(screen.getByText("逐资产余额")).toBeInTheDocument();
@@ -1222,6 +1231,8 @@ describe("portfolio pages", () => {
         <div>主题测试页面</div>
       </AppShell>,
     );
+    expect(screen.getByRole("link", { name: "跳转到主内容" })).toHaveAttribute("href", "#main-content");
+    expect(document.getElementById("main-content")).toHaveAttribute("tabindex", "-1");
     await screen.findByText("主题测试页面");
     await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
   });
@@ -1254,10 +1265,8 @@ describe("portfolio pages", () => {
 
   it("switches monetary values to CNY while keeping the selected unit locally", async () => {
     installFetch({});
-    const now = new Date();
-    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     window.localStorage.setItem("atlas-usd-cny-rate", "7");
-    window.localStorage.setItem("atlas-usd-cny-rate-date", localDate);
+    window.localStorage.setItem("atlas-usd-cny-rate-date", beijingDateKey());
 
     function CurrencyProbe() {
       const { formatMoney } = useCurrency();
@@ -1281,10 +1290,8 @@ describe("portfolio pages", () => {
       "/api/positions/current": { items: [position], total: 1 },
       "/api/exchange-accounts": [account],
     });
-    const now = new Date();
-    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     window.localStorage.setItem("atlas-usd-cny-rate", "7");
-    window.localStorage.setItem("atlas-usd-cny-rate-date", localDate);
+    window.localStorage.setItem("atlas-usd-cny-rate-date", beijingDateKey());
 
     render(<PositionsPage />);
     expect(await screen.findAllByText(/US\$800\.00/)).not.toHaveLength(0);

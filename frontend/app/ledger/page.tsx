@@ -27,6 +27,7 @@ import {
 } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { connectionDisplayName, dateTime, exchangeDisplayName } from "@/lib/format";
+import { beijingDayEnd, beijingDayStart } from "@/lib/report-time";
 import type {
   AccountingBootstrapData,
   AccountingRecordsData,
@@ -82,8 +83,8 @@ function LedgerContent() {
     const query = new URLSearchParams({ page: String(page), page_size: "30" });
     if (exchange) query.set("exchange", exchange);
     if (recordType) query.set("record_type", recordType);
-    if (start) query.set("start_time", new Date(`${start}T00:00:00`).toISOString());
-    if (end) query.set("end_time", new Date(`${end}T23:59:59`).toISOString());
+    if (start) query.set("start_time", beijingDayStart(start));
+    if (end) query.set("end_time", beijingDayEnd(end));
     return query;
   }, [end, exchange, page, recordType, start]);
 
@@ -157,6 +158,8 @@ function LedgerContent() {
     const query = params();
     query.delete("page");
     query.delete("page_size");
+    // This URL returns a CSV attachment, not an internal page for client-side routing.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/api/accounting/records/export?${query}`);
   }
 
@@ -168,7 +171,7 @@ function LedgerContent() {
         description={records ? `${records.total} 条流水 · 累计净收益 ${formatSignedMoney(records.summary.net_realized_pnl)} · 每页 30 条` : "正在读取账务流水…"}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <AutoRefreshStatus state={autoRefresh} lastUpdatedAt={lastLoadedAt} />
+            <AutoRefreshStatus state={autoRefresh} lastFetchedAt={lastLoadedAt} />
             <button type="button" className="button-secondary" onClick={exportCsv}>
               <Download className="h-4 w-4" />
               导出 CSV

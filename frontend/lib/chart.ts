@@ -17,3 +17,14 @@ export function compactAxisMoney(value: number, currency: DisplayCurrency) {
 function trimDecimal(value: number) {
   return value.toFixed(value >= 100 ? 0 : 1).replace(/\.0$/, "");
 }
+
+export function numericRange(values: number[]): { min: number; max: number } | null {
+  if (values.length === 0) return null;
+  let min = values[0];
+  let max = values[0];
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  return { min, max };
+}
