@@ -550,17 +550,17 @@ function PositionAnalysis({ behavior, focusKey, formatMoney }: AnalysisProps) {
   return (
     <div className="mt-4 space-y-4">
       <AnalysisSection title="杠杆表现" description="只使用历史记录中交易所明确返回且大于 0 的杠杆；缺失记录单列，不做推算。">
-        <MetricGrid rows={behavior.leverage} prefix="leverage" focusKey={focusKey} formatMoney={formatMoney} />
+        <MetricGrid rows={behavior.leverage} prefix="leverage" focusKey={focusKey} formatMoney={formatMoney} adaptive />
       </AnalysisSection>
       <AnalysisSection title="仓位大小" description="当前历史数据缺少可靠的开仓时账户权益，因此使用历史仓位保证金（USD）分桶，不将其伪装为权益占比。">
-        <MetricGrid rows={behavior.position_size} prefix="margin" focusKey={focusKey} formatMoney={formatMoney} />
+        <MetricGrid rows={behavior.position_size} prefix="margin" focusKey={focusKey} formatMoney={formatMoney} adaptive />
       </AnalysisSection>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
         <AnalysisSection title="多空行为" description="按做多、做空对比周期内的净收益质量。">
-          <MetricGrid rows={behavior.sides} prefix="side" focusKey={focusKey} formatMoney={formatMoney} detailed />
+          <MetricGrid rows={behavior.sides} prefix="side" focusKey={focusKey} formatMoney={formatMoney} detailed adaptive />
         </AnalysisSection>
         <AnalysisSection title="交易所行为" description="只看当前行为周期内已经平仓的交易。">
-          <MetricGrid rows={behavior.exchanges} prefix="exchange" focusKey={focusKey} formatMoney={formatMoney} detailed />
+          <MetricGrid rows={behavior.exchanges} prefix="exchange" focusKey={focusKey} formatMoney={formatMoney} detailed adaptive />
         </AnalysisSection>
       </div>
       {behavior.data_quality.missing_leverage_count || behavior.data_quality.missing_margin_count ? (
@@ -659,33 +659,38 @@ function MetricGrid({
   focusKey,
   formatMoney,
   detailed = false,
+  adaptive = false,
 }: {
   rows: BehaviorMetricRow[];
   prefix: string;
   focusKey: string | null;
   formatMoney: (value: number) => string;
   detailed?: boolean;
+  adaptive?: boolean;
 }) {
   return rows.length ? (
-    <div className="grid gap-px bg-[var(--line)] sm:grid-cols-2 xl:grid-cols-4">
+    <div
+      className={adaptive ? "adaptive-metric-grid grid gap-3 p-3 md:p-4" : "grid gap-px bg-[var(--line)] sm:grid-cols-2 xl:grid-cols-4"}
+      style={adaptive ? { gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 19rem), 1fr))" } : undefined}
+    >
       {rows.map((row) => {
         const key = `${prefix}-${row.key}`;
         return (
-          <article key={row.key} data-analysis-key={key} className={`bg-[var(--surface)] p-4 transition md:p-5 ${focusKey === key ? "relative z-10 bg-[var(--accent-soft)] ring-2 ring-inset ring-[var(--accent)]" : ""}`}>
-            <div className="flex items-start justify-between gap-3">
+          <article key={row.key} data-analysis-key={key} className={`${adaptive ? "min-w-0 rounded-xl border border-[var(--line)] p-4 md:p-5" : "p-4 md:p-5"} transition ${focusKey === key ? "relative z-10 bg-[var(--accent-soft)] ring-2 ring-inset ring-[var(--accent)]" : adaptive ? "bg-[var(--surface-soft)]" : "bg-[var(--surface)]"}`}>
+            <div className={adaptive ? "min-w-0" : "flex items-start justify-between gap-3"}>
               <div className="min-w-0">
-                <p className="truncate text-sm font-bold" title={row.label}>{row.label}</p>
+                <p className={`${adaptive ? "break-words" : "truncate"} text-sm font-bold`} title={row.label}>{row.label}</p>
                 <p className="muted mt-1 text-xs">{row.trade_count} 笔交易</p>
               </div>
-              <span className={`financial-value mono-number max-w-[58%] text-right text-sm font-bold sm:text-base ${row.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.net_pnl)}</span>
+              <span className={`financial-value mono-number font-bold ${adaptive ? "mt-3 block w-full overflow-x-auto whitespace-nowrap text-lg" : "max-w-[58%] text-right text-sm sm:text-base"} ${row.net_pnl >= 0 ? "text-positive" : "text-negative"}`}>{formatMoney(row.net_pnl)}</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3">
-              <RowMetric label="胜率" value={`${row.win_rate.toFixed(1)}%`} />
-              <RowMetric label="盈利因子" value={ratioText(row.profit_factor, row.profit_factor_unbounded)} />
-              <RowMetric label="平均收益" value={formatMoney(row.average_pnl)} tone={row.average_pnl >= 0 ? "positive" : "negative"} />
-              <RowMetric label="盈亏比" value={ratioText(row.payoff_ratio, row.payoff_ratio_unbounded)} />
-              {detailed ? <RowMetric label="平均盈利" value={formatMoney(row.average_win)} tone="positive" /> : null}
-              {detailed ? <RowMetric label="平均亏损" value={formatMoney(row.average_loss)} tone="negative" /> : null}
+              <RowMetric label="胜率" value={`${row.win_rate.toFixed(1)}%`} noWrap={adaptive} />
+              <RowMetric label="盈利因子" value={ratioText(row.profit_factor, row.profit_factor_unbounded)} noWrap={adaptive} />
+              <RowMetric label="平均收益" value={formatMoney(row.average_pnl)} tone={row.average_pnl >= 0 ? "positive" : "negative"} noWrap={adaptive} />
+              <RowMetric label="盈亏比" value={ratioText(row.payoff_ratio, row.payoff_ratio_unbounded)} noWrap={adaptive} />
+              {detailed ? <RowMetric label="平均盈利" value={formatMoney(row.average_win)} tone="positive" noWrap={adaptive} /> : null}
+              {detailed ? <RowMetric label="平均亏损" value={formatMoney(row.average_loss)} tone="negative" noWrap={adaptive} /> : null}
             </div>
           </article>
         );
@@ -694,11 +699,11 @@ function MetricGrid({
   ) : <EmptyState title="暂无可分析记录" description="当前筛选周期没有满足条件的平仓交易。" />;
 }
 
-function RowMetric({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
+function RowMetric({ label, value, tone, noWrap = false }: { label: string; value: string; tone?: "positive" | "negative"; noWrap?: boolean }) {
   return (
     <div className="min-w-0">
       <p className="muted text-[10px] uppercase tracking-wide">{label}</p>
-      <p className={`financial-value mono-number mt-1 text-xs font-semibold ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`} title={value}>{value}</p>
+      <p className={`financial-value mono-number mt-1 text-xs font-semibold ${noWrap ? "overflow-x-auto whitespace-nowrap" : ""} ${tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : ""}`} title={value}>{value}</p>
     </div>
   );
 }

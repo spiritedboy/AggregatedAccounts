@@ -1016,7 +1016,18 @@ describe("portfolio pages", () => {
           best_trade: { exchange: "BINANCE", symbol: "BTC-USDT-PERP", side: "LONG", net_pnl: 120, close_time: "2026-07-26T00:00:00Z" },
           worst_trade: { exchange: "OKX", symbol: "ETH-USDT-PERP", side: "SHORT", net_pnl: -80, close_time: "2026-07-25T00:00:00Z" },
         },
-        behavior: behaviorAnalysis,
+        behavior: {
+          ...behaviorAnalysis,
+          sides: [
+            { ...behaviorMetric, key: "LONG", label: "做多" },
+            { ...behaviorMetric, key: "SHORT", label: "做空", net_pnl: -48 },
+          ],
+          exchanges: ["BINANCE", "OKX", "BITGET", "HYPERLIQUID", "POLYMARKET"].map((exchange) => ({
+            ...behaviorMetric,
+            key: exchange,
+            label: exchange,
+          })),
+        },
       },
     });
     render(<PnlPage />);
@@ -1049,6 +1060,13 @@ describe("portfolio pages", () => {
     expect(screen.getByText("杠杆表现")).toBeInTheDocument();
     expect(screen.getByText("仓位大小")).toBeInTheDocument();
     expect(screen.getByText(/不将其伪装为权益占比/)).toBeInTheDocument();
+    const sideGrid = screen.getByText("多空行为").closest("section")?.querySelector(".adaptive-metric-grid");
+    const exchangeGrid = screen.getByText("交易所行为").closest("section")?.querySelector(".adaptive-metric-grid");
+    expect(sideGrid?.children).toHaveLength(2);
+    expect(exchangeGrid?.children).toHaveLength(5);
+    expect(sideGrid?.getAttribute("style")).toContain("auto-fit");
+    expect(sideGrid?.querySelector(".financial-value")).toHaveClass("whitespace-nowrap");
+    expect(sideGrid?.parentElement?.parentElement).toHaveClass("items-start");
 
     await user.click(screen.getByRole("button", { name: "标的" }));
     expect(screen.getByText("标的表现")).toBeInTheDocument();
