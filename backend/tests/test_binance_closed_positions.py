@@ -76,6 +76,62 @@ async def test_binance_closed_positions_reconstruct_one_way_cycle(monkeypatch):
     assert position["data_completeness"] == "PARTIAL"
 
 
+@pytest.mark.asyncio
+async def test_binance_closed_position_includes_insurance_clear_fee(monkeypatch):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+    start_time = datetime(2026, 11, 13, 15, tzinfo=UTC)
+    end_time = datetime(2026, 11, 13, 16, tzinfo=UTC)
+    opened_at = int(datetime(2026, 11, 13, 15, 5, tzinfo=UTC).timestamp() * 1000)
+    closed_at = int(datetime(2026, 11, 13, 15, 25, tzinfo=UTC).timestamp() * 1000)
+    rows = [
+        _trade(1, "SELL", 10, 10, 0, 0.1, opened_at),
+        _trade(2, "BUY", 10, 12, -20, 0.1, closed_at),
+    ]
+    for row in rows:
+        row["symbol"] = "BULLAUSDT"
+    income_rows = [
+        {
+            "tranId": 1,
+            "symbol": "BULLAUSDT",
+            "incomeType": "REALIZED_PNL",
+            "income": "-20",
+            "asset": "USDT",
+            "time": closed_at,
+        },
+        {
+            "tranId": 2,
+            "symbol": "BULLAUSDT",
+            "incomeType": "INSURANCE_CLEAR",
+            "income": "-5",
+            "asset": "USDT",
+            "time": closed_at + 7,
+        },
+    ]
+
+    async def fake_income_rows(*_):
+        return income_rows
+
+    async def fake_trade_rows(*_):
+        return rows
+
+    async def fake_funding_rows(*_):
+        return []
+
+    monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
+    monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    monkeypatch.setattr(adapter, "_funding_rows", fake_funding_rows)
+    try:
+        positions = await adapter.get_closed_positions(start_time, end_time)
+    finally:
+        await adapter.close()
+
+    assert len(positions) == 1
+    assert positions[0]["side"] == "SHORT"
+    assert positions[0]["realized_pnl"] == pytest.approx(-20)
+    assert positions[0]["trading_fee"] == pytest.approx(5.2)
+    assert positions[0]["net_pnl"] == pytest.approx(-25.2)
+
+
 def test_binance_hedge_cycle_uses_position_side():
     start_time = datetime(2026, 7, 26, 11, tzinfo=UTC)
     rows = [

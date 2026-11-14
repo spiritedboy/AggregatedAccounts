@@ -448,6 +448,14 @@ async def test_binance_history_bundle_classifies_accounting_streams(monkeypatch)
                     "symbol": "",
                     "time": TIME_MS,
                 },
+                {
+                    "tranId": 5,
+                    "asset": "USDT",
+                    "income": "-10.68",
+                    "incomeType": "INSURANCE_CLEAR",
+                    "symbol": "BTCUSDT",
+                    "time": TIME_MS,
+                },
             ]
         ),
     )
@@ -457,8 +465,9 @@ async def test_binance_history_bundle_classifies_accounting_streams(monkeypatch)
         await adapter.close()
     assert bundle["income"][0]["amount_usd"] == 5
     assert bundle["funding"][0]["amount_usd"] == -1.2
-    assert bundle["fees"][0]["amount_usd"] == 0.4
+    assert [row["amount_usd"] for row in bundle["fees"]] == [0.4, 10.68]
     assert bundle["cash_flows"][0]["flow_type"] == "DEPOSIT"
+    assert bundle["complete"] is True
 
 
 @pytest.mark.asyncio

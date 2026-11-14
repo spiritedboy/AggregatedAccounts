@@ -24,6 +24,21 @@ class BinanceAdapter(ExchangeAdapter):
     history_streams = frozenset({"income", "funding", "fees", "cash_flows"})
     closed_position_lookback = timedelta(days=89)
     trade_query_window = timedelta(days=7)
+    liquidation_fee_match_window = timedelta(seconds=5)
+    stable_fee_assets = frozenset({"USD", "USDT", "USDC", "FDUSD"})
+    fee_income_types = frozenset(
+        {
+            "COMMISSION",
+            "POSITION_LIMIT_INCREASE_FEE",
+            "COMMISSION_REBATE",
+            "REFERRAL_KICKBACK",
+            "API_REBATE",
+            # Binance reports the liquidation clearance charge separately from
+            # fill commission and realized PnL. It is an account expense and
+            # must therefore participate in both fee history and closed PnL.
+            "INSURANCE_CLEAR",
+        }
+    )
 
     def _signed(self, params: dict[str, Any] | None = None) -> tuple[str, dict[str, str]]:
         payload = {
@@ -553,8 +568,10 @@ class BinanceAdapter(ExchangeAdapter):
         start_time: datetime,
         end_time: datetime,
         funding_rows: dict[str, list[dict[str, Any]]] | None = None,
+        liquidation_fee_rows: dict[str, list[dict[str, Any]]] | None = None,
     ) -> list[dict[str, Any]]:
         funding_rows = funding_rows or {}
+        liquidation_fee_rows = liquidation_fee_rows or {}
         positions: list[dict[str, Any]] = []
         for cycle in cycles:
             if not start_time <= cycle["close_time"] <= end_time:
@@ -573,6 +590,27 @@ class BinanceAdapter(ExchangeAdapter):
             )
             realized_pnl = float(cycle["realized_pnl"])
             trading_fee = float(cycle["trading_fee"])
+            for row in liquidation_fee_rows.get(cycle["symbol"], []):
+                fee_time = datetime.fromtimestamp(
+                    int(row.get("time") or 0) / 1000, tz=UTC
+                )
+                matching_cycles = [
+                    candidate
+                    for candidate in cycles
+                    if candidate["symbol"] == cycle["symbol"]
+                    and abs((candidate["close_time"] - fee_time).total_seconds())
+                    <= cls.liquidation_fee_match_window.total_seconds()
+                ]
+                # INSURANCE_CLEAR does not include positionSide. Attribute it
+                # only when one reconstructed cycle owns the liquidation time;
+                # ambiguous hedge-mode liquidations remain account-level fees.
+                if (
+                    len(matching_cycles) == 1
+                    and matching_cycles[0] is cycle
+                    and str(row.get("asset") or "USDT").upper()
+                    in cls.stable_fee_assets
+                ):
+                    trading_fee -= float(row.get("income") or 0)
             funding_fee = 0.0
             for row in funding_rows.get(cycle["symbol"], []):
                 funding_time = datetime.fromtimestamp(
@@ -631,7 +669,10 @@ class BinanceAdapter(ExchangeAdapter):
         symbols: list[str],
         start_time: datetime,
         end_time: datetime,
+        income_rows: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
+        if income_rows is None:
+            income_rows = await self._income_rows(start_time, end_time)
         symbol_history = await asyncio.gather(
             *(
                 asyncio.gather(
@@ -645,6 +686,16 @@ class BinanceAdapter(ExchangeAdapter):
         funding_by_symbol = {
             symbol: result[1] for symbol, result in zip(symbols, symbol_history, strict=True)
         }
+        liquidation_fees_by_symbol = {
+            symbol: [
+                row
+                for row in income_rows
+                if str(row.get("symbol") or "") == symbol
+                and str(row.get("incomeType") or "").upper()
+                == "INSURANCE_CLEAR"
+            ]
+            for symbol in symbols
+        }
         rows = self._aggregate_order_fills([row for page in trade_pages for row in page])
         cycles = self._closed_cycles_from_hedge_trades(rows, start_time)
         cycles.extend(self._closed_cycles_from_one_way_trades(rows, start_time))
@@ -653,6 +704,7 @@ class BinanceAdapter(ExchangeAdapter):
             start_time,
             end_time,
             funding_by_symbol,
+            liquidation_fees_by_symbol,
         )
 
     async def get_closed_positions(
@@ -665,13 +717,14 @@ class BinanceAdapter(ExchangeAdapter):
                 for row in income_rows
                 if row.get("symbol")
                 and str(row.get("incomeType") or "").upper()
-                in {"REALIZED_PNL", "COMMISSION"}
+                in {"REALIZED_PNL", "COMMISSION", "INSURANCE_CLEAR"}
             }
         )
         return await self._closed_positions_for_symbols(
             symbols,
             start_time,
             end_time,
+            income_rows,
         )
 
     async def get_income_history(
@@ -711,7 +764,6 @@ class BinanceAdapter(ExchangeAdapter):
             "cash_flows": [],
             "complete": True,
         }
-        stable_assets = {"USD", "USDT", "USDC", "FDUSD"}
         transfer_types = {
             "TRANSFER",
             "INTERNAL_TRANSFER",
@@ -724,7 +776,7 @@ class BinanceAdapter(ExchangeAdapter):
             if timestamp < int(start_time.timestamp() * 1000):
                 continue
             asset = str(row.get("asset") or "USD").upper()
-            if asset not in stable_assets:
+            if asset not in self.stable_fee_assets:
                 bundle["complete"] = False
                 continue
             income_type = str(row.get("incomeType") or "UNKNOWN").upper()
@@ -746,13 +798,7 @@ class BinanceAdapter(ExchangeAdapter):
                 )
             elif income_type == "FUNDING_FEE":
                 bundle["funding"].append({**common, "amount_usd": amount})
-            elif income_type in {
-                "COMMISSION",
-                "POSITION_LIMIT_INCREASE_FEE",
-                "COMMISSION_REBATE",
-                "REFERRAL_KICKBACK",
-                "API_REBATE",
-            }:
+            elif income_type in self.fee_income_types:
                 bundle["fees"].append({**common, "amount_usd": -amount})
             elif income_type in transfer_types and amount:
                 bundle["cash_flows"].append(
