@@ -672,7 +672,14 @@ class BinanceAdapter(ExchangeAdapter):
         income_rows: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         if income_rows is None:
-            income_rows = await self._income_rows(start_time, end_time)
+            # Rebuilds may cover the full 89-day trade window. Request only the
+            # sparse liquidation stream here so high-volume commission/PnL rows
+            # cannot exhaust pagination before a recent fee is reached.
+            income_rows = await self._income_rows(
+                start_time,
+                end_time,
+                income_type="INSURANCE_CLEAR",
+            )
         symbol_history = await asyncio.gather(
             *(
                 asyncio.gather(
@@ -734,13 +741,22 @@ class BinanceAdapter(ExchangeAdapter):
         return bundle["income"]
 
     async def _income_rows(
-        self, start_time: datetime, end_time: datetime
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        *,
+        symbol: str | None = None,
+        income_type: str | None = None,
     ) -> list[dict[str, Any]]:
         params = {
             "startTime": int(start_time.timestamp() * 1000),
             "endTime": int(end_time.timestamp() * 1000),
             "limit": 1000,
         }
+        if symbol:
+            params["symbol"] = symbol
+        if income_type:
+            params["incomeType"] = income_type
         rows: list[dict[str, Any]] = []
         for page in range(1, 21):
             page_rows = await self._signed_get(

@@ -132,6 +132,42 @@ async def test_binance_closed_position_includes_insurance_clear_fee(monkeypatch)
     assert positions[0]["net_pnl"] == pytest.approx(-25.2)
 
 
+@pytest.mark.asyncio
+async def test_binance_symbol_rebuild_fetches_only_liquidation_income(monkeypatch):
+    adapter = BinanceAdapter(api_key="key", api_secret="secret")
+    start_time = datetime(2026, 11, 13, 15, tzinfo=UTC)
+    end_time = datetime(2026, 11, 13, 16, tzinfo=UTC)
+    calls = []
+
+    async def fake_income_rows(*args, **kwargs):
+        calls.append((args, kwargs))
+        return []
+
+    async def fake_trade_rows(*_):
+        return []
+
+    async def fake_funding_rows(*_):
+        return []
+
+    monkeypatch.setattr(adapter, "_income_rows", fake_income_rows)
+    monkeypatch.setattr(adapter, "_trade_rows", fake_trade_rows)
+    monkeypatch.setattr(adapter, "_funding_rows", fake_funding_rows)
+    try:
+        positions = await adapter._closed_positions_for_symbols(
+            ["BULLAUSDT"], start_time, end_time
+        )
+    finally:
+        await adapter.close()
+
+    assert positions == []
+    assert calls == [
+        (
+            (start_time, end_time),
+            {"income_type": "INSURANCE_CLEAR"},
+        )
+    ]
+
+
 def test_binance_hedge_cycle_uses_position_side():
     start_time = datetime(2026, 7, 26, 11, tzinfo=UTC)
     rows = [
