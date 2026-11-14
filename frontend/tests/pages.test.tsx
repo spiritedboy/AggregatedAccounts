@@ -480,13 +480,14 @@ describe("portfolio pages", () => {
     expect(await screen.findByText("总权益")).toBeInTheDocument();
     expect(screen.getAllByText("今日驾驶舱")).not.toHaveLength(0);
     expect(screen.getByText(/当前为演示数据/)).toBeInTheDocument();
-    expect(screen.getByText("今日摘要")).toBeInTheDocument();
+    expect(screen.getAllByText("今日摘要")).toHaveLength(2);
+    expect(screen.getAllByText("今日摘要")[0].closest("details")).toBeInTheDocument();
     expect(screen.getByText("今日收益组成")).toBeInTheDocument();
     expect(screen.getByText("今日收益率")).toBeInTheDocument();
     expect(screen.getAllByText(/当日期初权益/)).not.toHaveLength(0);
     expect(screen.getByText("最近强平距离")).toBeInTheDocument();
     expect(screen.getAllByText(/ETH-USDT-PERP/)).not.toHaveLength(0);
-    expect(screen.getByText(/属于高风险仓位/)).toBeInTheDocument();
+    expect(screen.getAllByText(/属于高风险仓位/)).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: /10%/ })[0]).toHaveAttribute(
       "href",
       "/positions?sort=liquidation-asc&focus=p2",
@@ -494,15 +495,16 @@ describe("portfolio pages", () => {
     expect(screen.getByText("总持仓敞口 / Notional")).toBeInTheDocument();
     expect(screen.getByText("最近数据更新时间")).toBeInTheDocument();
     expect(screen.getByText("净值曲线")).toBeInTheDocument();
-    expect(screen.getByText("资产 / 交易所分布")).toBeInTheDocument();
-    expect(screen.getByRole("meter", { name: "Binance 权益占比" })).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getAllByText("资产 / 交易所分布")).toHaveLength(2);
+    expect(screen.getAllByText("账户数据健康")[0].closest("details")).toBeInTheDocument();
+    expect(screen.getAllByRole("meter", { name: "Binance 权益占比" })[0]).toHaveAttribute("aria-valuenow", "100");
     expect(screen.getByText(/净值变化：/)).toBeInTheDocument();
     expect(screen.getByText("1Y")).toBeInTheDocument();
     expect(screen.getByText("做多")).toBeInTheDocument();
     expect(screen.getAllByText("当前未实现盈亏")).not.toHaveLength(0);
     expect(screen.getByText("组成项合计 +US$230.00，与账户收益口径已对齐。")).toBeInTheDocument();
-    expect(screen.getByText(/LDUSDT · BINANCE/)).toBeInTheDocument();
-    expect(screen.getByText(/数量 0.36257566/)).toBeInTheDocument();
+    expect(screen.getAllByText(/LDUSDT · BINANCE/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/数量 0.36257566/)).not.toHaveLength(0);
     expect(screen.queryByText(/统计期变化/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "1Y" }));
@@ -512,6 +514,27 @@ describe("portfolio pages", () => {
         expect.anything(),
       ),
     );
+    expect(await screen.findByText("总权益")).toBeInTheDocument();
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("暂时断网"));
+    await user.click(screen.getByRole("button", { name: /立即刷新数据/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("仍显示上次成功数据");
+    expect(screen.getByText("总权益")).toBeInTheDocument();
+
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    const staleResponse = await originalFetch("/api/dashboard/bootstrap?range=1w", {});
+    let releaseStale = () => {};
+    vi.mocked(fetch).mockImplementation((input, init) =>
+      String(input).includes("range=1w")
+        ? new Promise<Response>((resolve) => { releaseStale = () => resolve(staleResponse); })
+        : originalFetch(input, init),
+    );
+    await user.click(screen.getByRole("button", { name: "7D" }));
+    expect(screen.getByText("正在读取所选区间的净值数据…")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "30D" }));
+    await waitFor(() => expect(screen.queryByText("正在读取所选区间的净值数据…")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+    releaseStale();
+    await waitFor(() => expect(screen.getByText("总权益")).toBeInTheDocument());
   });
 
   it("degrades the dashboard safely without positions, liquidation prices, or a daily snapshot", async () => {
@@ -585,7 +608,7 @@ describe("portfolio pages", () => {
     expect(await screen.findByText("暂无可用强平价")).toBeInTheDocument();
     expect(screen.getByText("当前没有持仓")).toBeInTheDocument();
     expect(screen.getByText("今日组成数据待生成")).toBeInTheDocument();
-    expect(screen.getByText("今日收益数据尚未形成")).toBeInTheDocument();
+    expect(screen.getAllByText("今日收益数据尚未形成")).toHaveLength(2);
   });
 
   it("renders localized position sides and sorts current positions by value and PnL", async () => {
@@ -683,6 +706,45 @@ describe("portfolio pages", () => {
     expect(screen.getByLabelText("强平风险")).toHaveValue("DANGER");
     expect(screen.getByLabelText("排序")).toHaveValue("liquidation-asc");
     expect(document.getElementById("position-p2-mobile")).toHaveClass("ring-2");
+  });
+
+  it("loads positions beyond the API's 200-row limit before sorting, filtering and paging", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/positions");
+    const allPositions = Array.from({ length: 205 }, (_, index) => ({
+      ...position,
+      id: `large-${index + 1}`,
+      symbol: `TICKER${index + 1}USDT`,
+      normalized_symbol: `TICKER${index + 1}-USDT-PERP`,
+      position_value_usd: 205 - index,
+      liquidation_risk_level: index === 204 ? "DANGER" : "SAFE",
+    }));
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/auth/status")) return envelope({ authenticated: true });
+      if (url.includes("/api/exchange-accounts")) return envelope([account]);
+      if (url.includes("/api/positions/current")) {
+        requests.push(url);
+        const query = new URL(url, "http://localhost").searchParams;
+        const page = Number(query.get("page"));
+        const pageSize = Number(query.get("page_size"));
+        return envelope({ items: allPositions.slice((page - 1) * pageSize, page * pageSize), total: allPositions.length });
+      }
+      return envelope({});
+    }));
+
+    render(<PositionsPage />);
+    expect(await screen.findByText(/共 205 个匹配仓位/)).toBeInTheDocument();
+    expect(requests.some((url) => url.includes("page=2"))).toBe(true);
+    await user.selectOptions(screen.getByLabelText("每页仓位数"), "100");
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText(/第 3 \/ 3 页/)).toBeInTheDocument();
+    expect(document.getElementById("position-large-205-mobile")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("强平风险"), "DANGER");
+    expect(screen.getByText(/共 1 个匹配仓位/)).toBeInTheDocument();
+    expect(document.getElementById("position-large-205-mobile")).toBeInTheDocument();
   });
 
   it("renders history and sorts filtered page results by net PnL", async () => {
@@ -1055,6 +1117,9 @@ describe("portfolio pages", () => {
     expect(screen.getByText("开仓时间段")).toBeInTheDocument();
     expect(screen.getByText("星期表现")).toBeInTheDocument();
     expect(screen.getByText("00:00～03:00")).toBeInTheDocument();
+    expect(screen.getByText("持仓时间").closest("section")?.querySelector(".adaptive-metric-grid")).toBeInTheDocument();
+    expect(screen.getByText("开仓时间段").closest("section")?.querySelector(".adaptive-metric-grid")).toBeInTheDocument();
+    expect(screen.getByText("星期表现").closest("section")?.querySelector(".adaptive-metric-grid")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "仓位" }));
     expect(screen.getByText("杠杆表现")).toBeInTheDocument();
@@ -1080,6 +1145,25 @@ describe("portfolio pages", () => {
       expect.stringContaining("/api/pnl/bootstrap?behavior_period=7d"),
       expect.anything(),
     ));
+    expect(await screen.findByText("标的表现")).toBeInTheDocument();
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("收益接口暂不可用"));
+    await user.click(screen.getByRole("button", { name: /立即刷新数据/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("仍显示上次成功数据");
+    expect(screen.getByText("标的表现")).toBeInTheDocument();
+
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    const staleResponse = await originalFetch("/api/pnl/bootstrap?behavior_period=7d", {});
+    let releaseStale = () => {};
+    vi.mocked(fetch).mockImplementation((input, init) =>
+      String(input).includes("behavior_period=7d")
+        ? new Promise<Response>((resolve) => { releaseStale = () => resolve(staleResponse); })
+        : originalFetch(input, init),
+    );
+    await user.click(screen.getByRole("button", { name: /立即刷新数据/ }));
+    await user.click(screen.getByRole("button", { name: "90D" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "90D" })).toHaveAttribute("aria-pressed", "true"));
+    releaseStale();
+    expect(screen.getByText("标的表现")).toBeInTheDocument();
   });
 
   it("renders accounting records and sorts filtered page results by financial impact", async () => {

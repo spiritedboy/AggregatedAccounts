@@ -1,10 +1,10 @@
 "use client";
 
 import { AlertTriangle, Filter, Search, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
-import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { AutoRefreshStatus, RefreshErrorNotice, useAutoRefresh } from "@/components/auto-refresh-status";
 import { CalculationHint } from "@/components/calculation-hint";
 import { LiquidationRiskDisplay } from "@/components/liquidation-risk";
 import { ProtectedPage } from "@/components/protected-page";
@@ -29,7 +29,9 @@ export default function PositionsPage() {
 }
 
 function PositionsContent() {
-  const [result, setResult] = useState<PositionResult | null>(null);
+  const [fetchedResult, setResult] = useState<PositionResult | null>(null);
+  const [loadedFilterKey, setLoadedFilterKey] = useState("");
+  const latestRequest = useRef(0);
   const [error, setError] = useState("");
   const [exchange, setExchange] = useState("");
   const [accountId, setAccountId] = useState("");
@@ -39,26 +41,53 @@ function PositionsContent() {
   const [focusPositionId, setFocusPositionId] = useState("");
   const [sortField, setSortField] = useState<PositionSortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("none");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [urlReady, setUrlReady] = useState(false);
   const { formatMoney, formatSignedMoney } = useCurrency();
 
+  const filterParams = new URLSearchParams();
+  if (exchange) filterParams.set("exchange", exchange);
+  if (accountId) filterParams.set("account_id", accountId);
+  if (side) filterParams.set("side", side);
+  if (symbol) filterParams.set("symbol", symbol);
+  const filterKey = filterParams.toString();
+  const result = loadedFilterKey === filterKey ? fetchedResult : null;
+
   const load = useCallback(() => {
-    const params = new URLSearchParams();
-    if (exchange) params.set("exchange", exchange);
-    if (accountId) params.set("account_id", accountId);
-    if (side) params.set("side", side);
-    if (symbol) params.set("symbol", symbol);
-    params.set("page_size", "200");
+    const requestId = ++latestRequest.current;
     setError("");
-    return apiFetch<PositionResult>(`/api/positions/current?${params}`)
-      .then((nextResult) => {
-        setResult(nextResult);
+    const base = new URLSearchParams(filterKey);
+    base.set("page_size", "200");
+    base.set("page", "1");
+    return apiFetch<PositionResult>(`/api/positions/current?${base}`)
+      .then(async (firstPage) => {
+        const pageCount = Math.ceil(firstPage.total / 200);
+        const remaining: PositionResult[] = [];
+        for (let start = 2; start <= pageCount; start += 4) {
+          const batch = await Promise.all(Array.from({ length: Math.min(4, pageCount - start + 1) }, (_, index) => {
+            const params = new URLSearchParams(base);
+            params.set("page", String(start + index));
+            return apiFetch<PositionResult>(`/api/positions/current?${params}`);
+          }));
+          remaining.push(...batch);
+          if (requestId !== latestRequest.current) return;
+        }
+        if (requestId !== latestRequest.current) return;
+        const items = [firstPage, ...remaining].flatMap((pageResult) => pageResult.items);
+        if (items.length !== firstPage.total || new Set(items.map((item) => item.id)).size !== firstPage.total) {
+          throw new Error("仓位在分页读取期间发生变化，请重试以获取完整结果");
+        }
+        setResult({ items, total: firstPage.total });
+        setLoadedFilterKey(filterKey);
         setLastLoadedAt(new Date().toISOString());
       })
-      .catch((reason) => setError(reason.message));
-  }, [accountId, exchange, side, symbol]);
+      .catch((reason) => {
+        if (requestId === latestRequest.current) setError(reason instanceof Error ? reason.message : "仓位加载失败");
+      });
+  }, [filterKey]);
 
   useEffect(() => {
     const query = readPageFilters("/positions");
@@ -77,6 +106,10 @@ function PositionsContent() {
         setSortField(field);
         setSortDirection(direction);
       }
+      const savedPage = Number(query.get("page"));
+      if (Number.isInteger(savedPage) && savedPage > 0) setPage(savedPage);
+      const savedPageSize = Number(query.get("page_size"));
+      if ([20, 50, 100].includes(savedPageSize)) setPageSize(savedPageSize);
     }
     setUrlReady(true);
   }, []);
@@ -95,6 +128,8 @@ function PositionsContent() {
     risk: liquidationRisk,
     focus: focusPositionId,
     sort: sortField && sortDirection !== "none" ? `${sortField}-${sortDirection}` : "",
+    page,
+    page_size: pageSize === 20 ? "" : pageSize,
   });
 
   const positions = useMemo(() => {
@@ -119,6 +154,19 @@ function PositionsContent() {
     });
   }, [liquidationRisk, result?.items, sortDirection, sortField]);
 
+  const pageCount = Math.max(1, Math.ceil(positions.length / pageSize));
+  const displayedPage = Math.min(page, pageCount);
+  const pagePositions = positions.slice((displayedPage - 1) * pageSize, displayedPage * pageSize);
+  useEffect(() => {
+    if (result && page > pageCount) setPage(pageCount);
+  }, [page, pageCount, result]);
+
+  useEffect(() => {
+    if (!focusPositionId || !result) return;
+    const index = positions.findIndex((position) => position.id === focusPositionId);
+    if (index >= 0) setPage(Math.floor(index / pageSize) + 1);
+  }, [focusPositionId, pageSize, positions, result]);
+
   useEffect(() => {
     if (!focusPositionId || positions.length === 0) return;
     const desktop = window.matchMedia?.("(min-width: 1024px)").matches ?? false;
@@ -126,7 +174,7 @@ function PositionsContent() {
       `position-${focusPositionId}-${desktop ? "desktop" : "mobile"}`,
     );
     element?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-  }, [focusPositionId, positions]);
+  }, [displayedPage, focusPositionId, positions]);
   useEffect(() => {
     if (result && focusPositionId && !positions.some((position) => position.id === focusPositionId)) {
       setFocusPositionId("");
@@ -134,11 +182,13 @@ function PositionsContent() {
   }, [focusPositionId, positions, result]);
 
   function changeSort(field: PositionSortField, direction: SortDirection) {
+    setPage(1);
     setSortField(direction === "none" ? null : field);
     setSortDirection(direction);
   }
 
   function changeMobileSort(value: string) {
+    setPage(1);
     if (value === "none") {
       setSortField(null);
       setSortDirection("none");
@@ -176,6 +226,7 @@ function PositionsContent() {
     setSortField(null);
     setSortDirection("none");
     setFocusPositionId("");
+    setPage(1);
   };
   const lastUpdatedAt =
     positions.reduce<string | null>(
@@ -221,12 +272,12 @@ function PositionsContent() {
           <input
             className="input pl-10"
             value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
+            onChange={(event) => { setSymbol(event.target.value); setPage(1); }}
             placeholder="搜索交易对 / 市场"
             aria-label="搜索交易对或市场"
           />
         </label>
-        <FilterSelect value={exchange} onChange={setExchange} label="交易所">
+        <FilterSelect value={exchange} onChange={(value) => { setExchange(value); setPage(1); }} label="交易所">
           <option value="">全部交易所</option>
           <option value="BINANCE">Binance</option>
           <option value="OKX">OKX</option>
@@ -237,7 +288,7 @@ function PositionsContent() {
         </FilterSelect>
         </>}
         secondary={<>
-        <FilterSelect value={accountId} onChange={setAccountId} label="账户">
+        <FilterSelect value={accountId} onChange={(value) => { setAccountId(value); setPage(1); }} label="账户">
           <option value="">全部账户</option>
           {accounts
             .filter((account) => !exchange || account.exchange === exchange)
@@ -245,12 +296,12 @@ function PositionsContent() {
               <option key={account.id} value={account.id}>{account.connection_name}</option>
             ))}
         </FilterSelect>
-        <FilterSelect value={side} onChange={setSide} label="方向">
+        <FilterSelect value={side} onChange={(value) => { setSide(value); setPage(1); }} label="方向">
           <option value="">全部方向</option>
           <option value="LONG">做多</option>
           <option value="SHORT">做空</option>
         </FilterSelect>
-        <FilterSelect value={liquidationRisk} onChange={(value) => setLiquidationRisk(value as LiquidationRiskFilter)} label="强平风险">
+        <FilterSelect value={liquidationRisk} onChange={(value) => { setLiquidationRisk(value as LiquidationRiskFilter); setPage(1); }} label="强平风险">
           <option value="">全部强平风险</option>
           <option value="SAFE">正常</option>
           <option value="WATCH">关注</option>
@@ -271,16 +322,22 @@ function PositionsContent() {
         </>}
       />
 
+      {fetchedResult && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
+        <p className="muted text-xs">{result ? `共 ${positions.length} 个匹配仓位 · 当前第 ${displayedPage}/${pageCount} 页` : "正在加载当前筛选结果…"}</p>
+        <label className="flex items-center gap-2 text-xs"><span className="muted">每页</span><select className="input min-h-9 w-auto py-1" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="每页仓位数"><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></label>
+      </div>}
+
       {result && (
         <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
           <p className="muted text-xs">
-            当前显示 <span className="mono-number font-semibold text-[var(--text)]">{positions.length}</span> 个仓位
+            当前显示 <span className="mono-number font-semibold text-[var(--text)]">{pagePositions.length}</span> / {positions.length} 个仓位
           </p>
           {activeFilterCount > 0 ? <span className="mono-number text-[10px] text-[var(--accent)]">{activeFilterCount} FILTERS</span> : null}
         </div>
       )}
 
-      {error ? (
+      {error && result && <RefreshErrorNotice message={error} lastFetchedAt={lastLoadedAt} retry={() => void load()} />}
+      {error && !result ? (
         <ErrorState message={error} retry={load} />
       ) : !result ? (
         <LoadingState rows={6} />
@@ -344,7 +401,7 @@ function PositionsContent() {
                 </tr>
               </thead>
               <tbody>
-                {positions.map((position) => (
+                {pagePositions.map((position) => (
                   <tr key={position.id} id={`position-${position.id}-desktop`} className={focusPositionId === position.id ? "bg-[var(--accent-soft)]" : undefined}>
                     <td>
                       <div className="max-w-md">
@@ -389,7 +446,7 @@ function PositionsContent() {
             </table>
           </div>
           <div className="grid gap-3 lg:hidden">
-            {positions.map((position) => (
+            {pagePositions.map((position) => (
               <article
                 key={position.id}
                 id={`position-${position.id}-mobile`}
@@ -432,6 +489,10 @@ function PositionsContent() {
               </article>
             ))}
           </div>
+          <nav className="mt-4 flex flex-wrap items-center justify-between gap-3" aria-label="当前仓位分页">
+            <p className="muted text-xs">第 {displayedPage} / {pageCount} 页 · 共 {positions.length} 个仓位</p>
+            <div className="flex gap-2"><button type="button" className="button-secondary" disabled={displayedPage <= 1} onClick={() => setPage(displayedPage - 1)}>上一页</button><button type="button" className="button-secondary" disabled={displayedPage >= pageCount} onClick={() => setPage(displayedPage + 1)}>下一页</button></div>
+          </nav>
         </>
       )}
     </>

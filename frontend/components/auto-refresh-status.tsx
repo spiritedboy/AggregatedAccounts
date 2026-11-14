@@ -133,3 +133,21 @@ export function AutoRefreshStatus({
     </button>
   );
 }
+
+export function RefreshErrorNotice({
+  message,
+  lastFetchedAt,
+  retry,
+}: {
+  message: string;
+  lastFetchedAt: string | null;
+  retry: () => void;
+}) {
+  return (
+    <div role="alert" className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-4 py-3 text-xs text-[var(--warning)]">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1">刷新失败：{message.replace(/\s+/g, " ").slice(0, 180)}。仍显示上次成功数据{lastFetchedAt ? `（页面取数 ${dateTime(lastFetchedAt)}）` : ""}。</span>
+      <button type="button" className="min-h-9 rounded-lg border border-current px-3 font-semibold" onClick={retry}>重试</button>
+    </div>
+  );
+}

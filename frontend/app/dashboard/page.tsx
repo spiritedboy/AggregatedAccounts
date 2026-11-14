@@ -5,12 +5,12 @@ import Link from "next/link";
 import {
   Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2,
   CircleDollarSign, Clock3, Coins, Gauge, Landmark, Scale, ShieldAlert,
-  Target, TrendingDown, TrendingUp, Wallet,
+  Target, TrendingDown, TrendingUp, Wallet, ChevronDown,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useCurrency } from "@/components/app-shell";
-import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { AutoRefreshStatus, RefreshErrorNotice, useAutoRefresh } from "@/components/auto-refresh-status";
 import { Chart } from "@/components/chart";
 import { PositionLabel } from "@/components/position-label";
 import { ProtectedPage } from "@/components/protected-page";
@@ -141,18 +141,25 @@ function DashboardContent() {
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [curve, setCurve] = useState<EquityCurveData | null>(null);
   const [curveRange, setCurveRange] = useState<EquityCurveRange>("1d");
+  const [loadedRange, setLoadedRange] = useState<EquityCurveRange | null>(null);
+  const latestRequest = useRef(0);
   const [isDark, setIsDark] = useState(true);
   const [error, setError] = useState("");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const { currency, formatMoney, formatSignedMoney, usdCnyRate } = useCurrency();
 
   const load = useCallback(() => {
+    const requestId = ++latestRequest.current;
     setError("");
     return apiFetch<DashboardBootstrapData>(`/api/dashboard/bootstrap?range=${curveRange}`)
       .then((next) => {
+        if (requestId !== latestRequest.current) return;
         setData(next.dashboard); setRisk(next.risk); setCurve(next.equity_curve);
+        setLoadedRange(curveRange);
         setLastLoadedAt(new Date().toISOString());
-      }).catch((reason) => setError(reason.message));
+      }).catch((reason) => {
+        if (requestId === latestRequest.current) setError(reason instanceof Error ? reason.message : "数据加载失败");
+      });
   }, [curveRange]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -222,10 +229,13 @@ function DashboardContent() {
     }],
   }), [currency, curve, curveRange, formatMoney, isDark, usdCnyRate]);
 
-  if (error) return <ErrorState message={error} retry={load} />;
-  if (!data || !risk || !curve) return <DashboardLoading />;
+  if (!data || !risk || !curve) {
+    if (error) return <ErrorState message={error} retry={load} />;
+    return <DashboardLoading />;
+  }
 
   const briefItems = buildTodayBrief(data, risk, formatSignedMoney);
+  const curvePending = loadedRange !== curveRange;
   const nearestLiquidation = risk.liquidation_risks[0] ?? null;
   const todayTone = pnlTone(data.today.net_return);
   const dataUpdatedAt = portfolioUpdatedAt(data);
@@ -235,6 +245,7 @@ function DashboardContent() {
     ? "暂无可用净值采样点。"
     : `共 ${equityValues.length} 个采样点；起点权益 ${formatMoney(equityValues[0])}，终点权益 ${formatMoney(equityValues[equityValues.length - 1])}，最低 ${formatMoney(equityRange!.min)}，最高 ${formatMoney(equityRange!.max)}。`;
   return <>
+    {error && <RefreshErrorNotice message={error} lastFetchedAt={lastLoadedAt} retry={() => void load()} />}
     {data.demo_mode && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-strong)]"><ShieldAlert className="h-4 w-4" />当前为演示数据，与真实账户数据严格隔离</div>}
 
     <header className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
@@ -284,6 +295,19 @@ function DashboardContent() {
       </div>
     </section>
 
+    <details className="panel group mt-4 overflow-hidden md:hidden">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0"><span className="section-label">今日摘要</span><span className="muted ml-2 text-xs">{briefItems.length} 条关注信息</span></span>
+        <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="divide-y border-t" style={{ borderColor: "var(--line)" }}>
+        {briefItems.map((item, index) => {
+          const Icon = item.icon;
+          const content = <><Icon className={`mt-0.5 h-4 w-4 shrink-0 ${toneClass(item.tone)}`} /><span className="min-w-0"><span className={`block text-sm font-semibold ${toneClass(item.tone)}`}>{item.title}</span><span className="muted mt-1 block text-xs leading-5">{item.detail}</span></span></>;
+          return item.href ? <Link key={`${item.title}-${index}`} href={item.href} className="flex gap-3 px-4 py-3">{content}</Link> : <div key={`${item.title}-${index}`} className="flex gap-3 px-4 py-3">{content}</div>;
+        })}
+      </div>
+    </details>
     <section className="panel mt-4 hidden overflow-hidden md:block" aria-labelledby="today-brief-title">
       <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}><div><p id="today-brief-title" className="section-label">今日摘要</p><p className="muted mt-1 text-xs">基于账户收益、当前仓位与风险阈值自动提炼</p></div><Activity className="h-5 w-5 text-[var(--accent)]" /></div>
       <div className="grid lg:grid-cols-2">{briefItems.map((item, index) => { const Icon = item.icon; const content = <><span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] ${toneClass(item.tone)}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className={`text-sm font-semibold ${toneClass(item.tone)}`}>{item.title}</p><p className="muted mt-1 text-xs leading-5">{item.detail}</p></div></>; const className = "flex gap-3 border-b px-5 py-4 last:border-b-0 lg:odd:border-r"; return item.href ? <Link key={`${item.title}-${index}`} href={item.href} className={`${className} transition hover:bg-[var(--surface-soft)]`} style={{ borderColor: "var(--line)" }}>{content}</Link> : <article key={`${item.title}-${index}`} className={className} style={{ borderColor: "var(--line)" }}>{content}</article>; })}</div>
@@ -292,10 +316,10 @@ function DashboardContent() {
     <section className="mt-4 grid gap-4 xl:grid-cols-[1.45fr_.72fr]">
       <article className="panel min-w-0 p-5 md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div><p className="section-label">净值曲线</p><p className="muted mt-1 text-xs">底层每 5 分钟采样 · 当前显示精度 {curve.resolution}</p><p className={`mono-number mt-2 text-sm font-semibold ${curve.change.amount === null ? "muted" : toneClass(pnlTone(curve.change.amount))}`}>净值变化：{curve.change.amount === null ? "—" : formatSignedMoney(curve.change.amount)} ({signedPercent(curve.change.percent)})</p></div>
+          <div><p className="section-label">净值曲线</p><p className="muted mt-1 text-xs">底层每 5 分钟采样 · 当前显示精度 {curvePending ? "加载中" : curve.resolution}</p>{curvePending ? <p className="muted mt-2 text-sm">正在加载所选区间…</p> : <p className={`mono-number mt-2 text-sm font-semibold ${curve.change.amount === null ? "muted" : toneClass(pnlTone(curve.change.amount))}`}>净值变化：{curve.change.amount === null ? "—" : formatSignedMoney(curve.change.amount)} ({signedPercent(curve.change.percent)})</p>}</div>
           <div className="inline-flex max-w-full self-start overflow-x-auto rounded-[10px] border p-1" style={{ borderColor: "var(--line)", background: "var(--surface-soft)" }}>{curveRanges.map((item) => <button key={item.value} type="button" aria-pressed={curveRange === item.value} className={`min-h-10 shrink-0 rounded-[7px] px-3 text-xs font-semibold transition ${curveRange === item.value ? "bg-[var(--accent)] text-white" : "muted hover:bg-[var(--surface)] hover:text-[var(--text)]"}`} onClick={() => setCurveRange(item.value)}>{item.label}</button>)}</div>
         </div>
-        <div className="mt-3"><Chart option={equityOption} height={300} mobileHeight={248} ariaLabel="账户净值曲线" description={equityDescription} /></div>
+        <div className="mt-3">{curvePending ? <div className="flex h-[248px] items-center justify-center rounded-xl bg-[var(--surface-soft)] text-sm text-[var(--muted)] md:h-[300px]">{error ? "所选区间暂不可用，请重试" : "正在读取所选区间的净值数据…"}</div> : <Chart option={equityOption} height={300} mobileHeight={248} ariaLabel="账户净值曲线" description={equityDescription} />}</div>
       </article>
       <TodayBreakdown data={data} formatMoney={formatSignedMoney} />
     </section>
@@ -315,6 +339,24 @@ function DashboardContent() {
       </div>
     </section>
 
+    <div className="mt-4 space-y-3 md:hidden">
+      <details className="panel group overflow-hidden">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 py-3 [&::-webkit-details-marker]:hidden"><span className="section-label">资产 / 交易所分布</span><ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary>
+        <div className="space-y-3 border-t px-4 py-4" style={{ borderColor: "var(--line)" }}>
+          {data.by_exchange.map((item) => {
+            const percent = data.estimated_total_equity > 0 ? item.equity / data.estimated_total_equity * 100 : 0;
+            return <div key={`${item.exchange}-${item.connection_name}`} className="min-w-0"><div className="flex min-w-0 justify-between gap-2 text-xs"><span className="truncate">{exchangeDisplayName(item.exchange)}</span><span className="mono-number shrink-0">{number(percent, 1)}%</span></div><p className="mono-number muted mt-1 text-xs">{formatMoney(item.equity)}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-soft)]" role="meter" aria-label={`${exchangeDisplayName(item.exchange)} 权益占比`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, Math.max(0, percent))}%` }} /></div></div>;
+          })}
+        </div>
+      </details>
+      <details className="panel group overflow-hidden">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden"><span className="min-w-0"><span className="section-label">账户数据健康</span>{data.unvalued_asset_count > 0 && <span className="ml-2 text-xs font-semibold text-warning">{data.unvalued_asset_count} 项未估值</span>}</span><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" /></summary>
+        <div className="space-y-3 border-t px-4 py-4" style={{ borderColor: "var(--line)" }}>
+          {data.by_exchange.map((item) => <div key={`${item.exchange}-${item.connection_name}`} className="flex min-w-0 items-center justify-between gap-2 text-xs"><span className="min-w-0"><span className="block truncate">{connectionDisplayName(item.connection_name, item.exchange)}</span><span className="mono-number muted mt-1 block">{formatMoney(item.equity)}</span></span><Badge tone={item.status === "CONNECTED" ? "positive" : "warning"}>{item.completeness === "COMPLETE" ? "完整" : "部分"}</Badge></div>)}
+          {data.unvalued_asset_count > 0 && <div className="rounded-xl bg-[var(--warning-soft)] p-3 text-xs text-warning"><p className="font-semibold">{data.unvalued_asset_count} 项资产暂时无法估值，未按 0 计入</p>{(data.unvalued_assets ?? []).map((asset) => <p key={`${asset.exchange}-${asset.connection_name}-${asset.account_type}-${asset.asset}`} className="mt-2 break-words">{asset.asset} · {asset.exchange} / {asset.connection_name} · {asset.account_type} · 数量 {number(asset.quantity, 8)} · 估值源 {asset.price_source || "不可用"}</p>)}{(data.unvalued_assets ?? []).length === 0 && <p className="mt-2">当前同步批次未返回可定位的逐资产明细。</p>}</div>}
+        </div>
+      </details>
+    </div>
     <section className="mt-4 hidden gap-4 md:grid xl:grid-cols-[.8fr_1.2fr]">
       <article className="panel min-w-0 p-5 md:p-6">
         <p className="section-label">资产 / 交易所分布</p>

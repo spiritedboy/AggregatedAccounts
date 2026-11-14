@@ -886,7 +886,7 @@ async def current_positions(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
         await db.scalars(
-            query.order_by(desc(CurrentPosition.position_value_usd))
+            query.order_by(desc(CurrentPosition.position_value_usd), CurrentPosition.id)
             .offset((page - 1) * page_size)
             .limit(page_size)
         )

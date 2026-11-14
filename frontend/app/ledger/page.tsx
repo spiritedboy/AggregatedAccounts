@@ -10,10 +10,10 @@ import {
   ReceiptText,
   ShieldCheck,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
-import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { AutoRefreshStatus, RefreshErrorNotice, useAutoRefresh } from "@/components/auto-refresh-status";
 import { ProtectedPage } from "@/components/protected-page";
 import { SortButton, type SortDirection } from "@/components/sort-button";
 import { readPageFilters, useUrlFilterSync } from "@/components/use-url-filter-sync";
@@ -64,9 +64,10 @@ export default function LedgerPage() {
 }
 
 function LedgerContent() {
-  const [records, setRecords] = useState<AccountingRecordsData | null>(null);
-  const [completeness, setCompleteness] =
+  const [fetchedRecords, setRecords] = useState<AccountingRecordsData | null>(null);
+  const [fetchedCompleteness, setCompleteness] =
     useState<DataCompletenessData | null>(null);
+  const [loadedQueryKey, setLoadedQueryKey] = useState("");
   const [error, setError] = useState("");
   const [exchange, setExchange] = useState("");
   const [recordType, setRecordType] = useState("");
@@ -77,6 +78,7 @@ function LedgerContent() {
     useState<SortDirection>("none");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [urlReady, setUrlReady] = useState(false);
+  const latestRequest = useRef(0);
   const { formatSignedMoney } = useCurrency();
 
   const params = useCallback(() => {
@@ -87,21 +89,27 @@ function LedgerContent() {
     if (end) query.set("end_time", beijingDayEnd(end));
     return query;
   }, [end, exchange, page, recordType, start]);
+  const queryKey = params().toString();
+  const records = loadedQueryKey === queryKey ? fetchedRecords : null;
+  const completeness = loadedQueryKey === queryKey ? fetchedCompleteness : null;
 
   const load = useCallback(() => {
+    const requestId = ++latestRequest.current;
     setError("");
     return apiFetch<AccountingBootstrapData>(
-      `/api/accounting/bootstrap?${params()}`,
+      `/api/accounting/bootstrap?${queryKey}`,
     )
       .then((nextData) => {
+        if (requestId !== latestRequest.current) return;
         setRecords(nextData.records);
         setCompleteness(nextData.completeness);
+        setLoadedQueryKey(queryKey);
         setLastLoadedAt(new Date().toISOString());
       })
-      .catch((reason) =>
-        setError(reason instanceof Error ? reason.message : "账务数据加载失败"),
-      );
-  }, [params]);
+      .catch((reason) => {
+        if (requestId === latestRequest.current) setError(reason instanceof Error ? reason.message : "账务数据加载失败");
+      });
+  }, [queryKey]);
 
   useEffect(() => {
     const query = readPageFilters("/ledger");
@@ -308,7 +316,8 @@ function LedgerContent() {
         </div>
       )}
 
-      {error ? (
+      {error && records && <RefreshErrorNotice message={error} lastFetchedAt={lastLoadedAt} retry={() => void load()} />}
+      {error && !records ? (
         <ErrorState message={error} retry={load} />
       ) : !records ? (
         <LoadingState rows={7} />

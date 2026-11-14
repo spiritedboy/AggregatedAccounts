@@ -4,7 +4,7 @@ import { ChevronDown, Download, Filter, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrency } from "@/components/app-shell";
-import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { AutoRefreshStatus, RefreshErrorNotice, useAutoRefresh } from "@/components/auto-refresh-status";
 import { CalculationHint } from "@/components/calculation-hint";
 import { ProtectedPage } from "@/components/protected-page";
 import { PositionLabel } from "@/components/position-label";
@@ -31,7 +31,8 @@ export default function HistoryPage() {
 }
 
 function HistoryContent() {
-  const [result, setResult] = useState<HistoryResult | null>(null);
+  const [fetchedResult, setResult] = useState<HistoryResult | null>(null);
+  const [loadedQueryKey, setLoadedQueryKey] = useState("");
   const [error, setError] = useState("");
   const [exchange, setExchange] = useState("");
   const [accountId, setAccountId] = useState("");
@@ -66,21 +67,24 @@ function HistoryContent() {
     if (end) query.set("end_time", beijingDayEnd(end));
     return query;
   }, [accountId, completeness, end, exchange, maxNetPnl, minNetPnl, page, pageSize, pnlResult, side, start, symbol]);
+  const queryKey = params().toString();
+  const result = loadedQueryKey === queryKey ? fetchedResult : null;
 
   const load = useCallback(() => {
     const requestId = ++latestRequest.current;
     setError("");
-    return apiFetch<HistoryBootstrapResult>(`/api/positions/history/bootstrap?${params()}`)
+    return apiFetch<HistoryBootstrapResult>(`/api/positions/history/bootstrap?${queryKey}`)
       .then((payload) => {
         if (requestId !== latestRequest.current) return;
         setResult(payload.history);
+        setLoadedQueryKey(queryKey);
         setAccounts(payload.accounts);
         setLastLoadedAt(new Date().toISOString());
       })
       .catch((reason) => {
         if (requestId === latestRequest.current) setError(reason.message);
       });
-  }, [params]);
+  }, [queryKey]);
 
   useEffect(() => {
     const query = readPageFilters("/history");
@@ -271,11 +275,11 @@ function HistoryContent() {
         </>}
       />
 
-      {result && (
+      {fetchedResult && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="muted text-xs">
-              共 <span className="mono-number font-semibold text-[var(--text)]">{result.total}</span> 条历史记录
+              {result ? <>共 <span className="mono-number font-semibold text-[var(--text)]">{result.total}</span> 条历史记录</> : "正在加载当前筛选结果…"}
             </p>
             {activeFilterCount > 0 ? <span className="mono-number text-[10px] text-[var(--accent)]">{activeFilterCount} FILTERS</span> : null}
           </div>
@@ -295,7 +299,8 @@ function HistoryContent() {
         </div>
       )}
 
-      {error ? (
+      {error && result && <RefreshErrorNotice message={error} lastFetchedAt={lastLoadedAt} retry={() => void load()} />}
+      {error && !result ? (
         <ErrorState message={error} retry={load} />
       ) : !result ? (
         <LoadingState rows={7} />

@@ -13,10 +13,10 @@ import {
   ReceiptText,
   TrendingUp,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useCurrency } from "@/components/app-shell";
-import { AutoRefreshStatus, useAutoRefresh } from "@/components/auto-refresh-status";
+import { AutoRefreshStatus, RefreshErrorNotice, useAutoRefresh } from "@/components/auto-refresh-status";
 import { Chart } from "@/components/chart";
 import { ExpandableText } from "@/components/expandable-text";
 import { ProtectedPage } from "@/components/protected-page";
@@ -117,6 +117,8 @@ export default function PnlPage() {
 function PnlContent() {
   const [data, setData] = useState<PnlBootstrapData | null>(null);
   const [behaviorPeriod, setBehaviorPeriod] = useState<BehaviorPeriod>("30d");
+  const [loadedPeriod, setLoadedPeriod] = useState<BehaviorPeriod | null>(null);
+  const latestRequest = useRef(0);
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(true);
@@ -129,13 +131,18 @@ function PnlContent() {
   );
 
   const load = useCallback(() => {
+    const requestId = ++latestRequest.current;
     setError("");
     return apiFetch<PnlBootstrapData>(`/api/pnl/bootstrap?behavior_period=${behaviorPeriod}`)
       .then((nextData) => {
+        if (requestId !== latestRequest.current) return;
         setData(nextData);
+        setLoadedPeriod(behaviorPeriod);
         setLastLoadedAt(new Date().toISOString());
       })
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: Error) => {
+        if (requestId === latestRequest.current) setError(reason.message);
+      });
   }, [behaviorPeriod]);
 
   useEffect(() => {
@@ -167,11 +174,14 @@ function PnlContent() {
     setFocusKey(insight.target_key);
   };
 
-  if (error) return <ErrorState message={error} retry={load} />;
-  if (!data) return <LoadingState rows={7} />;
+  if (!data || loadedPeriod !== behaviorPeriod) {
+    if (error) return <ErrorState message={error} retry={load} />;
+    return <LoadingState rows={7} />;
+  }
 
   return (
     <>
+      {error && <RefreshErrorNotice message={error} lastFetchedAt={lastLoadedAt} retry={() => void load()} />}
       <PageHeader
         eyebrow="交易行为"
         title="收益分析"
@@ -531,13 +541,13 @@ function TimeAnalysis({ behavior, focusKey, formatMoney }: AnalysisProps) {
   return (
     <div className="mt-4 space-y-4">
       <AnalysisSection title="持仓时间" description="持仓时长 = 平仓时间 - 开仓时间；异常时间记录不进入本项统计。">
-        <MetricGrid rows={behavior.duration} prefix="duration" focusKey={focusKey} formatMoney={formatMoney} detailed />
+        <MetricGrid rows={behavior.duration} prefix="duration" focusKey={focusKey} formatMoney={formatMoney} detailed adaptive />
       </AnalysisSection>
       <AnalysisSection title="开仓时间段" description="固定按北京时间统计，不受浏览器或设备时区影响。">
-        <MetricGrid rows={behavior.open_session} prefix="session" focusKey={focusKey} formatMoney={formatMoney} />
+        <MetricGrid rows={behavior.open_session} prefix="session" focusKey={focusKey} formatMoney={formatMoney} adaptive />
       </AnalysisSection>
       <AnalysisSection title="星期表现" description="按开仓日归类，收益仍取每笔平仓记录的净收益。">
-        <MetricGrid rows={behavior.weekday} prefix="weekday" focusKey={focusKey} formatMoney={formatMoney} />
+        <MetricGrid rows={behavior.weekday} prefix="weekday" focusKey={focusKey} formatMoney={formatMoney} adaptive />
       </AnalysisSection>
       {behavior.data_quality.invalid_duration_count ? (
         <DataNote>{behavior.data_quality.invalid_duration_count} 笔记录因开平仓时间缺失或倒置，未纳入持仓时间分析。</DataNote>
