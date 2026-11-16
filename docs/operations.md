@@ -84,6 +84,9 @@ sudo cat /etc/cron.d/aggregated-accounts-health-check
 这是历史仓位 `net_pnl` 汇总，不包括未平仓收益或充值提现，也不等于账户当日权益变化。
 若数据分页不一致或有缺失金额，脚本失败且不推送不完整的数字。若源数据同步延迟，
 次日 01:00 之后才入库的平仓不在已发日报内，可指定日期手动重发。
+飞书明确返回非成功状态时会短暂重试，并记录已脱敏的错误码/消息；网络超时不立即重发，
+以免飞书已收到消息却产生重复卡片。成功发送会在宿主机
+`/var/lib/aggregated-accounts/daily-pnl/YYYY-MM-DD.sent` 留下标记。
 
 在生产机不受 Git 管理的 `.env` 中设置**另一个**飞书机器人 Webhook，不得与健康巡检相同：
 
@@ -102,6 +105,9 @@ sudo ./scripts/install-daily-pnl-cron.sh
 sudo cat /etc/cron.d/aggregated-accounts-daily-pnl
 ```
 
-cron 每小时整点检查一次北京时间，仅 01:00 执行报告，因此宿主机即便是 UTC 时区也能
-准确运行；日志为 `/var/log/aggregated-accounts-daily-pnl.log`，只保留 7 天。手动补发用
-`./scripts/daily-pnl-report.sh --date YYYY-MM-DD`，注意会向飞书再次发送消息。
+cron 每小时整点检查北京时间：01:00 首次发送，若失败则当天后续整点继续补发，成功标记
+阻止重复推送。宿主机即便是 UTC 时区也能准确运行。日志为
+`/var/log/aggregated-accounts-daily-pnl.log`，只保留 7 天。手动补发用
+`./scripts/daily-pnl-report.sh --date YYYY-MM-DD`，该命令会再次发送消息并更新成功标记。
+如果已通过其他方式确认人工发送成功，可用
+`./scripts/daily-pnl-report.sh --date YYYY-MM-DD --mark-sent` 只补记标记、不再次发送。

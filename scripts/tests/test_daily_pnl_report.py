@@ -1,10 +1,16 @@
 """Checks for the host-level closed-position PnL reporter."""
 
 import importlib.util
+import io
+import json
+import os
+import sys
+import tempfile
 import unittest
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 
@@ -99,6 +105,36 @@ class DailyPnlReportTests(unittest.TestCase):
         self.assertEqual(payload["card"]["header"]["template"], "green")
         self.assertIn("🟢", payload["card"]["body"]["elements"][0]["content"])
         self.assertNotIn("⚠️", str(payload))
+
+    def test_feishu_rejection_reports_safe_code_and_retries(self):
+        response = io.BytesIO(json.dumps({"code": 19021, "msg": "temporary error at https://example.test/private-token"}).encode())
+        with patch.object(report, "urlopen", return_value=response):
+            with self.assertRaisesRegex(ValueError, "code=19021") as caught:
+                report.send_card("https://example.test/webhook", {"msg_type": "interactive"})
+        self.assertNotIn("private-token", str(caught.exception))
+
+        send = Mock(side_effect=[ValueError("temporary"), ValueError("temporary"), None])
+        sleep = Mock()
+        report.send_with_retry("webhook", {}, send=send, sleep=sleep)
+        self.assertEqual(send.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [3, 10])
+
+    def test_success_marker_skips_scheduled_retry_but_explicit_date_resends(self):
+        day = date(2026, 11, 15)
+        with tempfile.TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            report.mark_sent(day, state_dir)
+            self.assertTrue(report.sent_marker(day, state_dir).exists())
+            with patch.dict(os.environ, {"DAILY_PNL_STATE_DIR": directory, "FEISHU_DAILY_PNL_WEBHOOK_URL": "https://example.test/pnl", "FEISHU_HEALTH_WEBHOOK_URL": "https://example.test/health"}), \
+                 patch.object(report, "report_date", return_value=day), \
+                 patch.object(report, "load_positions", return_value=[]), \
+                 patch.object(report, "send_with_retry") as send, \
+                 patch.object(sys, "argv", ["daily-pnl-report.py"]):
+                self.assertEqual(report.main(), 0)
+                send.assert_not_called()
+                with patch.object(sys, "argv", ["daily-pnl-report.py", "--date", day.isoformat()]):
+                    self.assertEqual(report.main(), 0)
+                send.assert_called_once()
 
 
 if __name__ == "__main__":

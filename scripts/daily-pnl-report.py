@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
+import time as time_module
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -18,6 +21,8 @@ from zoneinfo import ZoneInfo
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 PAGE_SIZE = 50
+RETRY_DELAYS = (3, 10)
+DEFAULT_STATE_DIR = Path("/var/lib/aggregated-accounts/daily-pnl")
 
 
 def report_date(now: datetime | None = None) -> date:
@@ -172,16 +177,63 @@ def send_card(webhook: str, payload: dict) -> None:
                       headers={"Content-Type": "application/json; charset=utf-8"}, method="POST")
     with urlopen(request, timeout=20) as response:
         result = json.load(response)
-    if result.get("code", result.get("StatusCode")) != 0:
-        raise ValueError("飞书返回非成功状态")
+    if not isinstance(result, dict):
+        raise ValueError("飞书返回格式异常")
+    code = result.get("code", result.get("StatusCode"))
+    if code != 0:
+        message = str(result.get("msg", result.get("StatusMessage", "")))
+        message = re.sub(r"https?://\S+", "[URL]", message)
+        message = re.sub(r"[A-Za-z0-9_-]{28,}", "[redacted]", message)[:160]
+        safe_code = code if isinstance(code, int) else "unknown"
+        raise ValueError(f"飞书返回非成功状态 code={safe_code} msg={message!r}")
+
+
+def send_with_retry(webhook: str, payload: dict, send=send_card, sleep=time_module.sleep) -> None:
+    """Retry only explicit Feishu rejections; network timeouts may have delivered."""
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        try:
+            send(webhook, payload)
+            return
+        except ValueError as exc:
+            if attempt == len(RETRY_DELAYS):
+                raise
+            delay = RETRY_DELAYS[attempt]
+            print(f"飞书发送未成功（第 {attempt + 1} 次）：{exc}；{delay} 秒后重试", file=sys.stderr)
+            sleep(delay)
+
+
+def sent_marker(day: date, state_dir: Path) -> Path:
+    return state_dir / f"{day.isoformat()}.sent"
+
+
+def mark_sent(day: date, state_dir: Path) -> None:
+    state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    marker = sent_marker(day, state_dir)
+    temporary = state_dir / f".{marker.name}.{os.getpid()}.tmp"
+    try:
+        temporary.write_text(datetime.now(BEIJING).isoformat() + "\n", encoding="utf-8")
+        os.replace(temporary, marker)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date", type=date.fromisoformat, help="指定北京时间日期；默认昨天")
     parser.add_argument("--no-send", action="store_true", help="仅预览汇总，不推送")
+    parser.add_argument("--mark-sent", action="store_true", help="仅在已确认人工发送成功后记录成功标记；必须指定 --date")
     args = parser.parse_args()
+    if args.mark_sent and (not args.date or args.no_send):
+        parser.error("--mark-sent 必须与 --date 一起使用，且不能与 --no-send 同用")
     day = args.date or report_date()
+    state_dir = Path(os.getenv("DAILY_PNL_STATE_DIR", str(DEFAULT_STATE_DIR)))
+    if args.mark_sent:
+        mark_sent(day, state_dir)
+        print(f"{day.isoformat()} 日报已确认发送，成功标记已记录")
+        return 0
+    if not args.no_send and not args.date and sent_marker(day, state_dir).exists():
+        print(f"{day.isoformat()} 日报已发送，跳过重复推送")
+        return 0
     api_base = os.getenv("DAILY_PNL_API_BASE_URL", "http://127.0.0.1:8000")
     public_url = os.getenv("DAILY_PNL_PUBLIC_URL", "https://www.bitboy.cn")
     webhook = os.getenv("FEISHU_DAILY_PNL_WEBHOOK_URL", "")
@@ -192,9 +244,11 @@ def main() -> int:
             raise ValueError("收益日报不能复用健康巡检 Webhook")
     rows = load_positions(day, api_base)
     summary = summarize(rows)
-    print(f"{day.isoformat()} 北京时间 | 平仓 {summary['count']} 笔 | 净收益 {money(summary['net'])} USDT")
+    print(f"{day.isoformat()} 北京时间 | 平仓 {summary['count']} 笔 | 净收益 {money(summary['net'])} USDT", flush=True)
     if not args.no_send:
-        send_card(webhook, card(day, summary, public_url))
+        state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        send_with_retry(webhook, card(day, summary, public_url))
+        mark_sent(day, state_dir)
         print("飞书收益日报发送成功")
     return 0
 
@@ -202,6 +256,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (HTTPError, URLError, ValueError, KeyError) as exc:
+    except (HTTPError, URLError, ValueError, KeyError, OSError) as exc:
         print(f"每日收益汇总失败：{exc}", file=sys.stderr)
         sys.exit(2)

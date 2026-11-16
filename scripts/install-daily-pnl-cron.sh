@@ -29,12 +29,12 @@ temporary_cron="$(mktemp /tmp/aggregated-accounts-daily-pnl-cron.XXXXXX)"
 temporary_logrotate="$(mktemp /tmp/aggregated-accounts-daily-pnl-logrotate.XXXXXX)"
 trap 'rm -f "$temporary_cron" "$temporary_logrotate"' EXIT
 
-# Ubuntu cron uses host time for scheduling. Check Beijing time in the command
-# so the report runs at 01:00 even when the host is configured for UTC.
+# Check Beijing time on each host-time hour. The success marker prevents duplicate
+# sends, while later hours retry a report rejected at 01:00.
 printf '%s\n' \
   'SHELL=/bin/bash' \
   'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
-  "0 * * * * root [ \$(TZ=Asia/Shanghai date +\\%H) = 01 ] && cd $project_dir && ENV_FILE=$env_file ./scripts/daily-pnl-report.sh >> /var/log/aggregated-accounts-daily-pnl.log 2>&1" \
+  "0 * * * * root [ \$(TZ=Asia/Shanghai date +\\%H) != 00 ] && cd $project_dir && ENV_FILE=$env_file ./scripts/daily-pnl-report.sh >> /var/log/aggregated-accounts-daily-pnl.log 2>&1" \
   > "$temporary_cron"
 install -m 0644 "$temporary_cron" "$cron_file"
 
@@ -54,4 +54,4 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl enable --now cron
 fi
 
-echo "Installed Beijing-time 01:00 daily PnL schedule: $cron_file"
+echo "Installed Beijing-time 01:00 daily PnL schedule with hourly recovery: $cron_file"
