@@ -10,10 +10,13 @@
 - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/account-endpoints>
 - <https://developers.binance.com/docs/wallet/account/api-key-permission>
 - <https://developers.binance.com/docs/derivatives/usds-margined-futures/account/rest-api-v3>
+- <https://developers.binance.com/docs/wallet/asset/query-user-wallet-balance>
 
 使用：
 
 - `GET /api/v3/account`：现货余额
+- `GET /sapi/v1/asset/wallet/balance`：使用 `quoteAsset=USDT` 与
+  `needBalanceDetail=true` 读取独立交易机器人账户权益与逐币种余额
 - `GET /sapi/v1/account/apiRestrictions`：API Key 权限
 - `GET /fapi/v3/account`：USD-M 账户权益
 - `GET /fapi/v3/positionRisk`：当前仓位
@@ -21,6 +24,14 @@
 - `GET /fapi/v1/income`：统计起点后的已实现收益、资金费、手续费和合约账户资金流
 
 签名为查询字符串的 HMAC-SHA256，使用 `X-MBX-APIKEY` 请求头。
+
+总权益包含现货、普通 USD-M 合约和独立 Trading Bots 钱包。钱包总览中仅补入
+Trading Bots，不重复累加现货或普通合约余额；机器人按实时权益计价，而非固定投入本金。
+明细的 `btcValuation` 虽保留该字段名，实际遵循 `quoteAsset=USDT`，因此直接作为美元估值。
+机器人资产在余额明细中标记为 `TRADING_BOTS`，策略占用资金不计入普通账户可用余额。
+机器人余额接口失败、非零余额缺少明细或明细估值不完整时，本轮余额同步失败并保留上次
+已保存数据，避免把未知余额当作零。机器人仓位和成交历史暂不并入普通合约仓位及交易统计；
+Funding、Earn、COIN-M、Margin、Options 和 Copy Trading 钱包也尚未计入此汇总。
 
 `userTrades` 的一张订单可能返回多个成交分片。平台先按合约、持仓方向、买卖方向和
 `orderId` 合并分片，成交价按数量加权，已实现收益与手续费求和，再重建仓位周期。

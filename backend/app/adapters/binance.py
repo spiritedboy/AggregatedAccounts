@@ -17,6 +17,7 @@ class BinanceAdapter(ExchangeAdapter):
     https://developers.binance.com/docs/binance-spot-api-docs/rest-api/account-endpoints
     https://developers.binance.com/docs/wallet/account/api-key-permission
     https://developers.binance.com/docs/derivatives/usds-margined-futures/account/rest-api-v3
+    https://developers.binance.com/docs/wallet/asset/query-user-wallet-balance
     """
 
     spot_base = "https://api.binance.com"
@@ -94,6 +95,11 @@ class BinanceAdapter(ExchangeAdapter):
             if row["account_type"] == "SPOT" and row["value_usd"] is not None
         ]
         spot_equity = sum(float(row["value_usd"]) for row in valued)
+        bot_equity = sum(
+            float(row["value_usd"])
+            for row in balances
+            if row["account_type"] == "TRADING_BOTS"
+        )
         spot_available = sum(
             float(row["available"]) * float(row.get("price_usd") or 0)
             for row in valued
@@ -101,7 +107,8 @@ class BinanceAdapter(ExchangeAdapter):
         return {
             "total_equity_usd": float(futures.get("totalWalletBalance", 0))
             + float(futures.get("totalUnrealizedProfit", 0))
-            + spot_equity,
+            + spot_equity
+            + bot_equity,
             "available_balance_usd": float(futures.get("availableBalance", 0))
             + spot_available,
             "margin_balance_usd": float(futures.get("totalInitialMargin", 0)),
@@ -109,7 +116,9 @@ class BinanceAdapter(ExchangeAdapter):
             "unvalued_asset_count": sum(
                 row["value_usd"] is None for row in balances
             ),
-            "price_source": "BINANCE_FAPI_AND_SPOT_TICKER",
+            "price_source": "BINANCE_FAPI_SPOT_AND_BOT_WALLET",
+            # Bots funded from an already tracked wallet must not increase the
+            # historical initial equity when applying the old spot migration.
             "legacy_excluded_equity_usd": spot_equity,
             "legacy_excluded_available_usd": spot_available,
             "legacy_excluded_margin_usd": 0,
@@ -119,12 +128,17 @@ class BinanceAdapter(ExchangeAdapter):
     async def get_balances(self) -> list[dict[str, Any]]:
         if hasattr(self, "_latest_balances"):
             return self._latest_balances
-        spot, tickers, futures = await asyncio.gather(
+        spot, tickers, futures, wallets = await asyncio.gather(
             self._signed_get(
                 self.spot_base, "/api/v3/account", {"omitZeroBalances": "true"}
             ),
             self._request("GET", f"{self.spot_base}/api/v3/ticker/price"),
             self._signed_get(self.futures_base, "/fapi/v3/account"),
+            self._signed_get(
+                self.spot_base,
+                "/sapi/v1/asset/wallet/balance",
+                {"quoteAsset": "USDT", "needBalanceDetail": "true"},
+            ),
         )
         prices = {
             str(item.get("symbol")): float(item.get("price") or 0)
@@ -180,7 +194,56 @@ class BinanceAdapter(ExchangeAdapter):
                     ),
                 }
             )
+        balances.extend(self._bot_balances(wallets))
         self._latest_balances = balances
+        return balances
+
+    @staticmethod
+    def _bot_balances(wallets: Any) -> list[dict[str, Any]]:
+        if not isinstance(wallets, list):
+            raise AdapterError("币安钱包余额响应格式异常")
+        balances: list[dict[str, Any]] = []
+        for wallet in wallets:
+            # Spot and USD-M are already read from their dedicated endpoints.
+            # Trading Bots is a separate wallet, including futures grid equity.
+            if wallet.get("walletName") != "Trading Bots":
+                continue
+            details = wallet.get("assetBalances")
+            equity = float(wallet.get("balance") or 0)
+            if not isinstance(details, list) or (equity and not details):
+                if not equity:
+                    continue
+                raise AdapterError("币安机器人账户缺少资产明细，保留上次余额")
+            valued_equity = 0.0
+            for item in details:
+                asset = str(item.get("asset") or "").upper()
+                if not asset or item.get("btcValuation") is None:
+                    raise AdapterError("币安机器人账户资产估值缺失，保留上次余额")
+                # Despite the field name, btcValuation follows quoteAsset:
+                # with quoteAsset=USDT the value is already denominated in USDT.
+                value = float(item["btcValuation"])
+                quantity = sum(
+                    float(item.get(field) or 0)
+                    for field in ("free", "locked", "freeze", "withdrawing")
+                )
+                valued_equity += value
+                if not quantity and not value:
+                    continue
+                balances.append(
+                    {
+                        "asset": asset,
+                        "account_type": "TRADING_BOTS",
+                        # API 'free' is inside the strategy wallet, not cash
+                        # available for ordinary spot or futures trading.
+                        "available": 0.0,
+                        "locked": quantity,
+                        "value_usd": value,
+                        "price_usd": value / quantity if quantity else None,
+                        "price_source": "BINANCE_BOT_WALLET_USDT_VALUATION",
+                    }
+                )
+            if abs(valued_equity - equity) > max(0.01, abs(equity) * 1e-6):
+                raise AdapterError("币安机器人账户资产明细与权益不符，保留上次余额")
         return balances
 
     async def get_open_positions(self) -> list[dict[str, Any]]:

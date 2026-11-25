@@ -20,6 +20,8 @@ async def test_binance_summary_and_asset_details_include_spot(monkeypatch):
     adapter = BinanceAdapter(api_key="key", api_secret="secret")
 
     async def fake_signed_get(_base, path, _params=None):
+        if path == "/sapi/v1/asset/wallet/balance":
+            return []
         if path == "/fapi/v3/account":
             return {
                 "totalWalletBalance": "100",
