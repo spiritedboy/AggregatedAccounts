@@ -22,6 +22,10 @@ type HistoryBootstrapResult = {
   accounts: ExchangeAccount[];
 };
 
+function isPnlBound(value: string) {
+  return /^-?(?:\d+\.?\d*|\.\d+)$/.test(value) && Number.isFinite(Number(value));
+}
+
 export default function HistoryPage() {
   return (
     <ProtectedPage>
@@ -59,8 +63,8 @@ function HistoryContent() {
     if (accountId) query.set("account_id", accountId);
     if (side) query.set("side", side);
     if (pnlResult) query.set("pnl_result", pnlResult);
-    if (minNetPnl !== "") query.set("min_net_pnl", minNetPnl);
-    if (maxNetPnl !== "") query.set("max_net_pnl", maxNetPnl);
+    if (isPnlBound(minNetPnl)) query.set("min_net_pnl", minNetPnl);
+    if (isPnlBound(maxNetPnl)) query.set("max_net_pnl", maxNetPnl);
     if (completeness) query.set("completeness", completeness);
     if (symbol) query.set("symbol", symbol);
     if (start) query.set("start_time", beijingDayStart(start));
@@ -120,8 +124,8 @@ function HistoryContent() {
     account: accountId,
     side,
     result: pnlResult,
-    min_net_pnl: minNetPnl,
-    max_net_pnl: maxNetPnl,
+    min_net_pnl: isPnlBound(minNetPnl) ? minNetPnl : "",
+    max_net_pnl: isPnlBound(maxNetPnl) ? maxNetPnl : "",
     completeness,
     symbol,
     start,
@@ -169,6 +173,12 @@ function HistoryContent() {
     setStart("");
     setEnd("");
     setNetPnlSort("none");
+  }
+
+  function updatePnlBound(value: string, setValue: (value: string) => void) {
+    if (!/^-?\d*\.?\d*$/.test(value)) return;
+    setPage(1);
+    setValue(value);
   }
 
   function exportCsv() {
@@ -239,11 +249,10 @@ function HistoryContent() {
           <span className="sr-only">最低净收益（USD，严格大于）</span>
           <input
             className="input mono-number w-full min-w-0"
-            type="number"
-            step="any"
-            inputMode="decimal"
+            type="text"
+            inputMode="text"
             value={minNetPnl}
-            onChange={(event) => { setPage(1); setMinNetPnl(event.target.value); }}
+            onChange={(event) => updatePnlBound(event.target.value, setMinNetPnl)}
             placeholder="净收益 > 最小值（USD）"
           />
         </label>
@@ -251,11 +260,10 @@ function HistoryContent() {
           <span className="sr-only">最高净收益（USD，严格小于）</span>
           <input
             className="input mono-number w-full min-w-0"
-            type="number"
-            step="any"
-            inputMode="decimal"
+            type="text"
+            inputMode="text"
             value={maxNetPnl}
-            onChange={(event) => { setPage(1); setMaxNetPnl(event.target.value); }}
+            onChange={(event) => updatePnlBound(event.target.value, setMaxNetPnl)}
             placeholder="净收益 < 最大值（USD）"
           />
         </label>

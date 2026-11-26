@@ -997,9 +997,17 @@ describe("portfolio pages", () => {
 
     const minimum = screen.getByLabelText("最低净收益（USD，严格大于）");
     const maximum = screen.getByLabelText("最高净收益（USD，严格小于）");
-    await user.type(minimum, "-9");
+    await user.type(minimum, "-");
+    expect(minimum).toHaveValue("-");
+    expect(window.location.search).not.toContain("min_net_pnl");
+    expect(vi.mocked(fetch).mock.calls.every(([input]) => {
+      const query = new URL(String(input), "http://localhost").searchParams;
+      return query.get("min_net_pnl") !== "-";
+    })).toBe(true);
+    await user.type(minimum, "9.5");
     await waitFor(() => {
-      expect(window.location.search).toContain("min_net_pnl=-9");
+      expect(minimum).toHaveValue("-9.5");
+      expect(window.location.search).toContain("min_net_pnl=-9.5");
       expect(within(screen.getByRole("region", { name: "当前页盈亏汇总" })).getByText(/8\.00/)).toHaveClass("text-negative");
     });
     await user.type(maximum, "-8");
